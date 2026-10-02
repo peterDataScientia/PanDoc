@@ -90,6 +90,41 @@ class ChemistryTests(unittest.TestCase):
             mol=RDKitMolCreate.from_pdbqt_mol(PDBQTMolecule.from_file(str(path),skip_typing=True))[0]
             self.assertLess(core.reference_rmsd(ref,mol),0.002)
 
+    def test_mismatch_explains_difference(self):
+        from rdkit import Chem
+        ref=Chem.MolToPDBBlock(Chem.RemoveHs(core.molecule(smiles='CCO')))
+        report=core.ligand_comparison(ref,'CC')
+        self.assertFalse(report['valid'])
+        self.assertEqual(report['pdb_heavy_atoms'],3)
+        self.assertEqual(report['smiles_heavy_atoms'],2)
+        self.assertIn('fewer',report['message'])
+        self.assertTrue(core.ligand_comparison(ref,'CCO')['valid'])
+        self.assertFalse(core.ligand_comparison(ref,'CCO.[Na+]')['valid'])
+        self.assertIn('disconnected',core.ligand_comparison(ref,'CCO.[Na+]')['message'])
+
+    def test_ccd_atom_names_only_used_when_matching(self):
+        pdb=record(1,'C1')+'\n'+record(2,'O1')
+        report=core.ccd_atom_name_check(pdb,{'heavy_atom_names':['C1','O1','N1']})
+        self.assertTrue(report['reliable'])
+        self.assertEqual(report['missing'],['N1'])
+        self.assertFalse(core.ccd_atom_name_check(pdb,{'heavy_atom_names':['XX','YY']})['reliable'])
+
+    def test_ccd_lookup_handles_missing_component(self):
+        from unittest.mock import patch,Mock
+        with patch('requests.get',return_value=Mock(status_code=404)):
+            with self.assertRaisesRegex(ValueError,'No CCD definition'):
+                core.fetch_ccd('LIG')
+
+    def test_ccd_lookup_reads_stereochemical_descriptor(self):
+        from unittest.mock import patch,Mock
+        response=Mock(status_code=200)
+        response.json.return_value={'chem_comp':{'name':'ethanol','formula':'C2 H6 O','pdbx_formal_charge':0},'rcsb_chem_comp_descriptor':{'SMILES_stereo':'CCO'}}
+        response.text='data_TEST\nloop_\n_chem_comp_atom.atom_id\n_chem_comp_atom.type_symbol\nC1 C\nC2 C\nO1 O\nH1 H\n'
+        with patch('requests.get',return_value=response):
+            result=core.fetch_ccd('EOH')
+        self.assertEqual(result['smiles'],'CCO')
+        self.assertEqual(result['heavy_atom_names'],['C1','C2','O1'])
+
 
 if __name__=='__main__':
     unittest.main()

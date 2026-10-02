@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 STANDARD = set('ALA ARG ASN ASP CYS GLN GLU GLY HIS ILE LEU LYS MET PHE PRO SER THR TRP TYR VAL HID HIE HIP ASH GLH CYX LYN'.split())
@@ -136,6 +137,89 @@ def reference_from_pdb(pdb, smiles):
     if not mol.GetNumConformers():
         raise ValueError('Reference has no coordinates.')
     return Chem.AddHs(mol, addCoords=True)
+
+
+def ligand_comparison(pdb, smiles):
+    """Explain composition mismatches without guessing missing coordinates."""
+    from collections import Counter
+    from rdkit import Chem
+    aa = atoms(pdb)
+    pdb_counts = Counter(a['element'] for a in aa if a['element'] not in ('H', 'D'))
+    report = dict(residues=sorted({key(a) for a in aa}), pdb_heavy_atoms=sum(pdb_counts.values()), pdb_elements=dict(pdb_counts), valid=False)
+    if not smiles.strip():
+        report['message'] = 'Find ligand chemistry below, or enter the exact ligand SMILES.'
+        return report
+    mol = Chem.MolFromSmiles(smiles.strip())
+    if mol is None:
+        report['message'] = 'The SMILES could not be read. Check the text or retrieve the PDB ligand chemistry.'
+        return report
+    smiles_counts = Counter(a.GetSymbol().upper() for a in mol.GetAtoms() if a.GetAtomicNum() > 1)
+    report.update(smiles_heavy_atoms=sum(smiles_counts.values()), smiles_elements=dict(smiles_counts), fragments=len(Chem.GetMolFrags(mol)))
+    report['valid'] = pdb_counts == smiles_counts and report['fragments'] == 1
+    if report['fragments'] != 1:
+        report['message'] = 'The SMILES contains disconnected components. Use the selected ligand alone; remove separate salt or solvent fragments.'
+    elif pdb_counts != smiles_counts:
+        difference = sum(smiles_counts.values()) - sum(pdb_counts.values())
+        if difference > 0:
+            report['message'] = f'The SMILES has {difference} more heavy atoms than the selected PDB ligand. Check whether the crystal ligand is incomplete or the SMILES describes another molecule.'
+        elif difference < 0:
+            report['message'] = f'The SMILES has {-difference} fewer heavy atoms than the selected PDB ligand. Check the ligand selection and the SMILES chemical identity.'
+        else:
+            report['message'] = 'The total atom counts match, but the chemical elements differ. This SMILES does not match the selected ligand composition.'
+    else:
+        report['message'] = 'Heavy-atom counts and elements match. Review the chemical identity and state; connectivity will be checked during preparation.'
+    return report
+
+
+def fetch_ccd(component):
+    """Retrieve CCD chemistry by component ID; never replace crystal coordinates."""
+    import requests
+    component = component.strip().upper()
+    if not re.fullmatch(r'[A-Z0-9]{1,8}', component):
+        raise ValueError('Select a valid PDB chemical component before searching.')
+    url = f'https://data.rcsb.org/rest/v1/core/chemcomp/{component}'
+    try:
+        response = requests.get(url, timeout=(15, 15))
+        if response.status_code == 404:
+            raise ValueError(f'No CCD definition was found for {component}. For custom residue names such as LIG, enter the known ligand SMILES manually.')
+        response.raise_for_status()
+        data = response.json()
+    except (requests.RequestException, ValueError) as exc:
+        if isinstance(exc, ValueError) and str(exc).startswith('No CCD'):
+            raise
+        raise ValueError('The PDB chemistry service could not be reached. Retry the lookup or enter a verified SMILES manually.') from exc
+    descriptors = data.get('rcsb_chem_comp_descriptor', {})
+    smiles = descriptors.get('SMILES_stereo') or descriptors.get('SMILES')
+    if not smiles:
+        candidates = data.get('pdbx_chem_comp_descriptor', [])
+        smiles = next((d['descriptor'] for d in candidates if d.get('type') == 'SMILES_CANONICAL'), None)
+    if not smiles:
+        raise ValueError(f'No SMILES is available for {component}. Enter the exact ligand SMILES manually.')
+    comp = data.get('chem_comp', {})
+    result = dict(component=component, name=comp.get('name', component), formula=comp.get('formula', ''),
+                  formal_charge=comp.get('pdbx_formal_charge'), smiles=smiles, source=url,
+                  retrieved_at=datetime.now(timezone.utc).isoformat())
+    # Atom names are optional diagnostic data. Their absence does not block lookup.
+    try:
+        import gemmi
+        response = requests.get(f'https://files.rcsb.org/ligands/download/{component}.cif', timeout=(5, 10))
+        response.raise_for_status()
+        block = gemmi.cif.read_string(response.text).sole_block()
+        names = list(block.find_values('_chem_comp_atom.atom_id'))
+        elements = list(block.find_values('_chem_comp_atom.type_symbol'))
+        result['heavy_atom_names'] = [gemmi.cif.as_string(n) for n,e in zip(names,elements) if e.upper() not in ('H', 'D')]
+    except Exception:
+        result['heavy_atom_names'] = []
+    return result
+
+
+def ccd_atom_name_check(pdb, definition):
+    expected = set(definition.get('heavy_atom_names', []))
+    present = {a['name'] for a in atoms(pdb) if a['element'] not in ('H', 'D')}
+    overlap = expected & present
+    if not expected or len(overlap) < 0.8 * min(len(expected), len(present)):
+        return dict(reliable=False, missing=[], extra=[])
+    return dict(reliable=True, missing=sorted(expected-present), extra=sorted(present-expected))
 
 
 def write_ligand(mol, path):

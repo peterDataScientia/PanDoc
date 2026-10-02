@@ -9,7 +9,7 @@ from pandoc import core
 from pandoc.worker import run
 
 
-def test_small_real_docking_workflow(tmp_path):
+def test_small_real_docking_workflow(tmp_path,monkeypatch):
     peptide=Chem.AddHs(Chem.MolFromSequence('AG'))
     assert AllChem.EmbedMolecule(peptide,randomSeed=2026)==0
     AllChem.MMFFOptimizeMolecule(peptide)
@@ -40,6 +40,22 @@ def test_small_real_docking_workflow(tmp_path):
         at.sidebar.radio[0].set_value(stage).run()
         assert not list(at.exception)
         assert not list(at.error),list(at.error)
+    monkeypatch.setattr(core,'fetch_ccd',lambda component:dict(component=component,name='Ethanol',formula='C2 H6 O',formal_charge=0,smiles='CCO',source='test fixture',heavy_atom_names=[]))
+    at.sidebar.radio[0].set_value('2 · Prepare structures').run()
+    next(b for b in at.button if b.label=='Find ligand chemistry from PDB').click().run()
+    assert not list(at.exception)
+    field=next(t for t in at.text_input if t.label=='Reference ligand isomeric SMILES — editable')
+    assert field.value=='CCO'
+    next(c for c in at.checkbox if c.label=='I reviewed the ligand identity, stereochemistry and chemical state.').check().run()
+    next(b for b in at.button if b.label=='Prepare reference ligand').click().run()
+    assert not list(at.error)
+    assert at.session_state['reference_smiles']=='CCO'
+    field=next(t for t in at.text_input if t.label=='Reference ligand isomeric SMILES — editable')
+    field.set_value('CC').run()
+    assert next(b for b in at.button if b.label=='Prepare reference ligand').disabled
+    assert not list(at.exception)
+    next(b for b in at.button if b.label=='Change selected ligand').click().run()
+    assert at.sidebar.radio[0].value=='1 · Load complex'
 
 
 def test_guided_screens_render(tmp_path):

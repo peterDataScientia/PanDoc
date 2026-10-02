@@ -50,9 +50,22 @@ def viewer(pdb=None, sdf=None, reference=None, center=None, size=None):
 
 
 def manifest():
-    data = {k: st.session_state.get(k) for k in ('experiment', 'selection_record', 'preparation_id', 'preparation_record', 'center', 'size', 'reference_smiles')}
+    data = {k: st.session_state.get(k) for k in ('experiment', 'selection_record', 'preparation_id', 'preparation_record', 'center', 'size', 'reference_smiles', 'reference_chemistry_source')}
     data['software'] = core.versions()
     (root/'experiment.json').write_text(json.dumps(data, indent=2))
+
+
+def go_to_selection():
+    st.session_state.workflow_stage = '1 · Load complex'
+
+
+def go_to_validation():
+    st.session_state.workflow_stage = '3 · Validate docking'
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def lookup_chemistry(component):
+    return core.fetch_ccd(component)
 
 
 def settings(prefix):
@@ -85,7 +98,7 @@ with st.sidebar:
     st.title('PanDoc')
     st.caption('Prepare · Validate · Dock')
     st.text_input('Experiment name', 'My docking experiment', key='experiment')
-    stage = st.radio('Workflow', ['1 · Load complex', '2 · Prepare structures', '3 · Validate docking', '4 · Run experiment', '5 · Explore results'])
+    stage = st.radio('Workflow', ['1 · Load complex', '2 · Prepare structures', '3 · Validate docking', '4 · Run experiment', '5 · Explore results'], key='workflow_stage')
     st.divider()
     st.caption('✓ Complex loaded' if st.session_state.get('pdb') else '○ Load a complex')
     st.caption('✓ Receptor prepared' if st.session_state.get('preparation_id') else '○ Prepare receptor')
@@ -106,7 +119,7 @@ try:
             pdb = core.normalize_structure(text, Path(upload.name).suffix)
             source_id = core.digest(pdb)
             if st.session_state.get('source_id') != source_id:
-                for k in ('preparation_id', 'reference_path', 'receptor_path', 'validation_job', 'candidate_paths', 'selected_pdb', 'reference_pdb', 'selection_id', 'selection_record', 'center', 'size', 'preparation_record', 'reference_id', 'reference_smiles'):
+                for k in ('preparation_id', 'reference_path', 'receptor_path', 'validation_job', 'candidate_paths', 'selected_pdb', 'reference_pdb', 'selection_id', 'selection_record', 'center', 'size', 'preparation_record', 'reference_id', 'reference_smiles', 'reference_chemistry_source'):
                     st.session_state.pop(k, None)
                 st.session_state.update(pdb=pdb, source_id=source_id)
                 (root/'source.pdb').write_text(pdb)
@@ -139,7 +152,7 @@ try:
                 selection = dict(chains=selected_chains, retained=retained, reference=ref, alternate=alt, overrides=overrides, reference_excluded_from_receptor=excluded_reference)
                 selection_id = core.digest(receptor, reference, selection)
                 if st.session_state.get('selection_id') != selection_id:
-                    for k in ('preparation_id', 'reference_path', 'receptor_path', 'validation_job'):
+                    for k in ('preparation_id', 'reference_path', 'receptor_path', 'validation_job', 'reference_chemistry_source', 'reference_smiles', 'reference_id'):
                         st.session_state.pop(k, None)
                 st.session_state.update(selected_pdb=receptor, reference_pdb=reference, selection_record=selection, selection_id=selection_id)
                 (root/'selected_receptor.pdb').write_text(receptor)
@@ -201,21 +214,86 @@ try:
                 if not ref:
                     st.info('Select a crystallographic reference ligand in Load complex for redocking validation.')
                 else:
-                    st.write('Provide the exact reference ligand SMILES to assign bond orders while retaining the crystallographic heavy-atom coordinates.')
-                    smiles = st.text_input('Reference ligand isomeric SMILES')
-                    if st.button('Prepare reference ligand', type='primary'):
-                        mol = core.reference_from_pdb(ref, smiles)
-                        ident = core.digest(ref, smiles)
-                        directory = root/'references'/ident
-                        directory.mkdir(parents=True, exist_ok=True)
-                        core.write_ligand(mol, directory/'reference.pdbqt')
-                        st.session_state.update(reference_path=str(directory/'reference.sdf'), reference_pdbqt=str(directory/'reference.pdbqt'), reference_smiles=smiles, reference_id=ident)
-                        manifest()
-                        st.success('Reference prepared with original heavy-atom coordinates.')
+                    from rdkit import Chem
+                    from rdkit.Chem import Draw, rdMolDescriptors
+                    aa=core.atoms(ref)
+                    component=aa[0]['res']
+                    residue=core.key(aa[0])
+                    identity=core.digest(ref)
+                    input_key='reference_input_'+identity
+                    definition_key='ccd_definition_'+identity
+                    st.subheader('Reference ligand: '+residue)
+                    st.write('Find its PDB chemical definition, review the molecule, then prepare it using the original crystal coordinates.')
+                    left,right=st.columns([2,1])
+                    if left.button('Find ligand chemistry from PDB', type='primary'):
+                        try:
+                            with st.spinner('Finding '+component+' in the Chemical Component Dictionary…'):
+                                definition=lookup_chemistry(component)
+                            st.session_state[definition_key]=definition
+                            st.session_state[input_key]=definition['smiles']
+                            st.session_state['reference_review_'+identity]=False
+                            st.success('PDB chemistry loaded. Review the structure and comparison below.')
+                        except ValueError as exc:
+                            st.warning(str(exc))
+                    right.button('Change selected ligand', on_click=go_to_selection)
+                    definition=st.session_state.get(definition_key)
+                    if definition:
+                        st.write('**PDB component name:** '+definition['name'])
+                        st.caption(f"CCD formula: {definition['formula']} · Formal charge: {definition['formal_charge']}")
+                        st.markdown(f"[View {component} in RCSB PDB](https://www.rcsb.org/ligand/{component})")
+                        st.caption('CCD chemistry describes the deposited component. Review its protonation and tautomer state for your experiment.')
+                    smiles=st.text_input('Reference ligand isomeric SMILES — editable',key=input_key)
+                    comparison=core.ligand_comparison(ref,smiles)
+                    if 'smiles_heavy_atoms' in comparison:
+                        elements=sorted(set(comparison['pdb_elements'])|set(comparison['smiles_elements']))
+                        table=[dict(structure='Selected crystal ligand',heavy_atoms=comparison['pdb_heavy_atoms'],**{e:comparison['pdb_elements'].get(e,0) for e in elements}),
+                               dict(structure='Entered SMILES',heavy_atoms=comparison['smiles_heavy_atoms'],**{e:comparison['smiles_elements'].get(e,0) for e in elements})]
+                        st.dataframe(pd.DataFrame(table),hide_index=True,width='stretch')
+                        if comparison['valid']:
+                            st.success(comparison['message'])
+                        else:
+                            st.warning(comparison['message'])
+                            st.write('**Next:** retrieve the PDB chemistry above, edit the SMILES, or change the selected ligand. Hydrogens do not change heavy-atom counts.')
+                        mol2d=Chem.MolFromSmiles(smiles.strip())
+                        st.image(Draw.MolToImage(mol2d,size=(650,300)),caption=f'Entered chemistry · {rdMolDescriptors.CalcMolFormula(mol2d)} · Formal charge {Chem.GetFormalCharge(mol2d)}')
+                    else:
+                        st.info(comparison['message'])
+                    if definition:
+                        atom_check=core.ccd_atom_name_check(ref,definition)
+                        if atom_check['reliable'] and (atom_check['missing'] or atom_check['extra']):
+                            with st.expander('Inspect atom differences',expanded=True):
+                                if atom_check['missing']:
+                                    st.warning('CCD heavy atoms absent from selected crystal ligand: '+', '.join(atom_check['missing']))
+                                    st.write('Use a complete reference ligand structure. Missing crystallographic atoms cannot be restored by adding hydrogens.')
+                                if atom_check['extra']:
+                                    st.warning('Selected atom names absent from CCD definition: '+', '.join(atom_check['extra']))
+                                st.caption('This check compares deposited atom names. Review custom naming before interpreting missing atoms.')
+                    with st.expander('Inspect selected crystal ligand'):
+                        viewer(pdb=ref)
+                    reviewed=st.checkbox('I reviewed the ligand identity, stereochemistry and chemical state.',key='reference_review_'+identity)
+                    if st.button('Prepare reference ligand',disabled=not comparison['valid'] or not reviewed):
+                        try:
+                            mol = core.reference_from_pdb(ref, smiles)
+                            ident = core.digest(ref, smiles.strip())
+                            directory = root/'references'/ident
+                            directory.mkdir(parents=True, exist_ok=True)
+                            core.write_ligand(mol, directory/'reference.pdbqt')
+                            source=definition if definition and definition['smiles']==smiles.strip() else {'source':'Manual SMILES','smiles':smiles.strip()}
+                            st.session_state.update(reference_path=str(directory/'reference.sdf'), reference_pdbqt=str(directory/'reference.pdbqt'), reference_smiles=smiles.strip(), reference_id=ident,reference_chemistry_source=source)
+                            manifest()
+                            st.success('Reference prepared with original heavy-atom coordinates. Continue to Validate docking.')
+                        except (ValueError, RuntimeError) as exc:
+                            st.error('The ligand could not be prepared from this chemical definition. Counts alone do not establish a matching structure.')
+                            st.write('Retrieve the PDB chemistry, verify the selected component, and inspect the crystal ligand for missing atoms or incorrect connectivity.')
+                            with st.expander('Preparation explanation'):
+                                st.text(str(exc))
                     if st.session_state.get('reference_path'):
+                        if smiles.strip()!=st.session_state.get('reference_smiles'):
+                            st.info('The downloaded reference below belongs to previously prepared chemistry. Prepare the edited SMILES before using it for a new validation.')
                         path = Path(st.session_state.reference_path)
                         viewer(sdf=path.read_text())
                         st.download_button('Download reference SDF', path.read_bytes(), 'reference.sdf')
+                        st.button('Continue to Validate docking',on_click=go_to_validation)
 
     elif stage.startswith('3') or stage.startswith('4'):
         validation = stage.startswith('3')

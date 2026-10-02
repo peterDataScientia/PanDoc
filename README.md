@@ -39,7 +39,7 @@ Official guidance: https://docs.streamlit.io/deploy/streamlit-community-cloud/ma
 
 1. Upload PDB/mmCIF. Select protein chains, retained components and reference ligand. Choose alternate conformations per residue.
 2. Prepare the receptor with Meeko. Optionally upload a curated receptor or reconstruct missing heavy atoms using PDBFixer. Record pH context and explicit residue template assignments. No blanket deletion of failed residues and no automatic missing-loop reconstruction.
-3. Provide the exact reference ligand isomeric SMILES. Bond orders are assigned to extracted crystal coordinates. The original reference remains separate. Inspect ligand chemistry before continuing.
+3. Click **Find ligand chemistry from PDB** in the Reference ligand tab to retrieve the selected component's CCD SMILES, name, formula and formal charge. Review the molecular preview and side-by-side atom comparison. Manual SMILES entry remains editable. Mismatches show clear actions and block preparation; deposited atom-name comparisons can identify absent atoms when naming is consistent. Custom residue names may require manual chemistry. After reviewing identity and chemical state, prepare the reference. Bond orders are assigned to extracted crystal coordinates; CCD ideal coordinates never replace the crystal reference. Click **Continue to Validate docking**.
 4. Define a box, redock across seeds and inspect reference RMSD. RMSD uses RDKit CalcRMS, heavy atoms and symmetry handling in the fixed receptor coordinate frame. No independent ligand alignment is performed.
 5. Prepare up to 25 candidate ligands from multi-record SDF or SMILES. Run Vina jobs in a separate process. Inspect poses, scores and export the complete experiment.
 
@@ -57,6 +57,7 @@ Official guidance: https://docs.streamlit.io/deploy/streamlit-community-cloud/ma
 - Current jobs are session-scoped subprocesses, not a distributed queue. Cancellation is cooperative between searches. Server restarts interrupt jobs. Refresh status manually.
 - Set `PANDOC_DATA_DIR` to a writable persistent directory if needed. Experiments are isolated by random IDs, but session reconnection and authentication are not implemented. Download the experiment before ending the session. A public multi-user deployment needs resource limits and a durable queue.
 - 3D visualization loads the 3Dmol JavaScript viewer; the browser needs access to its CDN.
+- PDB chemistry lookup uses the RCSB Data API and optionally the CCD CIF download for atom-name checks. It is cached for one day per component. Service failures are shown with retry/manual-entry guidance. CCD chemistry is not a pH prediction, and matching atom counts alone do not establish matching connectivity. Lookup provenance is saved with the experiment.
 
 ## Verification
 
