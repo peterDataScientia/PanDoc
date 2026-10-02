@@ -55,7 +55,8 @@ Streamlit Community Cloud: select this repository, `main`, `app.py`, and Python 
 
 ```bash
 python -m compileall -q app.py pandoc
-python -m unittest discover -s tests -v
+pip install pytest
+python -m pytest -q
 ```
 
 Tests cover alternate conformations, incomplete residues, box calculation, invalid configurations, fixed-frame RMSD, atom reordering, preserved reference coordinates, Meeko ligand export/reconstruction, a real small Vina docking run, and Streamlit screens with empty and populated experiments. The small peptide/ethanol test checks software integration; it is not a biological docking benchmark. GitHub Actions installs dependencies and runs the checks on pushes and pull requests.
