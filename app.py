@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from pandoc import core, jobs
+from pandoc import core, jobs, figures
 
 st.set_page_config(page_title='PanDoc · Docking workbench', page_icon='🧬', layout='wide')
 st.markdown('''<style>
@@ -47,6 +47,23 @@ def viewer(pdb=None, sdf=None, reference=None, center=None, size=None):
         view.addBox({'center': dict(zip('xyz', center)), 'dimensions': dict(zip('whd', size)), 'color': '#f59e0b', 'wireframe': True})
     view.zoomTo()
     st.iframe(view._make_html(), height=450)
+
+
+def publication_figure(job, row):
+    from rdkit import Chem
+    config = json.loads((Path(job)/'config.json').read_text())
+    if not config.get('reference'):
+        return
+    reference = next(iter(Chem.SDMolSupplier(config['reference'], removeHs=False)))
+    poses = list(Chem.SDMolSupplier(str(Path(job)/row['sdf']), removeHs=False))
+    pose = poses[row['rank']-1]
+    if reference is None or pose is None:
+        st.warning('The reference or selected pose could not be read for the figure.')
+        return
+    st.subheader('Publication figure · crystallographic and redocked ligand')
+    st.caption('Heavy atoms only · green: crystallographic · magenta: redocked. Both rotate together; no ligand fitting is applied. Default selection is the first reported pose, not the lowest-RMSD pose.')
+    st.iframe(figures.overlay_html(reference, pose, seed=row['seed'], rank=row['rank']), height=530)
+    st.caption('PNG: 3996 × 2340 pixels, 600 DPI. PDF: 6.66 × 3.90 inches with a raster molecular panel. Review the camera and labels before publication.')
 
 
 def manifest():
@@ -373,7 +390,14 @@ try:
                 st.session_state[prefix+'_job']=directory
                 st.rerun()
             if st.session_state.get(prefix+'_job'):
-                show_job(st.session_state[prefix+'_job'])
+                active_job = Path(st.session_state[prefix+'_job'])
+                show_job(active_job)
+                if validation and (active_job/'results.json').exists():
+                    figure_rows = json.loads((active_job/'results.json').read_text())
+                    if figure_rows:
+                        figure_index = st.selectbox('Figure pose', range(len(figure_rows)),
+                            format_func=lambda i: f"Seed {figure_rows[i]['seed']} · pose {figure_rows[i]['rank']}", key='validation_figure_pose')
+                        publication_figure(active_job, figure_rows[figure_index])
 
     else:
         all_jobs=jobs.list_jobs(root)
@@ -407,8 +431,10 @@ try:
                     raise ValueError('Selected pose could not be read from SDF.')
                 sdf=Chem.MolToMolBlock(pose)+'\n$$$$\n'
                 receptor=Path(config['receptor']).parent/'receptor_prepared.pdb'
-                viewer(pdb=receptor.read_text() if receptor.exists() else None,sdf=sdf,reference=Path(config['reference']).read_text() if config.get('reference') else None)
-                st.caption('Reference: green · Docked pose: magenta')
+                if config.get('reference'):
+                    publication_figure(job, row)
+                else:
+                    viewer(pdb=receptor.read_text() if receptor.exists() else None, sdf=sdf)
                 st.download_button('Download results CSV',df.to_csv(index=False),'results.csv','text/csv')
                 st.download_button('Download selected pose SDF',sdf,'selected_pose.sdf')
             with st.expander('Saved docking settings'):

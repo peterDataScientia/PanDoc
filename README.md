@@ -78,3 +78,8 @@ Meeko: https://github.com/forlilab/Meeko
 AutoDock Vina: https://github.com/ccsb-scripps/AutoDock-Vina
 
 PDBFixer: https://github.com/openmm/pdbfixer
+
+### Publication redocking overlay
+After redocking, use **Validate docking → Figure pose**, or **Explore results → Inspect pose**. The ligand-only interactive view shows crystallographic heavy atoms in green and the selected redocked pose in magenta. Coordinates remain in the receptor frame; rotating the camera moves both ligands together and never fits a pose onto the reference. The first reported pose is selected by default. The figure reports seed, pose rank, and independently recomputed symmetry-aware heavy-atom RMSD.
+
+Browser exports render at high resolution: PNG is 3996 × 2340 pixels with 600-DPI physical-resolution metadata; PDF is 6.66 × 3.90 inches and embeds the raster panel. Camera orientation is preserved. Rendering requires WebGL and access to 3Dmol.org; PDF export also loads jsPDF from cdnjs. Export errors appear beside the controls. No protein appears in this publication figure, and no docking calculation is repeated. Review the figure against journal requirements before submission.
