@@ -163,7 +163,7 @@ try:
                     st.warning('Potentially incomplete residues detected. Counts are a preliminary screen; Meeko performs the chemical template check.')
                     st.dataframe(pd.DataFrame(incomplete), hide_index=True)
                 st.caption('Missing loops are not automatically reconstructed. Unmatched residues are not automatically deleted.')
-                repair = st.checkbox('Rebuild missing heavy atoms with PDBFixer (optional installation)')
+                repair = st.checkbox('Rebuild missing heavy atoms with PDBFixer')
                 intended_ph = st.number_input('Intended preparation pH (recorded context)', 0.0, 14.0, 7.0, 0.1)
                 st.caption('Recording pH does not predict residue states. Select states using reviewed template assignments or upload a curated receptor.')
                 curated = st.file_uploader('Optional curated receptor PDB', type=['pdb'], key='curated')
