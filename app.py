@@ -112,7 +112,7 @@ try:
                 (root/'source.pdb').write_text(pdb)
                 (root/('source_original'+Path(upload.name).suffix)).write_text(text)
             rows = core.inspect(pdb)
-            st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+            st.dataframe(pd.DataFrame(rows), hide_index=True, width='stretch')
             viewer(pdb=pdb)
             proteins = [r['residue'] for r in rows if r['kind']=='Protein']
             chains = sorted({r['chain'] for r in rows if r['kind']=='Protein'})
@@ -309,7 +309,7 @@ try:
                     st.warning('These are partial results from an unfinished or interrupted calculation.')
                 rows=json.loads(path.read_text())
                 df=pd.DataFrame(rows)
-                st.dataframe(df.drop(columns=['sdf']),hide_index=True,use_container_width=True)
+                st.dataframe(df.drop(columns=['sdf']),hide_index=True,width='stretch')
                 if 'reference_rmsd_A' in df:
                     threshold=st.number_input('Pose-recovery RMSD threshold (Å)',0.1,10.,2.,0.1)
                     top=df[df['rank']==1]
