@@ -1,0 +1,9 @@
+streamlit==1.64.0
+numpy>=1.26,<3
+rdkit>=2024.9,<2027
+meeko==0.8.0
+vina==1.2.7
+gemmi>=0.6,<1
+scipy>=1.12,<2
+py3Dmol>=2.4,<3
+pandas>=2.2,<4

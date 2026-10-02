@@ -1,0 +1,342 @@
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+import uuid
+from pathlib import Path
+
+import pandas as pd
+import streamlit as st
+
+from pandoc import core, jobs
+
+st.set_page_config(page_title='PanDoc · Docking workbench', page_icon='🧬', layout='wide')
+st.markdown('''<style>
+.stApp { background: #f7f9fc; }
+h1,h2,h3 { color: #16324f; }
+[data-testid="stSidebar"] { background: #eaf0f7; }
+.block-container { padding-top: 2rem; }
+</style>''', unsafe_allow_html=True)
+
+if 'root' not in st.session_state:
+    base = Path(os.environ.get('PANDOC_DATA_DIR', tempfile.gettempdir()))/'pandoc'
+    root = base/uuid.uuid4().hex
+    root.mkdir(parents=True)
+    st.session_state.root = str(root)
+root = Path(st.session_state.root)
+
+
+def viewer(pdb=None, sdf=None, reference=None, center=None, size=None):
+    import py3Dmol
+    view = py3Dmol.view(width=850, height=430)
+    view.setBackgroundColor('#ffffff')
+    if pdb:
+        view.addModel(pdb, 'pdb')
+        view.setStyle({'model': 0}, {'cartoon': {'color': '#7b94ad'}})
+        view.addStyle({'model': 0, 'hetflag': True}, {'stick': {'colorscheme': 'cyanCarbon'}})
+    if reference:
+        view.addModel(reference, 'sdf')
+        view.setStyle({'model': int(bool(pdb))}, {'stick': {'colorscheme': 'greenCarbon'}})
+    if sdf:
+        view.addModel(sdf, 'sdf')
+        # Last model is the candidate or redocked pose.
+        idx = int(bool(pdb)) + int(bool(reference))
+        view.setStyle({'model': idx}, {'stick': {'colorscheme': 'magentaCarbon'}})
+    if center and size:
+        view.addBox({'center': dict(zip('xyz', center)), 'dimensions': dict(zip('whd', size)), 'color': '#f59e0b', 'wireframe': True})
+    view.zoomTo()
+    st.iframe(view._make_html(), height=450)
+
+
+def manifest():
+    data = {k: st.session_state.get(k) for k in ('experiment', 'selection_record', 'preparation_id', 'preparation_record', 'center', 'size', 'reference_smiles')}
+    data['software'] = core.versions()
+    (root/'experiment.json').write_text(json.dumps(data, indent=2))
+
+
+def settings(prefix):
+    a, b, c = st.columns(3)
+    exhaustive = a.number_input('Search exhaustiveness', 1, 64, 8, key=prefix+'ex')
+    poses = b.number_input('Maximum poses', 1, 20, 9, key=prefix+'poses')
+    seeds_text = c.text_input('Seeds (comma-separated)', '2026,2027,2028' if prefix=='validation' else '2026', key=prefix+'seeds')
+    seeds = [int(x.strip()) for x in seeds_text.split(',')]
+    return dict(exhaustiveness=int(exhaustive), poses=int(poses), seeds=seeds, cpu=min(2, os.cpu_count() or 1))
+
+
+def show_job(directory):
+    state = jobs.status(directory)
+    st.info(f"Job: {state['state']} · {Path(directory).name[:8]}")
+    if state.get('error'):
+        st.error(state['error'])
+    if state['state'] in ('queued', 'running', 'starting'):
+        st.caption('Refresh to check progress. Cancellation takes effect between docking searches.')
+        if st.button('Cancel job', key=str(directory)+'cancel'):
+            jobs.cancel(directory)
+        if st.button('Refresh status', key=str(directory)+'refresh'):
+            st.rerun()
+    log = Path(directory)/'worker.log'
+    with st.expander('Calculation log'):
+        st.code(log.read_text()[-16000:] if log.exists() else 'Waiting for worker.')
+    return state
+
+
+with st.sidebar:
+    st.title('PanDoc')
+    st.caption('Prepare · Validate · Dock')
+    st.text_input('Experiment name', 'My docking experiment', key='experiment')
+    stage = st.radio('Workflow', ['1 · Load complex', '2 · Prepare structures', '3 · Validate docking', '4 · Run experiment', '5 · Explore results'])
+    st.divider()
+    st.caption('✓ Complex loaded' if st.session_state.get('pdb') else '○ Load a complex')
+    st.caption('✓ Receptor prepared' if st.session_state.get('preparation_id') else '○ Prepare receptor')
+    st.caption('✓ Reference prepared' if st.session_state.get('reference_path') else '○ Prepare reference')
+    st.caption('Coordinates in Å · Vina scores in kcal/mol')
+    if st.button('Start a new experiment'):
+        st.session_state.clear()
+        st.rerun()
+
+st.title(stage.split(' · ')[1])
+
+try:
+    if stage.startswith('1'):
+        st.write('Upload a complex, inspect its components and select the receptor and crystallographic reference ligand.')
+        upload = st.file_uploader('PDB or mmCIF complex', type=['pdb', 'cif', 'mmcif'])
+        if upload:
+            text = upload.getvalue().decode('utf-8')
+            pdb = core.normalize_structure(text, Path(upload.name).suffix)
+            source_id = core.digest(pdb)
+            if st.session_state.get('source_id') != source_id:
+                for k in ('preparation_id', 'reference_path', 'receptor_path', 'validation_job', 'candidate_paths', 'selected_pdb', 'reference_pdb', 'selection_id', 'selection_record', 'center', 'size', 'preparation_record', 'reference_id', 'reference_smiles'):
+                    st.session_state.pop(k, None)
+                st.session_state.update(pdb=pdb, source_id=source_id)
+                (root/'source.pdb').write_text(pdb)
+                (root/('source_original'+Path(upload.name).suffix)).write_text(text)
+            rows = core.inspect(pdb)
+            st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+            viewer(pdb=pdb)
+            proteins = [r['residue'] for r in rows if r['kind']=='Protein']
+            chains = sorted({r['chain'] for r in rows if r['kind']=='Protein'})
+            selected_chains = st.multiselect('Receptor chains', chains, default=chains)
+            other = [r['residue'] for r in rows if r['kind']!='Protein']
+            retained = st.multiselect('Retain waters, ions or cofactors', other)
+            ref_options = [r['residue'] for r in rows if r['kind']=='Other component']
+            ref = st.selectbox('Crystallographic reference ligand', ['None']+ref_options)
+            alt = st.selectbox('Default alternate conformation', ['A', 'B', 'C'])
+            overrides = {}
+            with st.expander('Select alternate conformations by residue'):
+                for r in rows:
+                    if r['alternatives']:
+                        options = r['alternatives'].split(',')
+                        overrides[r['residue']] = st.selectbox(r['residue'], options, key='alt'+r['residue'])
+            if st.button('Save component selection', type='primary'):
+                chosen = [r['residue'] for r in rows if r['kind']=='Protein' and r['chain'] in selected_chains]+retained
+                if ref in chosen:
+                    raise ValueError('Remove the reference ligand from retained receptor components before redocking.')
+                receptor = core.select(pdb, chosen, alt, overrides)
+                reference = core.select(pdb, [ref], alt, overrides) if ref!='None' else None
+                selection = dict(chains=selected_chains, retained=retained, reference=ref, alternate=alt, overrides=overrides)
+                selection_id = core.digest(receptor, reference, selection)
+                if st.session_state.get('selection_id') != selection_id:
+                    for k in ('preparation_id', 'reference_path', 'receptor_path', 'validation_job'):
+                        st.session_state.pop(k, None)
+                st.session_state.update(selected_pdb=receptor, reference_pdb=reference, selection_record=selection, selection_id=selection_id)
+                (root/'selected_receptor.pdb').write_text(receptor)
+                if reference:
+                    (root/'reference_original.pdb').write_text(reference)
+                    center, size = core.box(reference)
+                    st.session_state.update(center=center, size=size)
+                manifest()
+                st.success('Selection saved. Continue to Prepare structures.')
+
+    elif stage.startswith('2'):
+        if not st.session_state.get('selected_pdb'):
+            st.info('Save a component selection in Load complex first.')
+        else:
+            protein_tab, ligand_tab = st.tabs(['Receptor', 'Reference ligand'])
+            with protein_tab:
+                pdb = st.session_state.selected_pdb
+                rows = core.inspect(pdb)
+                incomplete = [r for r in rows if r['missing_estimate']]
+                if incomplete:
+                    st.warning('Potentially incomplete residues detected. Counts are a preliminary screen; Meeko performs the chemical template check.')
+                    st.dataframe(pd.DataFrame(incomplete), hide_index=True)
+                st.caption('Missing loops are not automatically reconstructed. Unmatched residues are not automatically deleted.')
+                repair = st.checkbox('Rebuild missing heavy atoms with PDBFixer (optional installation)')
+                intended_ph = st.number_input('Intended preparation pH (recorded context)', 0.0, 14.0, 7.0, 0.1)
+                st.caption('Recording pH does not predict residue states. Select states using reviewed template assignments or upload a curated receptor.')
+                curated = st.file_uploader('Optional curated receptor PDB', type=['pdb'], key='curated')
+                templates = st.text_input('Meeko residue template assignments', placeholder='A:17=HID,A:32=ASH')
+                notes = st.text_area('Preparation rationale', placeholder='Explain protonation, retained components and structural repairs.')
+                confirm = st.checkbox('I reviewed the receptor components and intended protonation states.')
+                if st.button('Prepare receptor', type='primary', disabled=not confirm):
+                    final = curated.getvalue().decode() if curated else pdb
+                    core.atoms(final)
+                    if repair:
+                        final = core.repair_heavy_atoms(final)
+                    prep_id = core.digest(final, templates, intended_ph, core.versions())
+                    directory = root/'preparations'/prep_id
+                    with st.spinner('Checking chemistry and preparing receptor…'):
+                        path = core.prepare_receptor(final, directory, templates)
+                    st.session_state.update(receptor_path=str(path), prepared_pdb=(directory/'receptor_prepared.pdb').read_text(), preparation_id=prep_id,
+                        preparation_record=dict(pH_context=intended_ph, templates=templates, repaired_heavy_atoms=repair, curated_upload=curated.name if curated else None, rationale=notes))
+                    manifest()
+                    st.success('Meeko preparation completed. Inspect the prepared structure below.')
+                if st.session_state.get('receptor_path'):
+                    path = Path(st.session_state.receptor_path)
+                    prepared = path.parent/'receptor_prepared.pdb'
+                    prepared_text=prepared.read_text() if prepared.exists() else st.session_state.prepared_pdb
+                    comparison=[]
+                    for label,text in [('Selected input',st.session_state.selected_pdb),('Prepared receptor',prepared_text)]:
+                        aa=core.atoms(text)
+                        comparison.append(dict(structure=label,atoms=len(aa),heavy_atoms=sum(a['element'] not in ('H','D') for a in aa),residues=len({core.key(a) for a in aa})))
+                    st.dataframe(pd.DataFrame(comparison),hide_index=True)
+                    viewer(pdb=prepared_text)
+                    st.download_button('Download receptor PDBQT', path.read_bytes(), 'receptor.pdbqt')
+                    with st.expander('Meeko preparation log'):
+                        st.code((path.parent/'preparation.log').read_text())
+            with ligand_tab:
+                ref = st.session_state.get('reference_pdb')
+                if not ref:
+                    st.info('Select a crystallographic reference ligand in Load complex for redocking validation.')
+                else:
+                    st.write('Provide the exact reference ligand SMILES to assign bond orders while retaining the crystallographic heavy-atom coordinates.')
+                    smiles = st.text_input('Reference ligand isomeric SMILES')
+                    if st.button('Prepare reference ligand', type='primary'):
+                        mol = core.reference_from_pdb(ref, smiles)
+                        ident = core.digest(ref, smiles)
+                        directory = root/'references'/ident
+                        directory.mkdir(parents=True, exist_ok=True)
+                        core.write_ligand(mol, directory/'reference.pdbqt')
+                        st.session_state.update(reference_path=str(directory/'reference.sdf'), reference_pdbqt=str(directory/'reference.pdbqt'), reference_smiles=smiles, reference_id=ident)
+                        manifest()
+                        st.success('Reference prepared with original heavy-atom coordinates.')
+                    if st.session_state.get('reference_path'):
+                        path = Path(st.session_state.reference_path)
+                        viewer(sdf=path.read_text())
+                        st.download_button('Download reference SDF', path.read_bytes(), 'reference.sdf')
+
+    elif stage.startswith('3') or stage.startswith('4'):
+        validation = stage.startswith('3')
+        if not st.session_state.get('receptor_path'):
+            st.info('Prepare a receptor first.')
+        elif validation and not st.session_state.get('reference_path'):
+            st.info('Prepare the crystallographic reference ligand first.')
+        else:
+            st.write('Inspect the search box and choose reproducible docking settings.')
+            center = st.session_state.get('center', [0.,0.,0.])
+            size = st.session_state.get('size', [20.,20.,20.])
+            with st.form('box_form'):
+                cols = st.columns(3)
+                center = [cols[i].number_input('Center '+axis, value=float(center[i])) for i,axis in enumerate('XYZ')]
+                size = [cols[i].number_input('Size '+axis+' (Å)', min_value=1., max_value=60., value=min(60.,float(size[i]))) for i,axis in enumerate('XYZ')]
+                if st.form_submit_button('Save docking box'):
+                    st.session_state.update(center=center, size=size)
+                    manifest()
+            center = st.session_state.get('center', center)
+            size = st.session_state.get('size', size)
+            viewer(pdb=st.session_state.prepared_pdb, center=center, size=size)
+            prefix = 'validation' if validation else 'experiment'
+            params = settings(prefix)
+            protocol_id = core.digest(st.session_state.preparation_id, center, size, params)
+            config = dict(receptor=st.session_state.receptor_path, center=center, size=size, protocol_id=protocol_id, preparation_id=st.session_state.preparation_id, **params)
+            candidates = []
+            if validation:
+                config.update(reference=st.session_state.reference_path, reference_id=st.session_state.reference_id,
+                              ligands=[dict(id='reference', name='Reference ligand', path=st.session_state.reference_pdbqt)])
+                st.caption('RMSD compares heavy atoms in the fixed receptor frame with symmetry handling. Ligands are not fitted onto the reference.')
+            else:
+                upload = st.file_uploader('Candidate ligands (multi-molecule SDF)', type=['sdf'])
+                smiles_text = st.text_area('Or one SMILES per line', placeholder='CCO ethanol')
+                chemical_review = st.checkbox('I reviewed candidate protonation, stereochemistry and tautomer states.')
+                if st.button('Prepare candidate ligands', disabled=not chemical_review):
+                    from rdkit import Chem
+                    from rdkit.Chem import rdMolDescriptors
+                    mols = []
+                    if upload:
+                        import io
+                        for i,mol in enumerate(Chem.ForwardSDMolSupplier(io.BytesIO(upload.getvalue()), removeHs=False)):
+                            if mol is None:
+                                raise ValueError(f'Invalid molecule in SDF record {i+1}.')
+                            mols.append((mol.GetProp('_Name') if mol.HasProp('_Name') else f'Ligand {i+1}', core.molecule(sdf=Chem.MolToMolBlock(mol))))
+                    for line in smiles_text.splitlines():
+                        if line.strip():
+                            pieces=line.split(maxsplit=1)
+                            mols.append((pieces[1] if len(pieces)>1 else f'Ligand {len(mols)+1}', core.molecule(smiles=pieces[0])))
+                    if not 1<=len(mols)<=25:
+                        raise ValueError('Prepare between one and 25 candidate ligands.')
+                    directory = root/'candidates'/uuid.uuid4().hex
+                    directory.mkdir(parents=True)
+                    records=[]
+                    for i,(name,mol) in enumerate(mols,1):
+                        ident=f'ligand_{i:03d}'
+                        path=directory/(ident+'.pdbqt')
+                        core.write_ligand(mol,path)
+                        records.append(dict(id=ident,name=name,path=str(path),formula=rdMolDescriptors.CalcMolFormula(mol),charge=Chem.GetFormalCharge(mol)))
+                    st.session_state.candidate_paths=records
+                    st.success(f'{len(records)} ligands prepared.')
+                candidates=st.session_state.get('candidate_paths',[])
+                if candidates:
+                    st.dataframe(pd.DataFrame(candidates).drop(columns=['path']),hide_index=True)
+                config['ligands']=candidates
+                matched = False
+                for job in jobs.list_jobs(root):
+                    previous=json.loads((job/'config.json').read_text())
+                    if previous.get('reference') and previous.get('protocol_id')==protocol_id and previous.get('reference_id')==st.session_state.get('reference_id') and jobs.status(job)['state']=='completed':
+                        matched=True
+                        break
+                st.info('A completed redocking run matches these exact settings.' if matched else 'No completed redocking run matches these exact settings. Review validation before interpreting docking results.')
+            active = st.session_state.get(prefix+'_job')
+            busy = active and jobs.status(active)['state'] in ('queued','running','starting')
+            if st.button('Run redocking' if validation else 'Run docking', type='primary', disabled=bool(busy) or not config['ligands']):
+                manifest()
+                directory=jobs.launch(root,config)
+                st.session_state[prefix+'_job']=directory
+                st.rerun()
+            if st.session_state.get(prefix+'_job'):
+                show_job(st.session_state[prefix+'_job'])
+
+    else:
+        all_jobs=jobs.list_jobs(root)
+        if not all_jobs:
+            st.info('Run redocking or a docking experiment to see results.')
+        else:
+            job=st.selectbox('Calculation',all_jobs,format_func=lambda p: p.name[:8]+' · '+jobs.status(p)['state'])
+            state=show_job(job)
+            config=json.loads((job/'config.json').read_text())
+            path=job/'results.json'
+            if path.exists():
+                if state['state']!='completed':
+                    st.warning('These are partial results from an unfinished or interrupted calculation.')
+                rows=json.loads(path.read_text())
+                df=pd.DataFrame(rows)
+                st.dataframe(df.drop(columns=['sdf']),hide_index=True,use_container_width=True)
+                if 'reference_rmsd_A' in df:
+                    threshold=st.number_input('Pose-recovery RMSD threshold (Å)',0.1,10.,2.,0.1)
+                    top=df[df['rank']==1]
+                    a,b,c=st.columns(3)
+                    a.metric('Best recovered RMSD',f"{df.reference_rmsd_A.min():.2f} Å")
+                    b.metric('Top-ranked pose recovery',f"{int((top.reference_rmsd_A<=threshold).sum())}/{len(top)} seeds")
+                    c.metric('Best-pose recovery',f"{int((df.groupby('seed').reference_rmsd_A.min()<=threshold).sum())}/{len(top)} seeds")
+                    st.caption('Pose recovery tests this receptor and protocol. It does not validate experimental affinity predictions.')
+                index=st.selectbox('Inspect pose',list(range(len(rows))),format_func=lambda i:f"{rows[i]['ligand']} · seed {rows[i]['seed']} · pose {rows[i]['rank']}")
+                row=rows[index]
+                from rdkit import Chem
+                poses=list(Chem.SDMolSupplier(str(job/row['sdf']),removeHs=False))
+                pose=poses[row['rank']-1]
+                if pose is None:
+                    raise ValueError('Selected pose could not be read from SDF.')
+                sdf=Chem.MolToMolBlock(pose)+'\n$$$$\n'
+                receptor=Path(config['receptor']).parent/'receptor_prepared.pdb'
+                viewer(pdb=receptor.read_text() if receptor.exists() else None,sdf=sdf,reference=Path(config['reference']).read_text() if config.get('reference') else None)
+                st.caption('Reference: green · Docked pose: magenta')
+                st.download_button('Download results CSV',df.to_csv(index=False),'results.csv','text/csv')
+                st.download_button('Download selected pose SDF',sdf,'selected_pose.sdf')
+            with st.expander('Saved docking settings'):
+                st.json(config)
+        manifest()
+        st.download_button('Download complete experiment',core.bundle(root),'pandoc_experiment.zip','application/zip')
+
+except Exception as exc:
+    st.error(str(exc))
+    with st.expander('Diagnostic details'):
+        st.exception(exc)
