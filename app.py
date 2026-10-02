@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from pandoc import core, jobs, figures
+from pandoc import core, jobs, figures, pdb_search
 
 st.set_page_config(page_title='PanDoc · Docking workbench', page_icon='🧬', layout='wide')
 st.markdown('''<style>
@@ -66,8 +66,134 @@ def publication_figure(job, row):
     st.caption('PNG: 3996 × 2340 pixels, 600 DPI. PDF: 6.66 × 3.90 inches with a raster molecular panel. Review the camera and labels before publication.')
 
 
+def load_complex(text, suffix, provenance):
+    pdb = core.normalize_structure(text, suffix)
+    core.atoms(pdb)
+    source_id = core.digest(pdb, text)
+    if st.session_state.get('source_id') != source_id:
+        for k in ('preparation_id', 'reference_path', 'receptor_path', 'validation_job', 'experiment_job',
+                  'candidate_paths', 'selected_pdb', 'reference_pdb', 'selection_id', 'selection_record',
+                  'center', 'size', 'preparation_record', 'reference_id', 'reference_smiles', 'reference_chemistry_source'):
+            st.session_state.pop(k, None)
+        for original in root.glob('source_original.*'):
+            original.unlink()
+        st.session_state.update(pdb=pdb, source_id=source_id)
+        (root/'source.pdb').write_text(pdb)
+        (root/('source_original'+suffix)).write_text(text)
+    import hashlib
+    provenance = dict(provenance, original_sha256=hashlib.sha256(text.encode('utf-8')).hexdigest())
+    st.session_state.structure_source = provenance
+    manifest()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def search_pdb(options, start):
+    result = pdb_search.search(**options, start=start)
+    result['summaries'] = pdb_search.summaries(result['ids'])
+    return result
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def pdb_details(pdb_id):
+    return pdb_search.details(pdb_id)
+
+
+def pdb_discovery():
+    st.caption('Search experimental PDB structures, read the details, then choose a complex to load.')
+    with st.form('pdb_search_form'):
+        mode = st.selectbox('Search by', ['Keywords', 'Protein name', 'PDB ID', 'UniProt accession', 'Ligand name / ID'])
+        st.caption('PDB ID opens an exact entry and bypasses search filters. Protein name searches deposited descriptions; Keywords also searches synonyms and annotations.')
+        query = st.text_input('Search term', placeholder='plasmepsin II, 1LF2, P46925 or R37')
+        with st.expander('Search filters'):
+            organism = st.text_input('Source organism', placeholder='Plasmodium falciparum')
+            method = st.selectbox('Experimental method', ['X-RAY DIFFRACTION', 'Any experimental method', 'ELECTRON MICROSCOPY', 'SOLUTION NMR'])
+            limit_resolution = st.checkbox('Limit maximum resolution')
+            resolution = st.number_input('Maximum resolution (Å)', 0.5, 20.0, 3.0, 0.1)
+            ligand_only = st.checkbox('Require a nonpolymer component', value=True,
+                help='Includes ions, cofactors and additives; this does not guarantee a suitable redocking ligand.')
+        submitted = st.form_submit_button('Search PDB', type='primary')
+    if submitted:
+        options = dict(query=query, mode=mode, organism=organism, method=method,
+                       resolution=resolution if limit_resolution else None, ligand_only=ligand_only)
+        try:
+            with st.spinner('Searching RCSB PDB…'):
+                result = search_pdb(options, 0)
+            st.session_state.update(pdb_search_options=options, pdb_search_start=0, pdb_search_result=result)
+        except (ValueError, RuntimeError) as exc:
+            st.session_state.pop('pdb_search_result', None)
+            st.warning(str(exc))
+    result = st.session_state.get('pdb_search_result')
+    if not result:
+        return
+    if not result['ids']:
+        st.info('No matching structures. Try a broader keyword or relax the filters.')
+        return
+    start = st.session_state.get('pdb_search_start', 0)
+    st.caption(f"{result['total']} matches · showing {start+1}–{start+len(result['ids'])}. Search relevance does not measure docking suitability.")
+    st.dataframe(pd.DataFrame(result['summaries']), hide_index=True, width='stretch')
+    left, right = st.columns(2)
+    previous = left.button('Previous results', disabled=start == 0)
+    following = right.button('Next results', disabled=start+10 >= result['total'])
+    if previous or following:
+        new_start = start + (10 if following else -10)
+        try:
+            with st.spinner('Loading results…'):
+                next_result = search_pdb(st.session_state.pdb_search_options, new_start)
+            st.session_state.update(pdb_search_start=new_start, pdb_search_result=next_result)
+            st.rerun()
+        except (ValueError, RuntimeError) as exc:
+            st.warning(str(exc))
+    selected = st.selectbox('Structure to review', result['ids'])
+    if st.button('View structure details'):
+        try:
+            with st.spinner('Reading structure metadata…'):
+                detail = pdb_details(selected)
+            st.session_state.pdb_review = dict(id=selected, detail=detail)
+        except (ValueError, RuntimeError) as exc:
+            st.warning(str(exc))
+    review = st.session_state.get('pdb_review')
+    if not review or review['id'] != selected:
+        return
+    detail = review['detail']
+    entry = detail['entry']
+    st.markdown('**'+selected+' · '+entry.get('struct', {}).get('title', '')+'**')
+    info = entry.get('rcsb_entry_info', {})
+    st.write('Method: '+', '.join(x['method'] for x in entry.get('exptl', [])))
+    st.write('Resolution (Å): '+(' / '.join(str(x) for x in info.get('resolution_combined', [])) or 'Not available'))
+    if detail['proteins']:
+        st.write('Chains and molecule identities')
+        st.dataframe(pd.DataFrame(detail['proteins']), hide_index=True, width='stretch')
+    if detail['ligands']:
+        st.write('Nonpolymer components — review which is a suitable reference ligand')
+        st.dataframe(pd.DataFrame(detail['ligands']), hide_index=True, width='stretch')
+    else:
+        st.info('No nonpolymer component details available. A crystallographic reference ligand is needed for redocking.')
+    for warning in detail['warnings']:
+        st.warning(warning)
+    st.caption('Unmodeled polymer residues (whole entry): '+str(info.get('deposited_unmodeled_polymer_monomer_count', 'Not available')))
+    citation = entry.get('rcsb_primary_citation', {})
+    if citation.get('title'):
+        st.write('Publication: '+citation['title'])
+    st.markdown(f'[Structure and validation at RCSB](https://www.rcsb.org/structure/{selected})')
+    for component in detail['ligands']:
+        if component['ID'] != 'Not available':
+            st.markdown(f"[Review {component['ID']} ligand quality at RCSB](https://www.rcsb.org/ligand-validation/{selected}/{component['ID']})")
+    st.caption('Inspect ligand quality and the intended binding site. Resolution alone does not establish suitability; unavailable validation is not a pass.')
+    rationale = st.text_area('Why choose this structure?', key='pdb_structure_rationale')
+    if st.button('Load this structure', type='primary'):
+        try:
+            with st.spinner('Downloading and checking mmCIF…'):
+                text, source = pdb_search.download(selected)
+                source.update(search_options=st.session_state.pdb_search_options, query=result['query'],
+                              selection_rationale=rationale, metadata=detail)
+                load_complex(text, '.cif', source)
+            st.success('Structure loaded. Inspect the complex below and save your component selection.')
+        except (ValueError, RuntimeError) as exc:
+            st.warning(str(exc))
+
+
 def manifest():
-    data = {k: st.session_state.get(k) for k in ('experiment', 'selection_record', 'preparation_id', 'preparation_record', 'center', 'size', 'reference_smiles', 'reference_chemistry_source')}
+    data = {k: st.session_state.get(k) for k in ('experiment', 'selection_record', 'preparation_id', 'preparation_record', 'center', 'size', 'reference_smiles', 'reference_chemistry_source', 'structure_source')}
     data['software'] = core.versions()
     (root/'experiment.json').write_text(json.dumps(data, indent=2))
 
@@ -130,17 +256,18 @@ st.title(stage.split(' · ')[1])
 try:
     if stage.startswith('1'):
         st.write('Upload a complex, inspect its components and select the receptor and crystallographic reference ligand.')
-        upload = st.file_uploader('PDB or mmCIF complex', type=['pdb', 'cif', 'mmcif'])
-        if upload:
-            text = upload.getvalue().decode('utf-8')
-            pdb = core.normalize_structure(text, Path(upload.name).suffix)
-            source_id = core.digest(pdb)
-            if st.session_state.get('source_id') != source_id:
-                for k in ('preparation_id', 'reference_path', 'receptor_path', 'validation_job', 'candidate_paths', 'selected_pdb', 'reference_pdb', 'selection_id', 'selection_record', 'center', 'size', 'preparation_record', 'reference_id', 'reference_smiles', 'reference_chemistry_source'):
-                    st.session_state.pop(k, None)
-                st.session_state.update(pdb=pdb, source_id=source_id)
-                (root/'source.pdb').write_text(pdb)
-                (root/('source_original'+Path(upload.name).suffix)).write_text(text)
+        source_mode = st.radio('Structure source', ['Upload file', 'Search PDB'], horizontal=True)
+        if source_mode == 'Upload file':
+            upload = st.file_uploader('PDB or mmCIF complex', type=['pdb', 'cif', 'mmcif'])
+            if upload:
+                load_complex(upload.getvalue().decode('utf-8'), Path(upload.name).suffix,
+                             dict(type='Uploaded file', filename=upload.name))
+        else:
+            pdb_discovery()
+        if st.session_state.get('pdb'):
+            pdb = st.session_state.pdb
+            source = st.session_state.get('structure_source', {})
+            st.caption('Loaded structure: '+str(source.get('pdb_id', source.get('filename', 'Local structure'))))
             rows = core.inspect(pdb)
             st.dataframe(pd.DataFrame(rows), hide_index=True, width='stretch')
             viewer(pdb=pdb)
