@@ -75,3 +75,35 @@ def test_publication_panel_has_only_color_legend():
     assert 'style.sphere={color,radius:0.28}' in _HTML
     assert '#00cdd4' in _HTML and '#d500d5' in _HTML
     assert 'high.setView(viewer.getView())' in _HTML
+
+
+def test_pdf_export_without_external_library(tmp_path):
+    import base64
+    import shutil
+    import subprocess
+    import zlib
+    import pytest
+    from pandoc.figures import _HTML
+    node = shutil.which('node')
+    if not node:
+        pytest.skip('Node is required for browser JavaScript checks')
+    function = _HTML[_HTML.index('async function pdfBlob'): _HTML.index('async function exportFigure')]
+    assert 'jspdf' not in _HTML and 'cdnjs' not in _HTML
+    for compressed in (True, False):
+        setup = '' if compressed else 'globalThis.CompressionStream=undefined;'
+        script = setup+function+'''\n(async()=>{const canvas={width:2,height:1,getContext:()=>({getImageData:()=>({data:new Uint8Array([255,0,0,255,0,255,0,255])})})};const b=await pdfBlob(canvas);console.log(Buffer.from(await b.arrayBuffer()).toString('base64'));})();'''
+        pdf = base64.b64decode(subprocess.check_output([node, '-e', script], text=True))
+        assert b'/MediaBox [0 0 479.52 280.8]' in pdf
+        xref = int(pdf.split(b'startxref\n')[1].splitlines()[0])
+        assert pdf[xref:xref+4] == b'xref'
+        entries = pdf[xref:].splitlines()[3:8]
+        for index, entry in enumerate(entries, 1):
+            offset = int(entry[:10])
+            assert pdf[offset:].startswith(f'{index} 0 obj'.encode())
+        image_object = pdf.split(b'5 0 obj\n')[1].split(b'\nendobj')[0]
+        header, stream = image_object.split(b'\nstream\n')
+        pixels = stream.split(b'\nendstream')[0]
+        if b'/FlateDecode' in header:
+            pixels = zlib.decompress(pixels)
+        assert pixels == bytes([255,0,0,0,255,0])
+        (tmp_path/('compressed.pdf' if compressed else 'raw.pdf')).write_bytes(pdf)
