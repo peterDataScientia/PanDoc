@@ -54,6 +54,7 @@ def test_png_resolution_metadata_and_javascript_syntax(tmp_path):
     test = function+'\n(async()=>{const b=dpiPNG(Uint8Array.from(Buffer.from('+json.dumps(base64.b64encode(image.getvalue()).decode())+',"base64")));console.log(Buffer.from(await b.arrayBuffer()).toString("base64"));})();'
     result = subprocess.check_output([node, '-e', test], text=True)
     png = base64.b64decode(result)
+    assert png[12:16] == b'IHDR'
     rendered = Image.open(io.BytesIO(png))
     assert rendered.size == (20, 10)
     assert abs(rendered.info['dpi'][0]-600) < .01
@@ -64,3 +65,13 @@ def test_png_resolution_metadata_and_javascript_syntax(tmp_path):
         crc = struct.unpack('>I', png[offset+8+length:offset+12+length])[0]
         assert zlib.crc32(chunk) == crc
         offset += length+12
+
+
+def test_publication_panel_has_only_color_legend():
+    from pandoc.figures import _HTML
+    export = _HTML.split("const canvas=document.createElement('canvas');")[-1] if "const canvas=document.createElement('canvas');" in _HTML else _HTML.split('const a=appearance(),canvas=')[-1]
+    assert "labels=['Crystallographic','Redocked']" in export
+    assert 'fillText(caption' not in export
+    assert 'style.sphere={color,radius:0.28}' in _HTML
+    assert '#00cdd4' in _HTML and '#d500d5' in _HTML
+    assert 'high.setView(viewer.getView())' in _HTML

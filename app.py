@@ -61,8 +61,10 @@ def publication_figure(job, row):
         st.warning('The reference or selected pose could not be read for the figure.')
         return
     st.subheader('Publication figure · crystallographic and redocked ligand')
-    st.caption('Heavy atoms only · green: crystallographic · magenta: redocked. Both rotate together; no ligand fitting is applied. Default selection is the first reported pose, not the lowest-RMSD pose.')
-    st.iframe(figures.overlay_html(reference, pose, seed=row['seed'], rank=row['rank']), height=530)
+    rmsd = core.reference_rmsd(reference, pose)
+    st.caption(f"Seed {row['seed']} · pose {row['rank']} · heavy-atom RMSD {rmsd:.3f} Å. Original coordinates; no ligand fitting.")
+    st.caption('Shaded ball and stick · cyan: crystallographic · magenta: redocked. Rotate both together and adjust colors or background. Exports contain only the two color legend labels.')
+    st.iframe(figures.overlay_html(reference, pose, seed=row['seed'], rank=row['rank']), height=620)
     st.caption('PNG: 3996 × 2340 pixels, 600 DPI. PDF: 6.66 × 3.90 inches with a raster molecular panel. Review the camera and labels before publication.')
 
 
