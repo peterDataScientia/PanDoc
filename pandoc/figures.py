@@ -66,8 +66,8 @@ return new Blob(parts,{type:'application/pdf'});
 async function exportFigure(format){let high;
 try{document.getElementById('png').disabled=true;document.getElementById('pdf').disabled=true;document.getElementById('status').textContent='Rendering publication image…';
 highViewer=highViewer||setup(document.getElementById('render'));high=highViewer;applyStyle(high);high.setView(viewer.getView());high.render();
-const image=new Image();image.src=high.pngURI();await image.decode();
-if(image.naturalWidth<W||image.naturalHeight<2160)throw new Error('High-resolution rendering is unavailable on this device. Try a desktop browser.');
+const image=high.getCanvas();
+if(!image||image.width<W||image.height<2160)throw new Error('High-resolution rendering is unavailable on this device. Try a desktop browser.');
 const a=appearance(),canvas=document.createElement('canvas');canvas.width=W;canvas.height=H;const ctx=canvas.getContext('2d');ctx.fillStyle=a.background;ctx.fillRect(0,0,W,H);ctx.drawImage(image,0,0,W,2160);
 // Center a compact two-item legend; metadata belongs to the manuscript caption.
 ctx.font='76px Arial';ctx.textBaseline='middle';const swatch=108,gap=48,between=192;
@@ -76,7 +76,7 @@ const widths=labels.map(label=>swatch+gap+ctx.measureText(label).width);
 let x=(W-widths[0]-widths[1]-between)/2;
 for(let i=0;i<2;i++){ctx.fillStyle=colors[i];ctx.fillRect(x,2250-24,swatch,48);ctx.fillStyle=a.background==='#ffffff'?'#222':'#f5f5f5';ctx.fillText(labels[i],x+swatch+gap,2250);x+=widths[i]+between;}
 const filename=`redocking_seed_${data.seed}_pose_${data.rank}`;
-if(format==='png'){const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));download(dpiPNG(new Uint8Array(await blob.arrayBuffer())),filename+'.png');}
+if(format==='png'){const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw new Error('PNG encoding failed. Try exporting again.');download(dpiPNG(new Uint8Array(await blob.arrayBuffer())),filename+'.png');}
 else{download(await pdfBlob(canvas),filename+'.pdf');}
 document.getElementById('status').textContent='Exported 6.66 × 3.90 inches; PNG 3996 × 2340 pixels at 600 DPI. PDF contains a raster molecular panel.';
 }catch(e){document.getElementById('status').textContent='Export failed: '+e.message;}

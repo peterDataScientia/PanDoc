@@ -107,3 +107,11 @@ def test_pdf_export_without_external_library(tmp_path):
             pixels = zlib.decompress(pixels)
         assert pixels == bytes([255,0,0,0,255,0])
         (tmp_path/('compressed.pdf' if compressed else 'raw.pdf')).write_bytes(pdf)
+
+
+def test_export_captures_rendered_canvas_without_image_decode():
+    from pandoc.figures import _HTML
+    assert 'const image=high.getCanvas()' in _HTML
+    assert 'ctx.drawImage(image,0,0,W,2160)' in _HTML
+    assert '.decode()' not in _HTML
+    assert 'high.pngURI()' not in _HTML
