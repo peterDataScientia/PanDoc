@@ -1,3 +1,6 @@
+# Use Python 3.11 in Streamlit Community Cloud Advanced settings.
+# Require a prebuilt Vina wheel; do not attempt an unsupported source build.
+--only-binary=vina
 streamlit==1.64.0
 numpy>=1.26,<3
 rdkit>=2024.9,<2027
