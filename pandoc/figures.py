@@ -22,16 +22,16 @@ _HTML = r'''<!doctype html><html><head><meta charset="utf-8">
 <p><label>Reference <input id="referenceColor" type="color" value="#00cdd4"></label><label>Redocked <input id="poseColor" type="color" value="#d500d5"></label><label>Background <select id="background"><option value="#ffffff">White</option><option value="#2d3336">Dark</option></select></label><label>Style <select id="style"><option value="ball">Ball and stick</option><option value="stick">Sticks</option></select></label></p>
 <button id="reset">Reset view</button><button id="png">Download PNG · 600 DPI</button><button id="pdf">Download PDF</button>
 <p id="status">Drag to rotate both ligands together; scroll to zoom. Original receptor coordinates are preserved.</p>
-<div id="render"></div><script>
+<script>
 const data=__DATA__, W=3996,H=2340;
 const caption=`Seed ${data.seed} · pose ${data.rank} · heavy-atom RMSD ${data.rmsd.toFixed(3)} Å (no fitting)`;
 // Only the two color labels are drawn inside the publication figure.
-let viewer, highViewer, initialView;
+let viewer, initialView;
 function appearance(){return {reference:document.getElementById('referenceColor').value,pose:document.getElementById('poseColor').value,background:document.getElementById('background').value,style:document.getElementById('style').value};}
 function applyStyle(v){const a=appearance();v.setBackgroundColor(a.background);
 for(const [model,color] of [[0,a.reference],[1,a.pose]]){const style={stick:{color,radius:0.14}};if(a.style==='ball')style.sphere={color,radius:0.28};v.setStyle({model},style);}v.render();}
 function updateAppearance(){applyStyle(viewer);const a=appearance();document.getElementById('legend').style.background=a.background;document.getElementById('legend').style.color=a.background==='#ffffff'?'#222':'#f5f5f5';document.getElementById('referenceSwatch').style.background=a.reference;document.getElementById('poseSwatch').style.background=a.pose;}
-function setup(element){const v=$3Dmol.createViewer(element,{backgroundColor:appearance().background});
+function setup(element){const v=$3Dmol.createViewer(element,{backgroundColor:appearance().background,antialias:true,upscale:false});
 v.addModel(data.reference,'sdf');v.addModel(data.pose,'sdf');
 applyStyle(v);v.zoomTo();v.render();return v;}
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);}
@@ -63,11 +63,30 @@ for(let i=1;i<=5;i++)append(String(offsets[i]).padStart(10,'0')+' 00000 n \n');
 append(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
 return new Blob(parts,{type:'application/pdf'});
 }
-async function exportFigure(format){let high;
+// Capture using the existing context. Account for device-pixel ratio so GPU
+// buffers are 3996 x 2160, rather than 2–3 times larger in each dimension.
+function captureFigure(){
+const view=viewer.getView().slice(), source=viewer.getCanvas();
+const ratio=window.devicePixelRatio||1;
+const gl=source.getContext('webgl2')||source.getContext('webgl');
+if(!gl||gl.isContextLost())throw new Error('The 3D view lost its graphics context. Reset the view and retry.');
+const limit=Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE),gl.getParameter(gl.MAX_RENDERBUFFER_SIZE));
+if(limit<W)throw new Error('This device cannot render the 600-DPI figure. Try a desktop browser with graphics acceleration.');
+const snapshot=document.createElement('canvas');snapshot.width=W;snapshot.height=2160;
+try{
+viewer.setWidth(Math.ceil(W/ratio));viewer.setHeight(Math.ceil(2160/ratio));viewer.setView(view);viewer.render();
+if(gl.isContextLost()||source.width<W||source.height<2160||gl.drawingBufferWidth<W||gl.drawingBufferHeight<2160)throw new Error('Graphics memory was insufficient for this export. Close other 3D views and retry.');
+const ctx=snapshot.getContext('2d');ctx.drawImage(source,0,0,W,2160);
+const pixels=ctx.getImageData(0,0,W,2160).data;let visible=false;
+for(let i=512;i<pixels.length;i+=512){if(Math.abs(pixels[i]-pixels[0])+Math.abs(pixels[i+1]-pixels[1])+Math.abs(pixels[i+2]-pixels[2])>24){visible=true;break;}}
+if(!visible)throw new Error('No molecular image was captured. Reset the view and retry.');
+return snapshot;
+}finally{
+viewer.setWidth(666);viewer.setHeight(360);viewer.setView(view);viewer.render();
+}}
+async function exportFigure(format){
 try{document.getElementById('png').disabled=true;document.getElementById('pdf').disabled=true;document.getElementById('status').textContent='Rendering publication image…';
-highViewer=highViewer||setup(document.getElementById('render'));high=highViewer;applyStyle(high);high.setView(viewer.getView());high.render();
-const image=high.getCanvas();
-if(!image||image.width<W||image.height<2160)throw new Error('High-resolution rendering is unavailable on this device. Try a desktop browser.');
+const image=captureFigure();
 const a=appearance(),canvas=document.createElement('canvas');canvas.width=W;canvas.height=H;const ctx=canvas.getContext('2d');ctx.fillStyle=a.background;ctx.fillRect(0,0,W,H);ctx.drawImage(image,0,0,W,2160);
 // Center a compact two-item legend; metadata belongs to the manuscript caption.
 ctx.font='76px Arial';ctx.textBaseline='middle';const swatch=108,gap=48,between=192;
