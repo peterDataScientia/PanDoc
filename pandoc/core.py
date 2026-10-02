@@ -114,13 +114,23 @@ def reference_from_pdb(pdb, smiles):
     from rdkit import Chem
     from rdkit.Chem import AllChem
     raw = Chem.MolFromPDBBlock(pdb, removeHs=True, sanitize=False)
-    template = Chem.MolFromSmiles(smiles)
+    template = Chem.MolFromSmiles(smiles.strip())
     if raw is None or template is None:
         raise ValueError('Could not parse reference ligand or its SMILES.')
     raw = Chem.RemoveHs(raw, sanitize=False)
     template = Chem.RemoveHs(template)
     if raw.GetNumAtoms() != template.GetNumAtoms():
-        raise ValueError('Reference heavy-atom count differs from SMILES. Check ligand selection and completeness.')
+        from collections import Counter
+        residues = ', '.join(sorted({key(a) for a in atoms(pdb)}))
+        def composition(mol):
+            counts = Counter(a.GetSymbol() for a in mol.GetAtoms() if a.GetAtomicNum() > 1)
+            return ' '.join(f'{element}:{count}' for element, count in sorted(counts.items()))
+        raise ValueError(
+            f'Reference ligand {residues} contains {raw.GetNumHeavyAtoms()} heavy atoms '
+            f'({composition(raw)}), but the SMILES contains {template.GetNumHeavyAtoms()} '
+            f'({composition(template)}). Select the correct ligand and use its exact SMILES. '
+            'Check missing ligand atoms and disconnected salt fragments; adding hydrogens will not fix this mismatch.'
+        )
     mol = AllChem.AssignBondOrdersFromTemplate(template, raw)
     Chem.SanitizeMol(mol)
     if not mol.GetNumConformers():
