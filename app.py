@@ -121,6 +121,10 @@ try:
             retained = st.multiselect('Retain waters, ions or cofactors', other)
             ref_options = [r['residue'] for r in rows if r['kind']=='Other component']
             ref = st.selectbox('Crystallographic reference ligand', ['None']+ref_options)
+            excluded_reference = ref in retained
+            if excluded_reference:
+                st.info(f'{ref} will be saved separately for redocking and excluded from the receptor.')
+            retained = [residue for residue in retained if residue != ref]
             alt = st.selectbox('Default alternate conformation', ['A', 'B', 'C'])
             overrides = {}
             with st.expander('Select alternate conformations by residue'):
@@ -130,11 +134,9 @@ try:
                         overrides[r['residue']] = st.selectbox(r['residue'], options, key='alt'+r['residue'])
             if st.button('Save component selection', type='primary'):
                 chosen = [r['residue'] for r in rows if r['kind']=='Protein' and r['chain'] in selected_chains]+retained
-                if ref in chosen:
-                    raise ValueError('Remove the reference ligand from retained receptor components before redocking.')
                 receptor = core.select(pdb, chosen, alt, overrides)
                 reference = core.select(pdb, [ref], alt, overrides) if ref!='None' else None
-                selection = dict(chains=selected_chains, retained=retained, reference=ref, alternate=alt, overrides=overrides)
+                selection = dict(chains=selected_chains, retained=retained, reference=ref, alternate=alt, overrides=overrides, reference_excluded_from_receptor=excluded_reference)
                 selection_id = core.digest(receptor, reference, selection)
                 if st.session_state.get('selection_id') != selection_id:
                     for k in ('preparation_id', 'reference_path', 'receptor_path', 'validation_job'):
