@@ -13,11 +13,7 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Optional heavy-atom reconstruction:
-
-```bash
-pip install -r requirements-repair.txt
-```
+PDBFixer and OpenMM are included in the main requirements. Heavy-atom reconstruction is available by checking the repair option during receptor preparation; it is not run automatically.
 
 Docker:
 
