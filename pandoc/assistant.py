@@ -37,7 +37,7 @@ def context_snapshot(state, job=None):
     context['preparation_changes'] = (report.get('repair_changes', [])+report.get('preparation_changes', []))[:100]
     context['total_preparation_changes'] = len(report.get('repair_changes', []))+len(report.get('preparation_changes', []))
     context['diagnostic'] = clean_diagnostic(state.get('assistant_diagnostic', ''))
-    context['available_actions'] = ['Load complex', 'Prepare structures', 'Prepare receptor', 'Rebuild missing heavy atoms with PDBFixer', 'Optional curated receptor PDB', 'Meeko residue template assignments', 'Save docking box', 'Validate docking', 'Run experiment', 'Explore results']
+    context['available_actions'] = ['Load complex', 'Use selection and continue', 'Prepare structures', 'Prepare receptor', 'Advanced preparation', 'Structure details', 'Rebuild missing heavy atoms with PDBFixer', 'Optional curated receptor PDB', 'Meeko residue template assignments', 'Save docking box', 'Validate docking', 'Run experiment', 'Explore results']
     if job is not None:
         path = Path(job)
         config = json.loads((path/'config.json').read_text())

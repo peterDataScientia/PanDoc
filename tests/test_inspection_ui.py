@@ -18,13 +18,27 @@ def test_alternate_choice_and_issue_panel_reach_preparation():
     assert not list(app.exception)
     alternate=next(s for s in app.selectbox if s.label=='A:1:ALA')
     assert alternate.value=='B'
-    next(b for b in app.button if b.label=='Save component selection').click().run()
+    next(b for b in app.button if b.label=='Use selection and continue').click().run()
     assert not list(app.exception)
     selected=app.session_state['selected_pdb']
     assert len(core.atoms(selected))==4
     assert not any(a['alt'] for a in core.atoms(selected))
-    next(w for w in app.radio if w.label=='Workflow').set_value('2 · Prepare structures').run()
+    assert app.session_state['workflow_stage']=='2 · Prepare structures'
     assert not list(app.exception)
     assert any(s.label=='Inspect an issue' for s in app.selectbox)
     assert any(i['problem']=='Missing heavy atoms: CB' for i in app.session_state['assistant_structure_checks']['issues'])
     assert app.session_state['preparation_review']['pH_context']==7
+
+
+def test_preparation_is_available_without_confirmation_and_repair_is_default():
+    pdb='\n'.join([atom(1,'N',(-2,0,0)),atom(2,'CA',(0,0,0)),atom(3,'C',(2,0,0)),atom(4,'O',(3.2,0,0))])
+    app=AppTest.from_file(str(Path(__file__).parents[1]/'app.py')).run()
+    app.session_state['selected_pdb']=pdb
+    app.session_state['next_stage']='2 · Prepare structures'
+    app.run()
+    assert not list(app.exception)
+    assert not next(b for b in app.button if b.label=='Prepare receptor').disabled
+    assert next(c for c in app.checkbox if c.label=='Rebuild missing heavy atoms with PDBFixer').value
+    assert not any(c.label=='I reviewed the receptor components and intended protonation states.' for c in app.checkbox)
+    assert not next(e for e in app.expander if e.label=='Advanced preparation').proto.expanded
+    assert not next(e for e in app.expander if e.label=='Structure details').proto.expanded

@@ -71,7 +71,7 @@ def test_search_review_load_workflow(tmp_path, monkeypatch):
     assert (tmp_path/'source_original.cif').read_text() == cif
     manifest = json.loads((tmp_path/'experiment.json').read_text())
     assert manifest['structure_source']['pdb_id'] == '1LF2'
-    assert any(b.label == 'Save component selection' for b in app.button)
+    assert any(b.label == 'Use selection and continue' for b in app.button)
 
 
 def test_download_size_limit_and_provenance(monkeypatch):

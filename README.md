@@ -103,8 +103,11 @@ Answers remain visible across reruns within the same session. Requests occur onl
 ### Automatic structure inspection
 
 Loading a complex now runs coordinate screening before component cleanup. The
-Structure issues panel shows the detected residue, explanation and next action;
-selecting an issue focuses and highlights that residue in the molecular viewer.
+Structure details section shows the detected residue, explanation and next action;
+Focus on selected residue highlights and focuses it in the molecular viewer.
+Use selection and continue opens preparation directly. Prepare receptor rebuilds
+missing heavy atoms by default, without an extra confirmation checkbox. Advanced
+settings and diagnostic reports are collapsed until needed.
 Standard amino-acid checks identify missing heavy atoms by name, unexpected atom
 names, duplicate records, severe overlaps, terminal oxygen geometry, possible
 chain breaks, alternate positions and zero occupancy. Waters, metals and other
