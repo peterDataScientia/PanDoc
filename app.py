@@ -126,7 +126,7 @@ def publication_figure(job, row):
     st.subheader('Publication figure · crystallographic and redocked ligand')
     rmsd = core.reference_rmsd(reference, pose)
     st.caption(f"Seed {row['seed']} · pose {row['rank']} · heavy-atom RMSD {rmsd:.3f} Å. Original coordinates; no ligand fitting.")
-    st.caption('Shaded ball and stick · cyan: crystallographic · magenta: redocked. Rotate both together and adjust colors or background. Exports contain only the two color legend labels.')
+    st.caption('Shaded ball and stick · cyan: crystallographic · magenta: redocked. Rotate both together. The optional rounded border, width, color and corner radius are included in PNG/PDF exports.')
     import streamlit.components.v1 as components
     components.html(figures.overlay_html(reference, pose, seed=row['seed'], rank=row['rank']), height=620, scrolling=True)
     st.caption('PNG: 3996 × 2340 pixels, 600 DPI. PDF: 6.66 × 3.90 inches with a raster molecular panel. Review the camera and labels before publication.')

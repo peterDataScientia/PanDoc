@@ -22,6 +22,8 @@ def test_overlay_preserves_fixed_frame_and_omits_hydrogens():
     assert np.array_equal(before, conf.GetPositions())
     assert '3996' in html and '2340' in html
     assert 'drawScene(canvas)' in html
+    assert 'borderEnabled' in html and 'borderColor' in html and 'borderWidth' in html
+    assert 'borderRadius' in html and 'quadraticCurveTo' in html
     assert len(data['models']) == 2
     assert np.allclose(data['models'][1]['atoms'], Chem.RemoveHs(pose).GetConformer().GetPositions())
     assert "'pdb'" not in html
@@ -101,7 +103,6 @@ def test_pdf_export_without_external_library(tmp_path):
             pixels = zlib.decompress(pixels)
         assert pixels == bytes([255,0,0,0,255,0])
         (tmp_path/('compressed.pdf' if compressed else 'raw.pdf')).write_bytes(pdf)
-
 
 
 
