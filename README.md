@@ -92,3 +92,9 @@ Select a result and click **View structure details** to review chain-specific mo
 The experiment records the search criteria/query, chosen PDB ID, metadata, retrieval time, download URL, selection rationale and original-file SHA-256; the original mmCIF is included in the experiment archive. Changing the loaded complex clears previous preparation and active-result selections. Older calculation files remain in the experiment for provenance. API failures leave the currently loaded structure intact; file upload remains available.
 
 For browser export regression checks, `?publication_demo=1` opens a clearly labelled synthetic ligand overlay using the production export component. It does not run docking or replace experiment data.
+
+### Scientific assistant
+
+Open **Scientific assistant** below the workflow. Add `GROQ_API_KEY = "your-key"` in Streamlit **App settings → Secrets**, or in the ignored `.streamlit/secrets.toml` locally. Environment variables are also supported. The default model is `openai/gpt-oss-120b`; optionally set `GROQ_MODEL` in secrets. Ask “What does docking exhaustiveness mean?” to test the connection.
+
+Answers remain visible across reruns within the same session. Requests occur only on Ask. Optional context includes box settings and a chosen calculation's settings/status and first 50 result rows; the exact snapshot remains available with the answer. Molecular files, SMILES, ligand names, paths, and interactions are not automatically sent. This assistant explains information; it cannot execute calculations, change settings, or search literature. Model/account quotas apply.

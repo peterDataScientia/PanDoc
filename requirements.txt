@@ -14,3 +14,6 @@ pandas>=2.2,<4
 # Protein heavy-atom reconstruction is available in the hosted app.
 pdbfixer==1.12.0
 openmm>=8.2,<9
+
+# Optional scientific assistant
+groq>=0.31,<1

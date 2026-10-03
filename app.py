@@ -593,3 +593,7 @@ except Exception as exc:
     st.error(str(exc))
     with st.expander('Diagnostic details'):
         st.exception(exc)
+
+
+from pandoc import assistant
+assistant.render(st, root)
