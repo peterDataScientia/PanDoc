@@ -36,7 +36,8 @@ def test_sdk_request_and_session_persistence(monkeypatch, tmp_path):
     assert not list(at.exception)
     assert len(calls)==1
     assert calls[0]['model']==assistant.MODEL
-    assert len(calls[0]['messages'])==2
+    assert len(calls[0]['messages'])==3
+    assert 'box_units' in calls[0]['messages'][1]['content']
     at.run()
     assert len(calls)==1
     assert at.session_state['assistant_answer']['answer'].startswith('Exhaustiveness')
@@ -49,3 +50,14 @@ def test_missing_key_is_nonfatal(monkeypatch,tmp_path):
     next(b for b in at.button if b.label=='Ask').click().run()
     assert not list(at.exception)
     assert list(at.warning)
+
+
+def test_panel_context_change_marks_answer_stale(monkeypatch, tmp_path):
+    monkeypatch.setattr(assistant, 'setting', lambda *args: '')
+    script = "import streamlit as st\nfrom pandoc import assistant\nst.session_state.setdefault('center', [1,2,3])\nassistant.render(st, " + repr(str(tmp_path)) + ", panel=True)"
+    at = AppTest.from_string(script).run()
+    at.session_state['assistant_answer'] = dict(question='Old question', answer='Old answer', model=assistant.MODEL, context={}, fingerprint='old')
+    at.session_state['center'] = [4,5,6]
+    at.run()
+    assert not list(at.exception)
+    assert any('earlier context' in w.value for w in at.warning)
