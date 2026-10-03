@@ -295,7 +295,7 @@ heading, assistant_control = st.columns([7, 3])
 with assistant_control:
     st.toggle('Assistant', key='assistant_open', value=False)
 if st.session_state.assistant_open:
-    workspace, assistant_panel = st.columns([7, 3], gap='large')
+    workspace, assistant_panel = st.columns([3, 2], gap='large')
 else:
     workspace = st.container()
 def show_assistant():
