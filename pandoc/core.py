@@ -314,7 +314,11 @@ def prepare_receptor(pdb, directory, template_assignments=''):
     log = completed.stdout + '\n' + completed.stderr
     (directory/'preparation.log').write_text(log)
     if completed.returncode != 0 or not (directory/'receptor.pdbqt').exists():
-        raise ValueError('Meeko preparation failed. Review the diagnostic log; no failed residues were automatically removed.\n' + log[-12000:])
+        clean = re.sub(r'\x1b\[[0-9;]*m', '', log)
+        residues = list(dict.fromkeys(re.findall(r"(?:key|residue_key)[= :]+['\"]?([A-Za-z0-9_]+:[0-9]+[A-Za-z]?)", clean)))
+        problem = 'Invalid inferred bonding or atom valence' if 'valence' in clean.lower() else 'Incomplete or unsupported residue chemistry'
+        affected = ', '.join(residues[:12]) or 'see the preparation log'
+        raise ValueError(f'{problem}. Affected residues: {affected}. Review coordinates, missing atoms and residue templates. No failed residues were removed. Full diagnostics: {directory / "preparation.log"}')
     return directory/'receptor.pdbqt'
 
 

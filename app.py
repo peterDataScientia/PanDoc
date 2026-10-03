@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from pandoc import core, jobs, figures, pdb_search
+from pandoc import core, jobs, figures, pdb_search, structure_checks
 
 st.set_page_config(page_title='PanDoc · Docking workbench', page_icon='🧬', layout='wide')
 st.markdown('''<style>
@@ -368,28 +368,57 @@ with workspace:
                 protein_tab, ligand_tab = st.tabs(['Receptor', 'Reference ligand'])
                 with protein_tab:
                     pdb = st.session_state.selected_pdb
-                    rows = core.inspect(pdb)
-                    incomplete = [r for r in rows if r['missing_estimate']]
-                    if incomplete:
-                        st.warning('Potentially incomplete residues detected. Counts are a preliminary screen; Meeko performs the chemical template check.')
-                        st.dataframe(pd.DataFrame(incomplete), hide_index=True)
-                    st.caption('Missing loops are not automatically reconstructed. Unmatched residues are not automatically deleted.')
                     repair = st.checkbox('Rebuild missing heavy atoms with PDBFixer')
                     intended_ph = st.number_input('Intended preparation pH (recorded context)', 0.0, 14.0, 7.0, 0.1)
                     st.caption('Recording pH does not predict residue states. Select states using reviewed template assignments or upload a curated receptor.')
                     curated = st.file_uploader('Optional curated receptor PDB', type=['pdb'], key='curated')
                     templates = st.text_input('Meeko residue template assignments', placeholder='A:17=HID,A:32=ASH')
                     notes = st.text_area('Preparation rationale', placeholder='Explain protonation, retained components and structural repairs.')
+                    selected_input = curated.getvalue().decode() if curated else pdb
+                    checks = structure_checks.check(selected_input)
+                    with st.expander('Structure checks', expanded=bool(checks['issues'])):
+                        st.caption(f"{checks['residue_count']} residues · {checks['heavy_atom_count']} heavy atoms")
+                        if checks['issues']:
+                            st.dataframe(pd.DataFrame(checks['issues']), hide_index=True)
+                        else:
+                            st.success('No issues detected by coordinate screening.')
+                        st.caption(checks['scope'])
                     confirm = st.checkbox('I reviewed the receptor components and intended protonation states.')
                     if st.button('Prepare receptor', type='primary', disabled=not confirm):
-                        final = curated.getvalue().decode() if curated else pdb
+                        final = selected_input
                         core.atoms(final)
                         if repair:
                             final = core.repair_heavy_atoms(final)
+                        final_checks = structure_checks.check(final)
+                        blocking = [issue for issue in final_checks['issues'] if issue['severity']=='Error']
+                        if blocking:
+                            st.error('Resolve the structure errors listed below before preparation.')
+                            st.dataframe(pd.DataFrame(blocking), hide_index=True)
+                            st.stop()
+                        repair_changes = structure_checks.changes(selected_input, final)
                         prep_id = core.digest(final, templates, intended_ph, core.versions())
                         directory = root/'preparations'/prep_id
                         with st.spinner('Checking chemistry and preparing receptor…'):
-                            path = core.prepare_receptor(final, directory, templates)
+                            report = dict(input_checks=checks, repaired_checks=final_checks, repair_changes=repair_changes)
+                            directory.mkdir(parents=True, exist_ok=True)
+                            (directory/'structure_report.json').write_text(json.dumps(report, indent=2))
+                            try:
+                                path = core.prepare_receptor(final, directory, templates)
+                            except ValueError as exc:
+                                st.error(str(exc).split(' Full diagnostics:')[0])
+                                with st.expander('Preparation diagnostic log'):
+                                    st.code((directory/'preparation.log').read_text())
+                                st.download_button('Download failed preparation report', (directory/'structure_report.json').read_bytes(), 'structure_report.json', 'application/json')
+                                st.download_button('Download preparation input PDB', (directory/'receptor_input.pdb').read_bytes(), 'receptor_input.pdb')
+                                st.stop()
+                            prepared_output = (directory/'receptor_prepared.pdb').read_text()
+                            report.update(prepared_checks=structure_checks.check(prepared_output), preparation_changes=structure_checks.changes(final, prepared_output))
+                            missing_residues = {core.key(a) for a in core.atoms(final)} - {core.key(a) for a in core.atoms(prepared_output)}
+                            for residue in sorted(missing_residues):
+                                report['prepared_checks']['issues'].append(dict(severity='Error', residue=residue, problem='Residue absent from prepared output', action='Review preparation; removed residues cannot be silently accepted.'))
+                            (directory/'structure_report.json').write_text(json.dumps(report, indent=2))
+                            if any(i['severity']=='Error' for i in report['prepared_checks']['issues']):
+                                raise ValueError('Prepared receptor failed coordinate validation. Inspect the saved structure report before using it.')
                         st.session_state.update(receptor_path=str(path), prepared_pdb=(directory/'receptor_prepared.pdb').read_text(), preparation_id=prep_id,
                             preparation_record=dict(pH_context=intended_ph, templates=templates, repaired_heavy_atoms=repair, curated_upload=curated.name if curated else None, rationale=notes))
                         manifest()
@@ -403,6 +432,20 @@ with workspace:
                             aa=core.atoms(text)
                             comparison.append(dict(structure=label,atoms=len(aa),heavy_atoms=sum(a['element'] not in ('H','D') for a in aa),residues=len({core.key(a) for a in aa})))
                         st.dataframe(pd.DataFrame(comparison),hide_index=True)
+                        report_path = path.parent/'structure_report.json'
+                        if report_path.exists():
+                            report = json.loads(report_path.read_text())
+                            with st.expander('Repair summary and prepared-structure checks', expanded=True):
+                                changes = report.get('repair_changes', []) + report.get('preparation_changes', [])
+                                if changes:
+                                    st.dataframe(pd.DataFrame(changes), hide_index=True)
+                                else:
+                                    st.caption('No heavy-atom additions, removals or coordinate changes detected.')
+                                post = report.get('prepared_checks', {})
+                                if post.get('issues'):
+                                    st.dataframe(pd.DataFrame(post['issues']), hide_index=True)
+                                st.caption(post.get('scope', ''))
+                                st.download_button('Download structure report', report_path.read_bytes(), 'structure_report.json', 'application/json', on_click='ignore')
                         viewer(pdb=prepared_text)
                         st.download_button('Download receptor PDBQT', path.read_bytes(), 'receptor.pdbqt')
                         with st.expander('Meeko preparation log'):
