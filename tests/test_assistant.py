@@ -61,3 +61,19 @@ def test_panel_context_change_marks_answer_stale(monkeypatch, tmp_path):
     at.run()
     assert not list(at.exception)
     assert any('earlier context' in w.value for w in at.warning)
+
+
+def test_followup_sends_conversation_history(monkeypatch):
+    import groq
+    captured = []
+    class FakeClient:
+        def __init__(self, **kwargs): self.chat = SimpleNamespace(completions=self)
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def create(self, **kwargs):
+            captured.extend(kwargs['messages'])
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='Follow-up answer'))])
+    monkeypatch.setattr(groq, 'Groq', FakeClient)
+    assistant.ask('Why?', 'test', history=[dict(question='Explain RMSD', answer='RMSD measures pose deviation')])
+    assert [m['role'] for m in captured] == ['system', 'user', 'assistant', 'user']
+    assert captured[2]['content'] == 'RMSD measures pose deviation'

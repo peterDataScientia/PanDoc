@@ -46,7 +46,7 @@ root = Path(st.session_state.root)
 
 def viewer(pdb=None, sdf=None, reference=None, center=None, size=None):
     import py3Dmol
-    view = py3Dmol.view(width=850, height=430)
+    view = py3Dmol.view(width='100%', height=430)
     view.setBackgroundColor('#ffffff')
     if pdb:
         view.addModel(pdb, 'pdb')
@@ -63,7 +63,12 @@ def viewer(pdb=None, sdf=None, reference=None, center=None, size=None):
     if center and size:
         view.addBox({'center': dict(zip('xyz', center)), 'dimensions': dict(zip('whd', size)), 'color': '#f59e0b', 'wireframe': True})
     view.zoomTo()
-    st.iframe(view._make_html(), height=450)
+    import streamlit.components.v1 as components
+    html = view._make_html()
+    controls = f"""<div style='padding:6px'><button onclick='viewer_{view.uniqueid}.zoom(1.2);viewer_{view.uniqueid}.render()'>Zoom +</button>
+<button onclick='viewer_{view.uniqueid}.zoom(0.8);viewer_{view.uniqueid}.render()'>Zoom −</button>
+<button onclick='viewer_{view.uniqueid}.zoomTo();viewer_{view.uniqueid}.render()'>Fit structure</button></div>"""
+    components.html(html + controls, height=490, scrolling=False)
 
 
 def publication_figure(job, row):
@@ -571,8 +576,12 @@ with workspace:
                     if validation and (active_job/'results.json').exists():
                         figure_rows = json.loads((active_job/'results.json').read_text())
                         if figure_rows:
-                            figure_index = st.selectbox('Figure pose', range(len(figure_rows)),
-                                format_func=lambda i: f"Seed {figure_rows[i]['seed']} · pose {figure_rows[i]['rank']}", key='validation_figure_pose')
+                            ordered = sorted(range(len(figure_rows)), key=lambda i: figure_rows[i].get('reference_rmsd_A', float('inf')))
+                            pose_key = 'validation_figure_pose_' + active_job.name
+                            if st.button('Display lowest-RMSD pose', key='best_' + active_job.name):
+                                st.session_state[pose_key] = ordered[0]
+                            figure_index = st.selectbox('Figure pose · sorted by RMSD', ordered,
+                                format_func=lambda i: f"Seed {figure_rows[i]['seed']} · pose {figure_rows[i]['rank']} · RMSD {figure_rows[i].get('reference_rmsd_A', float('nan')):.3f} Å · score {figure_rows[i]['score_kcal_mol']:.2f} kcal/mol", key=pose_key)
                             st.session_state.assistant_active_job = str(active_job)
                             st.session_state.assistant_selected_pose = figure_rows[figure_index]
                             publication_figure(active_job, figure_rows[figure_index])
@@ -601,7 +610,11 @@ with workspace:
                         b.metric('Top-ranked pose recovery',f"{int((top.reference_rmsd_A<=threshold).sum())}/{len(top)} seeds")
                         c.metric('Best-pose recovery',f"{int((df.groupby('seed').reference_rmsd_A.min()<=threshold).sum())}/{len(top)} seeds")
                         st.caption('Pose recovery tests this receptor and protocol. It does not validate experimental affinity predictions.')
-                    index=st.selectbox('Inspect pose',list(range(len(rows))),format_func=lambda i:f"{rows[i]['ligand']} · seed {rows[i]['seed']} · pose {rows[i]['rank']}")
+                    pose_key = 'inspect_pose_' + job.name
+                    ordered = sorted(range(len(rows)), key=lambda i: rows[i].get('reference_rmsd_A', rows[i]['score_kcal_mol']))
+                    if st.button('Display lowest-RMSD pose' if 'reference_rmsd_A' in df else 'Display lowest-score pose', key='best_explore_' + job.name):
+                        st.session_state[pose_key] = ordered[0]
+                    index=st.selectbox('Inspect pose',ordered,format_func=lambda i:f"{rows[i]['ligand']} · seed {rows[i]['seed']} · pose {rows[i]['rank']} · score {rows[i]['score_kcal_mol']:.2f}" + (f" · RMSD {rows[i]['reference_rmsd_A']:.3f} Å" if 'reference_rmsd_A' in rows[i] else ''), key=pose_key)
                     row=rows[index]
                     st.session_state.assistant_selected_pose = row
                     from rdkit import Chem
