@@ -46,7 +46,7 @@ for(let bond=0;bond<Math.max(1,order);bond++){const offset=(bond-(Math.max(1,ord
 for(let n=0;n<12;n++){const t=n/12,u=(n+1)/12;objects.push({type:'bond',z:a.z+(b.z-a.z)*(t+u)/2,color,r:0.11*a.scale,a:{x:a.x+dx*t+ox,y:a.y+dy*t+oy},b:{x:a.x+dx*u+ox,y:a.y+dy*u+oy}});}}}
 for(const a of atoms)objects.push({type:'atom',...a,color,r:(colors.style==='ball'?0.28:0.13)*a.scale});}
 objects.sort((a,b)=>a.z-b.z);
-for(const o of objects){if(o.type==='bond'){ctx.lineCap='round';ctx.strokeStyle=tint(o.color,0.62);ctx.lineWidth=o.r*2;ctx.beginPath();ctx.moveTo(o.a.x,o.a.y);ctx.lineTo(o.b.x,o.b.y);ctx.stroke();ctx.strokeStyle=o.color;ctx.lineWidth=o.r*1.45;ctx.stroke();}
+for(const o of objects){if(o.type==='bond'){ctx.lineCap='butt';ctx.strokeStyle=tint(o.color,0.62);ctx.lineWidth=o.r*2;ctx.beginPath();ctx.moveTo(o.a.x,o.a.y);ctx.lineTo(o.b.x,o.b.y);ctx.stroke();ctx.strokeStyle=o.color;ctx.lineWidth=o.r*1.45;ctx.stroke();}
 else{const g=ctx.createRadialGradient(o.x-o.r*0.35,o.y-o.r*0.35,o.r*0.03,o.x,o.y,o.r);g.addColorStop(0,'#f0ffff');g.addColorStop(0.22,tint(o.color,1.12));g.addColorStop(0.62,o.color);g.addColorStop(1,tint(o.color,0.48));ctx.fillStyle=g;ctx.beginPath();ctx.arc(o.x,o.y,o.r,0,Math.PI*2);ctx.fill();}}
 ctx.restore();ctx.font='13px Arial';ctx.textBaseline='middle';const labels=['Crystallographic','Redocked'],palette=[colors.reference,colors.pose],widths=labels.map(label=>26+ctx.measureText(label).width);let x=(666-widths[0]-widths[1]-32)/2;
 for(let i=0;i<2;i++){ctx.fillStyle=palette[i];ctx.fillRect(x,371,18,8);ctx.fillStyle=colors.background==='#ffffff'?'#222':'#f5f5f5';ctx.fillText(labels[i],x+26,375);x+=widths[i]+32;}
