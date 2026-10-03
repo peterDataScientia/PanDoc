@@ -9,32 +9,55 @@ def overlay_html(reference, pose, *, seed, rank):
     reference = Chem.RemoveHs(reference)
     pose = Chem.RemoveHs(pose)
     rmsd = core.reference_rmsd(reference, pose)
-    payload = json.dumps(dict(reference=Chem.MolToMolBlock(reference),
+    def scene(mol):
+        conf = mol.GetConformer()
+        return dict(atoms=[list(conf.GetAtomPosition(i)) for i in range(mol.GetNumAtoms())],
+                    bonds=[[b.GetBeginAtomIdx(), b.GetEndAtomIdx(), 1 if b.GetIsAromatic() else int(b.GetBondTypeAsDouble())] for b in mol.GetBonds()])
+    payload = json.dumps(dict(models=[scene(reference), scene(pose)], reference=Chem.MolToMolBlock(reference),
                               pose=Chem.MolToMolBlock(pose), seed=int(seed),
                               rank=int(rank), rmsd=float(rmsd))).replace('<', '\\u003c')
     return _HTML.replace('__DATA__', payload)
 
 
 _HTML = r'''<!doctype html><html><head><meta charset="utf-8">
-<script src="https://3Dmol.org/build/3Dmol-min.js"></script>
-<style>body{font:14px Arial;margin:0;color:#16324f}#view{width:666px;height:360px;position:relative;}button{padding:9px;margin:8px 6px 8px 0;cursor:pointer}#legend{height:30px;display:flex;align-items:center;justify-content:center;gap:32px;background:white;color:#222}.swatch{display:inline-block;width:18px;height:8px;margin-right:8px;vertical-align:middle}label{margin-right:16px}#render{position:fixed;left:-20000px;top:0;width:3996px;height:2160px}</style></head>
-<body><div style="overflow:auto"><div id="view"></div></div><div id="legend"><span><i id="referenceSwatch" class="swatch"></i>Crystallographic</span><span><i id="poseSwatch" class="swatch"></i>Redocked</span></div>
+<style>body{font:14px Arial;margin:0;color:#16324f}#scene{width:666px;height:390px;touch-action:none;cursor:grab}button{padding:9px;margin:8px 6px 8px 0;cursor:pointer}label{margin-right:12px}</style></head><body>
+<div style="overflow:auto"><canvas id="scene" width="1332" height="780"></canvas></div>
 <p><label>Reference <input id="referenceColor" type="color" value="#00cdd4"></label><label>Redocked <input id="poseColor" type="color" value="#d500d5"></label><label>Background <select id="background"><option value="#ffffff">White</option><option value="#2d3336">Dark</option></select></label><label>Style <select id="style"><option value="ball">Ball and stick</option><option value="stick">Sticks</option></select></label></p>
-<button id="reset">Reset view</button><button id="png">Download PNG · 600 DPI</button><button id="pdf">Download PDF</button>
-<p id="status">Drag to rotate both ligands together; scroll to zoom. Original receptor coordinates are preserved.</p>
+<button type="button" id="reset">Reset view</button><button type="button" id="png">Download PNG · 600 DPI</button><button type="button" id="pdf">Download PDF</button>
+<p id="status">Drag to rotate; Shift-drag to move; scroll to zoom. Both ligands move together.</p>
 <script>
 const data=__DATA__, W=3996,H=2340;
-const caption=`Seed ${data.seed} · pose ${data.rank} · heavy-atom RMSD ${data.rmsd.toFixed(3)} Å (no fitting)`;
-// Only the two color labels are drawn inside the publication figure.
-let viewer, initialView;
+// Original coordinates are immutable; only this shared camera changes.
+const points=data.models.flatMap(m=>m.atoms),bounds=[0,1,2].map(k=>[Math.min(...points.map(p=>p[k])),Math.max(...points.map(p=>p[k]))]);
+const center=bounds.map(b=>(b[0]+b[1])/2),radius=Math.max(...points.map(p=>Math.hypot(...p.map((v,k)=>v-center[k]))),1);
+const camera={yaw:0,pitch:0,zoom:1,x:0,y:0};
 function appearance(){return {reference:document.getElementById('referenceColor').value,pose:document.getElementById('poseColor').value,background:document.getElementById('background').value,style:document.getElementById('style').value};}
-function applyStyle(v){const a=appearance();v.setBackgroundColor(a.background);
-for(const [model,color] of [[0,a.reference],[1,a.pose]]){const style={stick:{color,radius:0.14}};if(a.style==='ball')style.sphere={color,radius:0.28};v.setStyle({model},style);}v.render();}
-function updateAppearance(){applyStyle(viewer);const a=appearance();document.getElementById('legend').style.background=a.background;document.getElementById('legend').style.color=a.background==='#ffffff'?'#222':'#f5f5f5';document.getElementById('referenceSwatch').style.background=a.reference;document.getElementById('poseSwatch').style.background=a.pose;}
-function setup(element){const v=$3Dmol.createViewer(element,{backgroundColor:appearance().background,antialias:true,upscale:false});
-v.addModel(data.reference,'sdf');v.addModel(data.pose,'sdf');
-applyStyle(v);v.zoomTo();v.render();return v;}
-function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);}
+function tint(color,factor){const values=[1,3,5].map(i=>parseInt(color.slice(i,i+2),16));return 'rgb('+values.map(v=>Math.round(Math.min(255,v*factor))).join(',')+')';}
+function project(p){const x=p[0]-center[0],y=p[1]-center[1],z=p[2]-center[2],cy=Math.cos(camera.yaw),sy=Math.sin(camera.yaw),cp=Math.cos(camera.pitch),sp=Math.sin(camera.pitch);
+const a=cy*x+sy*z,b=-sy*x+cy*z,scale=150/radius*camera.zoom;
+return {x:333+camera.x+a*scale,y:180+camera.y-(cp*y-sp*b)*scale,z:sp*y+cp*b,scale};}
+function drawScene(canvas){const ctx=canvas.getContext('2d',{alpha:false,willReadFrequently:true}),factor=canvas.width/666;
+ctx.setTransform(factor,0,0,factor,0,0);const colors=appearance();ctx.fillStyle=colors.background;ctx.fillRect(0,0,666,390);
+ctx.save();ctx.beginPath();ctx.rect(0,0,666,360);ctx.clip();const objects=[];
+for(let model=0;model<2;model++){const molecule=data.models[model],atoms=molecule.atoms.map(project),color=model===0?colors.reference:colors.pose;
+for(const [ia,ib,order] of molecule.bonds){const a=atoms[ia],b=atoms[ib],dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy)||1;
+for(let bond=0;bond<Math.max(1,order);bond++){const offset=(bond-(Math.max(1,order)-1)/2)*0.19*a.scale,ox=-dy/len*offset,oy=dx/len*offset;
+for(let n=0;n<12;n++){const t=n/12,u=(n+1)/12;objects.push({type:'bond',z:a.z+(b.z-a.z)*(t+u)/2,color,r:0.11*a.scale,a:{x:a.x+dx*t+ox,y:a.y+dy*t+oy},b:{x:a.x+dx*u+ox,y:a.y+dy*u+oy}});}}}
+for(const a of atoms)objects.push({type:'atom',...a,color,r:(colors.style==='ball'?0.28:0.13)*a.scale});}
+objects.sort((a,b)=>a.z-b.z);
+for(const o of objects){if(o.type==='bond'){ctx.lineCap='round';ctx.strokeStyle=tint(o.color,0.62);ctx.lineWidth=o.r*2;ctx.beginPath();ctx.moveTo(o.a.x,o.a.y);ctx.lineTo(o.b.x,o.b.y);ctx.stroke();ctx.strokeStyle=o.color;ctx.lineWidth=o.r*1.45;ctx.stroke();}
+else{const g=ctx.createRadialGradient(o.x-o.r*0.35,o.y-o.r*0.35,o.r*0.03,o.x,o.y,o.r);g.addColorStop(0,'#f0ffff');g.addColorStop(0.22,tint(o.color,1.12));g.addColorStop(0.62,o.color);g.addColorStop(1,tint(o.color,0.48));ctx.fillStyle=g;ctx.beginPath();ctx.arc(o.x,o.y,o.r,0,Math.PI*2);ctx.fill();}}
+ctx.restore();ctx.font='13px Arial';ctx.textBaseline='middle';const labels=['Crystallographic','Redocked'],palette=[colors.reference,colors.pose],widths=labels.map(label=>26+ctx.measureText(label).width);let x=(666-widths[0]-widths[1]-32)/2;
+for(let i=0;i<2;i++){ctx.fillStyle=palette[i];ctx.fillRect(x,371,18,8);ctx.fillStyle=colors.background==='#ffffff'?'#222':'#f5f5f5';ctx.fillText(labels[i],x+26,375);x+=widths[i]+32;}
+return canvas;}
+const preview=document.getElementById('scene');
+function refresh(){drawScene(preview);}
+let drag=null;
+preview.onpointerdown=e=>{drag={x:e.clientX,y:e.clientY};preview.setPointerCapture(e.pointerId);};
+preview.onpointermove=e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(e.shiftKey){camera.x+=dx;camera.y+=dy;}else{camera.yaw+=dx*0.012;camera.pitch+=dy*0.012;}drag={x:e.clientX,y:e.clientY};refresh();};
+preview.onpointerup=()=>{drag=null;};preview.onpointercancel=()=>{drag=null;};
+preview.addEventListener('wheel',e=>{e.preventDefault();camera.zoom=Math.max(0.2,Math.min(5,camera.zoom*Math.exp(-e.deltaY*0.001)));refresh();},{passive:false});
+function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.target='_blank';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);}
 // Insert PNG physical resolution, preserving rendered pixels and valid chunk CRCs.
 function dpiPNG(bytes){const body=new Uint8Array(13),dv=new DataView(body.buffer);dv.setUint32(0,Math.round(600/0.0254));dv.setUint32(4,Math.round(600/0.0254));body[8]=1;
 const chunk=new Uint8Array(21);new DataView(chunk.buffer).setUint32(0,9);chunk.set([112,72,89,115],4);chunk.set(body.subarray(0,9),8);
@@ -63,43 +86,16 @@ for(let i=1;i<=5;i++)append(String(offsets[i]).padStart(10,'0')+' 00000 n \n');
 append(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
 return new Blob(parts,{type:'application/pdf'});
 }
-// Capture using the existing context. Account for device-pixel ratio so GPU
-// buffers are 3996 x 2160, rather than 2–3 times larger in each dimension.
-function captureFigure(){
-const view=viewer.getView().slice(), source=viewer.getCanvas();
-const ratio=window.devicePixelRatio||1;
-const gl=source.getContext('webgl2')||source.getContext('webgl');
-if(!gl||gl.isContextLost())throw new Error('The 3D view lost its graphics context. Reset the view and retry.');
-const limit=Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE),gl.getParameter(gl.MAX_RENDERBUFFER_SIZE));
-if(limit<W)throw new Error('This device cannot render the 600-DPI figure. Try a desktop browser with graphics acceleration.');
-const snapshot=document.createElement('canvas');snapshot.width=W;snapshot.height=2160;
-try{
-viewer.setWidth(Math.ceil(W/ratio));viewer.setHeight(Math.ceil(2160/ratio));viewer.setView(view);viewer.render();
-if(gl.isContextLost()||source.width<W||source.height<2160||gl.drawingBufferWidth<W||gl.drawingBufferHeight<2160)throw new Error('Graphics memory was insufficient for this export. Close other 3D views and retry.');
-const ctx=snapshot.getContext('2d');ctx.drawImage(source,0,0,W,2160);
-const pixels=ctx.getImageData(0,0,W,2160).data;let visible=false;
-for(let i=512;i<pixels.length;i+=512){if(Math.abs(pixels[i]-pixels[0])+Math.abs(pixels[i+1]-pixels[1])+Math.abs(pixels[i+2]-pixels[2])>24){visible=true;break;}}
-if(!visible)throw new Error('No molecular image was captured. Reset the view and retry.');
-return snapshot;
-}finally{
-viewer.setWidth(666);viewer.setHeight(360);viewer.setView(view);viewer.render();
-}}
 async function exportFigure(format){
 try{document.getElementById('png').disabled=true;document.getElementById('pdf').disabled=true;document.getElementById('status').textContent='Rendering publication image…';
-const image=captureFigure();
-const a=appearance(),canvas=document.createElement('canvas');canvas.width=W;canvas.height=H;const ctx=canvas.getContext('2d');ctx.fillStyle=a.background;ctx.fillRect(0,0,W,H);ctx.drawImage(image,0,0,W,2160);
-// Center a compact two-item legend; metadata belongs to the manuscript caption.
-ctx.font='76px Arial';ctx.textBaseline='middle';const swatch=108,gap=48,between=192;
-const labels=['Crystallographic','Redocked'],colors=[a.reference,a.pose];
-const widths=labels.map(label=>swatch+gap+ctx.measureText(label).width);
-let x=(W-widths[0]-widths[1]-between)/2;
-for(let i=0;i<2;i++){ctx.fillStyle=colors[i];ctx.fillRect(x,2250-24,swatch,48);ctx.fillStyle=a.background==='#ffffff'?'#222':'#f5f5f5';ctx.fillText(labels[i],x+swatch+gap,2250);x+=widths[i]+between;}
+const canvas=document.createElement('canvas');canvas.width=W;canvas.height=H;drawScene(canvas);
 const filename=`redocking_seed_${data.seed}_pose_${data.rank}`;
 if(format==='png'){const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw new Error('PNG encoding failed. Try exporting again.');download(dpiPNG(new Uint8Array(await blob.arrayBuffer())),filename+'.png');}
 else{download(await pdfBlob(canvas),filename+'.pdf');}
 document.getElementById('status').textContent='Exported 6.66 × 3.90 inches; PNG 3996 × 2340 pixels at 600 DPI. PDF contains a raster molecular panel.';
 }catch(e){document.getElementById('status').textContent='Export failed: '+e.message;}
 finally{document.getElementById('png').disabled=false;document.getElementById('pdf').disabled=false;}}
-try{viewer=setup(document.getElementById('view'));initialView=viewer.getView().slice();updateAppearance();for(const id of ['referenceColor','poseColor','background','style'])document.getElementById(id).onchange=updateAppearance;document.getElementById('reset').onclick=()=>{viewer.setView(initialView);viewer.render();};document.getElementById('png').onclick=()=>exportFigure('png');document.getElementById('pdf').onclick=()=>exportFigure('pdf');}
-catch(e){document.getElementById('status').textContent='Viewer could not load. Check internet access to 3Dmol.org. '+e.message;}
+document.getElementById('reset').onclick=()=>{Object.assign(camera,{yaw:0,pitch:0,zoom:1,x:0,y:0});refresh();};
+for(const id of ['referenceColor','poseColor','background','style'])document.getElementById(id).onchange=refresh;
+document.getElementById('png').onclick=()=>exportFigure('png');document.getElementById('pdf').onclick=()=>exportFigure('pdf');refresh();
 </script></body></html>'''

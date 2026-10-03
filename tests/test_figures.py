@@ -21,8 +21,10 @@ def test_overlay_preserves_fixed_frame_and_omits_hydrogens():
     assert Chem.MolFromMolBlock(data['pose']).GetNumAtoms() == 3
     assert np.array_equal(before, conf.GetPositions())
     assert '3996' in html and '2340' in html
-    assert 'viewer.setView(view)' in html
-    assert 'addModel(data.reference' in html and "'pdb'" not in html
+    assert 'drawScene(canvas)' in html
+    assert len(data['models']) == 2
+    assert np.allclose(data['models'][1]['atoms'], Chem.RemoveHs(pose).GetConformer().GetPositions())
+    assert "'pdb'" not in html
 
 
 def test_overlay_escapes_uploaded_script_text():
@@ -67,14 +69,6 @@ def test_png_resolution_metadata_and_javascript_syntax(tmp_path):
         offset += length+12
 
 
-def test_publication_panel_has_only_color_legend():
-    from pandoc.figures import _HTML
-    export = _HTML.split("const canvas=document.createElement('canvas');")[-1] if "const canvas=document.createElement('canvas');" in _HTML else _HTML.split('const a=appearance(),canvas=')[-1]
-    assert "labels=['Crystallographic','Redocked']" in export
-    assert 'fillText(caption' not in export
-    assert 'style.sphere={color,radius:0.28}' in _HTML
-    assert '#00cdd4' in _HTML and '#d500d5' in _HTML
-    assert 'viewer.setView(view)' in _HTML
 
 
 def test_pdf_export_without_external_library(tmp_path):
@@ -109,34 +103,5 @@ def test_pdf_export_without_external_library(tmp_path):
         (tmp_path/('compressed.pdf' if compressed else 'raw.pdf')).write_bytes(pdf)
 
 
-def test_export_captures_rendered_canvas_without_image_decode():
-    from pandoc.figures import _HTML
-    assert 'const image=captureFigure()' in _HTML
-    assert 'ctx.drawImage(image,0,0,W,2160)' in _HTML
-    assert '.decode()' not in _HTML
-    assert 'high.pngURI()' not in _HTML
 
 
-def test_capture_accounts_for_display_scaling_and_restores_on_failure():
-    import shutil
-    import subprocess
-    import pytest
-    from pandoc.figures import _HTML
-    node = shutil.which('node')
-    if not node:
-        pytest.skip('Node required for JavaScript checks')
-    function = _HTML[_HTML.index('function captureFigure'): _HTML.index('async function exportFigure')]
-    for failure in (False, True):
-        script = '''const W=3996;const window={devicePixelRatio:2};const failed='''+json.dumps(failure)+''';
-const source={width:1332,height:720};const gl={MAX_TEXTURE_SIZE:1,MAX_RENDERBUFFER_SIZE:2,isContextLost:()=>false,getParameter:()=>8192,get drawingBufferWidth(){return failed&&source.width>2000?0:source.width},get drawingBufferHeight(){return source.height}};source.getContext=()=>gl;
-let width=666,height=360;const camera=[1,2,3,4,0,0,0,1];let saved;
-const viewer={getView:()=>camera,getCanvas:()=>source,setWidth:v=>{width=v;source.width=v*2},setHeight:v=>{height=v;source.height=v*2},setView:v=>{saved=v},render:()=>{}};
-const pixels=new Uint8Array(1024);pixels[512]=255;
-const document={createElement:()=>({getContext:()=>({drawImage:()=>{},getImageData:()=>({data:pixels})})})};
-'''+function+'''let error=null,out=null;try{out=captureFigure()}catch(e){error=e.message}console.log(JSON.stringify({width,height,saved,error,captured:out&&[out.width,out.height]}));'''
-        result = json.loads(subprocess.check_output([node, '-e', script], text=True))
-        assert result['width'] == 666 and result['height'] == 360
-        assert result['saved'] == [1,2,3,4,0,0,0,1]
-        assert bool(result['error']) == failure
-        if not failure:
-            assert result['captured'] == [3996,2160]

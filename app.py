@@ -19,6 +19,23 @@ h1,h2,h3 { color: #16324f; }
 .block-container { padding-top: 2rem; }
 </style>''', unsafe_allow_html=True)
 
+# Isolated publication-export demonstration for browser regression checks.
+if st.query_params.get('publication_demo') == '1':
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+    import streamlit.components.v1 as components
+    reference = Chem.AddHs(Chem.MolFromSmiles('CCOc1ccc(CC(=O)NCCO)cc1'))
+    AllChem.EmbedMolecule(reference, randomSeed=2026)
+    pose = Chem.Mol(reference)
+    conf = pose.GetConformer()
+    for i in range(pose.GetNumAtoms()):
+        point = conf.GetAtomPosition(i)
+        conf.SetAtomPosition(i, (point.x+0.5, point.y+0.3, point.z))
+    st.title('Publication export demonstration')
+    st.caption('Synthetic fixture for export checks; these are not docking results.')
+    components.html(figures.overlay_html(reference, pose, seed=2026, rank=1), height=620, scrolling=True)
+    st.stop()
+
 if 'root' not in st.session_state:
     base = Path(os.environ.get('PANDOC_DATA_DIR', tempfile.gettempdir()))/'pandoc'
     root = base/uuid.uuid4().hex
@@ -64,7 +81,8 @@ def publication_figure(job, row):
     rmsd = core.reference_rmsd(reference, pose)
     st.caption(f"Seed {row['seed']} · pose {row['rank']} · heavy-atom RMSD {rmsd:.3f} Å. Original coordinates; no ligand fitting.")
     st.caption('Shaded ball and stick · cyan: crystallographic · magenta: redocked. Rotate both together and adjust colors or background. Exports contain only the two color legend labels.')
-    st.iframe(figures.overlay_html(reference, pose, seed=row['seed'], rank=row['rank']), height=620)
+    import streamlit.components.v1 as components
+    components.html(figures.overlay_html(reference, pose, seed=row['seed'], rank=row['rank']), height=620, scrolling=True)
     st.caption('PNG: 3996 × 2340 pixels, 600 DPI. PDF: 6.66 × 3.90 inches with a raster molecular panel. Review the camera and labels before publication.')
 
 
