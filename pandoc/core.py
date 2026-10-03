@@ -34,7 +34,7 @@ def atoms(pdb):
             element = line[76:78].strip() if len(line) >= 78 else ''
             if not element:
                 element = re.sub('[0-9]', '', name)[0]
-            result.append(dict(line=line, name=name, alt=line[16:17].strip(), res=line[17:20].strip(), chain=line[21:22].strip(), number=line[22:26].strip(), icode=line[26:27].strip(), xyz=[float(line[30:38]), float(line[38:46]), float(line[46:54])], element=element.upper(), record=line[:6].strip()))
+            result.append(dict(line=line, name=name, alt=line[16:17].strip(), res=line[17:20].strip(), chain=line[21:22].strip(), number=line[22:26].strip(), icode=line[26:27].strip(), xyz=[float(line[30:38]), float(line[38:46]), float(line[46:54])], element=element.upper(), record=line[:6].strip(), occupancy=float(line[54:60].strip() or '1')))
         except (ValueError, IndexError) as exc:
             raise ValueError('Malformed atom record: ' + line[:30]) from exc
     if not result:
@@ -64,19 +64,46 @@ def inspect(pdb):
 
 def select(pdb, residues, alternate='A', per_residue=None):
     per_residue = per_residue or {}
+    from .structure_checks import alternate_options
+    alternate_rows = alternate_options(pdb)
+    recommendations = {r['residue']: r['recommended'] for r in alternate_rows}
+    available = {r['residue']: {o['label'] for o in r['options']} for r in alternate_rows}
+    for residue, label in per_residue.items():
+        if residue in available and label not in available[residue]:
+            raise ValueError(f'Alternate {label} is not available for {residue}.')
     selected = []
     for a in atoms(pdb):
         if key(a) not in residues:
             continue
-        wanted = per_residue.get(key(a), alternate)
+        wanted = per_residue.get(key(a), alternate if alternate in available.get(key(a), set()) else recommendations.get(key(a), alternate))
         if a['alt'] and a['alt'] != wanted:
             continue
         line = a['line']
         selected.append(line[:16] + ' ' + line[17:])
     if not selected:
         raise ValueError('Selection contains no atoms.')
-    # Do not carry stale CONECT records after deleting components.
-    return '\n'.join(selected) + '\nEND\n'
+    # Preserve retained atom connectivity; discard bonds to excluded atoms.
+    serials = {int(line[6:11]) for line in selected}
+    metadata = []
+    for line in pdb.splitlines():
+        if line.startswith('ENDMDL'):
+            break
+        if line.startswith('CONECT'):
+            ids = [int(line[i:i+5]) for i in range(6, len(line), 5) if line[i:i+5].strip()]
+            if ids and ids[0] in serials:
+                targets = [n for n in ids[1:] if n in serials]
+                if targets:
+                    metadata.append('CONECT'+''.join(f'{n:5d}' for n in [ids[0]]+targets))
+        elif line.startswith(('LINK  ', 'SSBOND')):
+            if line.startswith('LINK'):
+                endpoints = [(line[21:22].strip() or '_', line[22:26].strip()+line[26:27].strip(), line[17:20].strip()),
+                             (line[51:52].strip() or '_', line[52:56].strip()+line[56:57].strip(), line[47:50].strip())]
+            else:
+                endpoints = [(line[15:16].strip() or '_', line[17:21].strip()+line[21:22].strip(), 'CYS'),
+                             (line[29:30].strip() or '_', line[31:35].strip()+line[35:36].strip(), 'CYS')]
+            if all(':'.join(e) in residues for e in endpoints):
+                metadata.append(line)
+    return '\n'.join(metadata + selected) + '\nEND\n'
 
 
 def normalize_structure(data, suffix):

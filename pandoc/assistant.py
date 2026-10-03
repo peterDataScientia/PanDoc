@@ -25,10 +25,17 @@ def context_snapshot(state, job=None):
     from . import core
     context['software_versions'] = core.versions()
     record = state.get('preparation_record', {})
+    context['preparation_under_review'] = state.get('preparation_review', {})
     context['preparation'] = {k: record[k] for k in ('pH_context', 'templates', 'repaired_heavy_atoms') if k in record}
     source = state.get('structure_source', {})
     context['structure'] = {k: source[k] for k in ('pdb_id', 'format', 'source') if k in source}
     context['structure_checks'] = state.get('assistant_structure_checks', {})
+    context['selected_structure_issue'] = state.get('assistant_selected_issue')
+    selection = state.get('selection_record', {})
+    context['component_selection'] = {k: selection[k] for k in ('chains', 'retained', 'overrides') if k in selection}
+    report = state.get('structure_report', {})
+    context['preparation_changes'] = (report.get('repair_changes', [])+report.get('preparation_changes', []))[:100]
+    context['total_preparation_changes'] = len(report.get('repair_changes', []))+len(report.get('preparation_changes', []))
     context['diagnostic'] = clean_diagnostic(state.get('assistant_diagnostic', ''))
     context['available_actions'] = ['Load complex', 'Prepare structures', 'Prepare receptor', 'Rebuild missing heavy atoms with PDBFixer', 'Optional curated receptor PDB', 'Meeko residue template assignments', 'Save docking box', 'Validate docking', 'Run experiment', 'Explore results']
     if job is not None:

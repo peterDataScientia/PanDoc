@@ -3,8 +3,51 @@ from collections import Counter
 import math
 from . import core
 
+# Standard residue identities, rather than atom-count estimates.
+SIDECHAINS = dict(ALA='CB', ARG='CB CG CD NE CZ NH1 NH2', ASN='CB CG OD1 ND2',
+ ASP='CB CG OD1 OD2', CYS='CB SG', GLN='CB CG CD OE1 NE2', GLU='CB CG CD OE1 OE2',
+ GLY='', HIS='CB CG ND1 CD2 CE1 NE2', ILE='CB CG1 CG2 CD1', LEU='CB CG CD1 CD2',
+ LYS='CB CG CD CE NZ', MET='CB CG SD CE', PHE='CB CG CD1 CD2 CE1 CE2 CZ', PRO='CB CG CD',
+ SER='CB OG', THR='CB OG1 CG2', TRP='CB CG CD1 CD2 NE1 CE2 CE3 CZ2 CZ3 CH2',
+ TYR='CB CG CD1 CD2 CE1 CE2 CZ OH', VAL='CB CG1 CG2')
+ALIASES = dict(HID='HIS', HIE='HIS', HIP='HIS', ASH='ASP', GLH='GLU', CYX='CYS', LYN='LYS')
+METALS = {'ZN','FE','MG','MN','CA','CU','CO','NI','CD','NA','K'}
 
-def check(pdb):
+
+def alternate_options(pdb):
+    groups = {}
+    for a in core.atoms(pdb):
+        groups.setdefault(core.key(a), []).append(a)
+    result = []
+    for ident, aa in groups.items():
+        labels = sorted({a['alt'] for a in aa if a['alt']})
+        if not labels:
+            continue
+        options = []
+        for label in labels:
+            variant = [a for a in aa if not a['alt'] or a['alt'] == label]
+            heavy = {a['name'] for a in variant if a['element'] not in ('H','D')}
+            labelled = [a for a in aa if a['alt'] == label]
+            occupancy = sum(a['occupancy'] for a in labelled)/len(labelled)
+            options.append(dict(label=label, mean_occupancy=round(occupancy,3), heavy_atoms=len(heavy)))
+        # Complete alternatives take precedence; occupancy then breaks ties.
+        best = sorted(options, key=lambda r: (-r['heavy_atoms'], -r['mean_occupancy'], r['label']))[0]
+        result.append(dict(residue=ident, options=options, recommended=best['label']))
+    return result
+
+
+def inventory(pdb):
+    rows = core.inspect(pdb)
+    for row in rows:
+        if row['kind'] == 'Other component' and row['name'] in METALS:
+            row['kind'] = 'Metal / ion'
+    links = [line for line in pdb.splitlines() if line.startswith(('LINK  ', 'SSBOND'))]
+    return dict(components=rows, alternates=alternate_options(pdb), connections=links,
+                connection_scope='Reported LINK and SSBOND records; absence does not establish absence of covalent or metal connections.')
+
+
+
+def check(pdb, raw=False):
     atoms = core.atoms(pdb)
     heavy = [a for a in atoms if a['element'] not in ('H', 'D')]
     groups = {}
@@ -18,15 +61,23 @@ def check(pdb):
     for ident, aa in groups.items():
         counts = Counter(a['name'] for a in aa)
         duplicates = [name for name, count in counts.items() if count > 1]
-        if duplicates:
+        if duplicates and (not raw or any(sum(a['name']==name and a['alt']==label for a in aa)>1 for name in duplicates for label in {a['alt'] for a in aa})):
             add('Error', ident, 'Duplicate atom names: '+', '.join(duplicates), 'Select one consistent alternate conformation or correct duplicate records.')
         if any(a['alt'] for a in aa):
             add('Warning', ident, 'Alternate conformations remain', 'Select one alternate conformation in Load complex.')
-        expected = core.EXPECTED.get(aa[0]['res'])
-        if expected and len(counts) < expected:
-            add('Warning', ident, f'Potential missing heavy atoms: {expected-len(counts)}', 'Enable heavy-atom reconstruction; inspect the generated atoms.')
+        residue_type = ALIASES.get(aa[0]['res'], aa[0]['res'])
+        if residue_type in SIDECHAINS:
+            required = set(('N CA C O '+SIDECHAINS[residue_type]).split())
+            missing = sorted(required-set(counts))
+            unexpected = sorted(set(counts)-required-{'OXT'})
+            if missing:
+                add('Warning', ident, 'Missing heavy atoms: '+', '.join(missing), 'Enable heavy-atom reconstruction; inspect the generated atoms. Missing whole residues require separate modelling.')
+            if unexpected:
+                add('Warning', ident, 'Unexpected heavy atom names: '+', '.join(unexpected), 'Review naming and residue chemistry before template assignment.')
+        if any(a['occupancy'] <= 0 for a in aa):
+            add('Warning', ident, 'Zero or negative occupancy', 'Review experimental support before using these coordinates.')
         if aa[0]['res'] not in core.STANDARD:
-            add('Warning', ident, 'Retained nonstandard component: '+aa[0]['res'], 'Review component chemistry and Meeko template support; metals and covalent components may need curated preparation.')
+            add('Warning', ident, ('Metal / ion requires review: ' if aa[0]['res'] in METALS else 'Water retention requires review: ' if aa[0]['res'] in core.WATERS else 'Retained nonstandard component: ')+aa[0]['res'], 'Review component chemistry and Meeko template support; metals and covalent components may need curated preparation.')
         named = {a['name']: a for a in aa}
         if all(n in named for n in ('C', 'O', 'OXT')):
             distance = math.dist(named['O']['xyz'], named['OXT']['xyz'])
@@ -38,7 +89,12 @@ def check(pdb):
         from scipy.spatial import cKDTree
         for i, j in sorted(cKDTree([a['xyz'] for a in finite]).query_pairs(0.65)):
             a,b = finite[i], finite[j]
+            if raw and core.key(a)==core.key(b) and a['alt'] and b['alt'] and a['alt'] != b['alt']:
+                continue
             add('Error', core.key(a), f"Severe overlap: {a['name']} / {core.key(b)} {b['name']} ({math.dist(a['xyz'], b['xyz']):.2f} Å)", 'Inspect coordinates or alternate conformations; do not delete the residue automatically.')
+    for line in pdb.splitlines():
+        if line.startswith(('LINK  ', 'SSBOND')):
+            add('Warning', 'Structure', 'Explicit connection record: '+line[:6].strip(), 'Review linked residues and supported chemistry; preserve the intended connection during preparation.')
     previous = {}
     for ident, aa in groups.items():
         if aa[0]['res'] not in core.STANDARD:
@@ -58,7 +114,11 @@ def check(pdb):
 
 def changes(before, after):
     def mapping(pdb):
-        return {(core.key(a), a['name']): a for a in core.atoms(pdb) if a['element'] not in ('H','D')}
+        result = {}
+        for a in core.atoms(pdb):
+            if a['element'] not in ('H','D'):
+                result.setdefault((core.key(a), a['name']), []).append(a)
+        return result
     original, prepared = mapping(before), mapping(after)
     rows = []
     for ident, name in sorted(prepared.keys()-original.keys()):
@@ -66,7 +126,7 @@ def changes(before, after):
     for ident, name in sorted(original.keys()-prepared.keys()):
         rows.append(dict(residue=ident, atom=name, change='Removed or renamed heavy atom', displacement_A=None))
     for k in sorted(original.keys() & prepared.keys()):
-        d=math.dist(original[k]['xyz'], prepared[k]['xyz'])
+        d=min(math.dist(a['xyz'], b['xyz']) for a in original[k] for b in prepared[k])
         if d > 0.002:
             rows.append(dict(residue=k[0], atom=k[1], change='Moved heavy atom', displacement_A=round(d,4)))
     return rows

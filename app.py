@@ -44,7 +44,7 @@ if 'root' not in st.session_state:
 root = Path(st.session_state.root)
 
 
-def viewer(pdb=None, sdf=None, reference=None, center=None, size=None):
+def viewer(pdb=None, sdf=None, reference=None, center=None, size=None, focus=None):
     import py3Dmol
     view = py3Dmol.view(width='100%', height=430)
     view.setBackgroundColor('#ffffff')
@@ -63,6 +63,12 @@ def viewer(pdb=None, sdf=None, reference=None, center=None, size=None):
     if center and size:
         view.addBox({'center': dict(zip('xyz', center)), 'dimensions': dict(zip('whd', size)), 'color': '#f59e0b', 'wireframe': True})
     view.zoomTo()
+    if pdb and focus:
+        serials = [int(a['line'][6:11]) for a in core.atoms(pdb) if core.key(a)==focus]
+        if serials:
+            selection = {'model': 0, 'serial': serials}
+            view.addStyle(selection, {'stick': {'color': '#f59e0b'}})
+            view.zoomTo(selection)
     import streamlit.components.v1 as components
     html = view._make_html()
     controls = f"""<div style='padding:6px'><button onclick='viewer_{view.uniqueid}.zoom(1.2);viewer_{view.uniqueid}.render()'>Zoom +</button>
@@ -70,6 +76,37 @@ def viewer(pdb=None, sdf=None, reference=None, center=None, size=None):
 <button onclick='viewer_{view.uniqueid}.zoomTo();viewer_{view.uniqueid}.render()'>Fit structure</button></div>"""
     components.html(html + controls, height=490, scrolling=False)
 
+
+
+@st.cache_data(show_spinner=False)
+def inspect_structure(pdb, raw=False):
+    return structure_checks.check(pdb, raw=raw)
+
+
+def structure_review(pdb, checks, widget_key):
+    picture, panel = st.columns([3, 2], gap='medium')
+    focus = None
+    with panel:
+        st.subheader('Structure issues')
+        issues = checks['issues']
+        errors = sum(i['severity']=='Error' for i in issues)
+        st.caption(f"{checks['residue_count']} residues · {checks['heavy_atom_count']} heavy atoms · {errors} errors · {len(issues)-errors} review items")
+        if issues:
+            selected = st.selectbox('Inspect an issue', range(len(issues)),
+                format_func=lambda n: issues[n]['severity']+' · '+issues[n]['residue']+' · '+issues[n]['problem'], key=widget_key)
+            issue = issues[selected]
+            focus = issue['residue']
+            st.write(issue['problem'])
+            st.write(issue['action'])
+            st.session_state.assistant_selected_issue = issue
+            with st.expander('All detected issues'):
+                st.dataframe(pd.DataFrame(issues), hide_index=True)
+        else:
+            st.success('No issues detected by these checks.')
+            st.session_state.pop('assistant_selected_issue', None)
+        st.caption(checks['scope'])
+    with picture:
+        viewer(pdb=pdb, focus=focus)
 
 def publication_figure(job, row):
     from rdkit import Chem
@@ -98,7 +135,7 @@ def load_complex(text, suffix, provenance):
     if st.session_state.get('source_id') != source_id:
         for k in ('preparation_id', 'reference_path', 'receptor_path', 'validation_job', 'experiment_job',
                   'candidate_paths', 'selected_pdb', 'reference_pdb', 'selection_id', 'selection_record',
-                  'assistant_diagnostic', 'assistant_structure_checks', 'center', 'size', 'preparation_record', 'reference_id', 'reference_smiles', 'reference_chemistry_source'):
+                  'assistant_diagnostic', 'assistant_structure_checks', 'assistant_selected_issue', 'structure_report', 'preparation_review', 'center', 'size', 'preparation_record', 'reference_id', 'reference_smiles', 'reference_chemistry_source'):
             st.session_state.pop(k, None)
         for original in root.glob('source_original.*'):
             original.unlink()
@@ -327,9 +364,15 @@ with workspace:
                 pdb = st.session_state.pdb
                 source = st.session_state.get('structure_source', {})
                 st.caption('Loaded structure: '+str(source.get('pdb_id', source.get('filename', 'Local structure'))))
-                rows = core.inspect(pdb)
+                inventory = structure_checks.inventory(pdb)
+                rows = inventory['components']
                 st.dataframe(pd.DataFrame(rows), hide_index=True, width='stretch')
-                viewer(pdb=pdb)
+                original_checks = inspect_structure(pdb, raw=True)
+                st.session_state.assistant_structure_checks = original_checks
+                structure_review(pdb, original_checks, 'original_issue_'+st.session_state.source_id)
+                with st.expander('Recorded connections'):
+                    st.caption(inventory['connection_scope'])
+                    st.code('\n'.join(inventory['connections']) or 'No LINK or SSBOND records found.')
                 proteins = [r['residue'] for r in rows if r['kind']=='Protein']
                 chains = sorted({r['chain'] for r in rows if r['kind']=='Protein'})
                 selected_chains = st.multiselect('Receptor chains', chains, default=chains)
@@ -341,29 +384,39 @@ with workspace:
                 if excluded_reference:
                     st.info(f'{ref} will be saved separately for redocking and excluded from the receptor.')
                 retained = [residue for residue in retained if residue != ref]
-                alt = st.selectbox('Default alternate conformation', ['A', 'B', 'C'])
+                alt = 'A'
                 overrides = {}
-                with st.expander('Select alternate conformations by residue'):
-                    for r in rows:
-                        if r['alternatives']:
-                            options = r['alternatives'].split(',')
-                            overrides[r['residue']] = st.selectbox(r['residue'], options, key='alt'+r['residue'])
+                with st.expander('Alternate conformations', expanded=bool(inventory['alternates'])):
+                    if not inventory['alternates']:
+                        st.caption('No alternate atom positions detected.')
+                    else:
+                        st.caption('Choose one conformation per residue. Recommendations prefer completeness, then occupancy. Binding-site alternatives may warrant separate docking runs.')
+                    for entry in inventory['alternates']:
+                        options = [o['label'] for o in entry['options']]
+                        details = {o['label']: o for o in entry['options']}
+                        overrides[entry['residue']] = st.selectbox(entry['residue'], options,
+                            index=options.index(entry['recommended']),
+                            format_func=lambda label, d=details: f"{label} · occupancy {d[label]['mean_occupancy']:.2f} · {d[label]['heavy_atoms']} heavy atoms",
+                            key='alt_'+st.session_state.source_id+'_'+entry['residue'])
                 if st.button('Save component selection', type='primary'):
                     chosen = [r['residue'] for r in rows if r['kind']=='Protein' and r['chain'] in selected_chains]+retained
                     receptor = core.select(pdb, chosen, alt, overrides)
                     reference = core.select(pdb, [ref], alt, overrides) if ref!='None' else None
-                    selection = dict(chains=selected_chains, retained=retained, reference=ref, alternate=alt, overrides=overrides, reference_excluded_from_receptor=excluded_reference)
+                    selection = dict(chains=selected_chains, retained=retained, reference=ref, alternate=alt, overrides=overrides, reference_excluded_from_receptor=excluded_reference, alternate_recommendations=inventory['alternates'])
                     selection_id = core.digest(receptor, reference, selection)
                     if st.session_state.get('selection_id') != selection_id:
-                        for k in ('preparation_id', 'reference_path', 'receptor_path', 'validation_job', 'reference_chemistry_source', 'reference_smiles', 'reference_id'):
+                        for k in ('preparation_id', 'reference_path', 'receptor_path', 'validation_job', 'reference_chemistry_source', 'reference_smiles', 'reference_id', 'experiment_job', 'structure_report', 'assistant_selected_issue'):
                             st.session_state.pop(k, None)
                     st.session_state.update(selected_pdb=receptor, reference_pdb=reference, selection_record=selection, selection_id=selection_id)
                     (root/'selected_receptor.pdb').write_text(receptor)
+                    selection_report = dict(original_checks=original_checks, selection=selection, selection_changes=structure_checks.changes(pdb, receptor), selected_checks=inspect_structure(receptor), connections=inventory['connections'])
+                    (root/'selection_report.json').write_text(json.dumps(selection_report, indent=2))
                     if reference:
                         (root/'reference_original.pdb').write_text(reference)
                         center, size = core.box(reference)
                         st.session_state.update(center=center, size=size)
                     manifest()
+                    st.download_button('Download selection report', (root/'selection_report.json').read_bytes(), 'selection_report.json', 'application/json', on_click='ignore')
                     st.success('Selection saved. Continue to Prepare structures.')
 
         elif stage.startswith('2'):
@@ -379,19 +432,16 @@ with workspace:
                     curated = st.file_uploader('Optional curated receptor PDB', type=['pdb'], key='curated')
                     templates = st.text_input('Meeko residue template assignments', placeholder='A:17=HID,A:32=ASH')
                     notes = st.text_area('Preparation rationale', placeholder='Explain protonation, retained components and structural repairs.')
+                    st.session_state.preparation_review = dict(pH_context=intended_ph, templates=templates, rebuild_missing_atoms=repair, curated_input=bool(curated))
                     selected_input = curated.getvalue().decode() if curated else pdb
-                    checks = structure_checks.check(selected_input)
+                    checks = inspect_structure(selected_input)
                     st.session_state.assistant_structure_checks = checks
-                    with st.expander('Structure checks', expanded=bool(checks['issues'])):
-                        st.caption(f"{checks['residue_count']} residues · {checks['heavy_atom_count']} heavy atoms")
-                        if checks['issues']:
-                            st.dataframe(pd.DataFrame(checks['issues']), hide_index=True)
-                        else:
-                            st.success('No issues detected by coordinate screening.')
-                        st.caption(checks['scope'])
+                    structure_review(selected_input, checks, 'preparation_issue_'+core.digest(selected_input))
                     confirm = st.checkbox('I reviewed the receptor components and intended protonation states.')
                     if st.button('Prepare receptor', type='primary', disabled=not confirm):
                         st.session_state.pop('assistant_diagnostic', None)
+                        for stale in ('receptor_path', 'preparation_id', 'validation_job', 'experiment_job', 'structure_report'):
+                            st.session_state.pop(stale, None)
                         final = selected_input
                         core.atoms(final)
                         if repair:
@@ -399,6 +449,10 @@ with workspace:
                         final_checks = structure_checks.check(final)
                         blocking = [issue for issue in final_checks['issues'] if issue['severity']=='Error']
                         if blocking:
+                            st.session_state.assistant_structure_checks = final_checks
+                            rejected = dict(input_checks=checks, repaired_checks=final_checks, repair_changes=structure_checks.changes(selected_input, final), software_versions=core.versions())
+                            (root/'rejected_structure_report.json').write_text(json.dumps(rejected, indent=2))
+                            st.download_button('Download structure review report', json.dumps(rejected, indent=2), 'structure_report.json', 'application/json')
                             st.error('Resolve the structure errors listed below before preparation.')
                             st.dataframe(pd.DataFrame(blocking), hide_index=True)
                             st.session_state.assistant_diagnostic = 'Coordinate screening found blocking structure errors.'
@@ -408,7 +462,8 @@ with workspace:
                         prep_id = core.digest(final, templates, intended_ph, core.versions())
                         directory = root/'preparations'/prep_id
                         with st.spinner('Checking chemistry and preparing receptor…'):
-                            report = dict(input_checks=checks, repaired_checks=final_checks, repair_changes=repair_changes)
+                            selection_path = root/'selection_report.json'
+                            report = dict(selection_report=json.loads(selection_path.read_text()) if selection_path.exists() else {}, input_checks=checks, repaired_checks=final_checks, repair_changes=repair_changes, settings=dict(pH_context=intended_ph, templates=templates, rationale=notes, curated_input=bool(curated)), software_versions=core.versions())
                             directory.mkdir(parents=True, exist_ok=True)
                             (directory/'structure_report.json').write_text(json.dumps(report, indent=2))
                             try:
@@ -427,8 +482,14 @@ with workspace:
                             missing_residues = {core.key(a) for a in core.atoms(final)} - {core.key(a) for a in core.atoms(prepared_output)}
                             for residue in sorted(missing_residues):
                                 report['prepared_checks']['issues'].append(dict(severity='Error', residue=residue, problem='Residue absent from prepared output', action='Review preparation; removed residues cannot be silently accepted.'))
+                            for change in report['preparation_changes']:
+                                if change['change']=='Removed or renamed heavy atom':
+                                    report['prepared_checks']['issues'].append(dict(severity='Error', residue=change['residue'], problem='Input heavy atom absent or renamed: '+change['atom'], action='Review backend output and intended atom identity before accepting this receptor.'))
+                            st.session_state.structure_report = report
+                            st.session_state.assistant_structure_checks = report['prepared_checks']
                             (directory/'structure_report.json').write_text(json.dumps(report, indent=2))
                             if any(i['severity']=='Error' for i in report['prepared_checks']['issues']):
+                                st.download_button('Download rejected preparation report', (directory/'structure_report.json').read_bytes(), 'structure_report.json', 'application/json')
                                 raise ValueError('Prepared receptor failed coordinate validation. Inspect the saved structure report before using it.')
                         st.session_state.update(receptor_path=str(path), prepared_pdb=(directory/'receptor_prepared.pdb').read_text(), preparation_id=prep_id,
                             preparation_record=dict(pH_context=intended_ph, templates=templates, repaired_heavy_atoms=repair, curated_upload=curated.name if curated else None, rationale=notes))
@@ -446,6 +507,8 @@ with workspace:
                         report_path = path.parent/'structure_report.json'
                         if report_path.exists():
                             report = json.loads(report_path.read_text())
+                            st.session_state.structure_report = report
+                            st.session_state.assistant_structure_checks = report.get('prepared_checks', {})
                             with st.expander('Repair summary and prepared-structure checks', expanded=True):
                                 changes = report.get('repair_changes', []) + report.get('preparation_changes', [])
                                 if changes:

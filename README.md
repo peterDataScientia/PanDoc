@@ -98,3 +98,37 @@ For browser export regression checks, `?publication_demo=1` opens a clearly labe
 Open **Scientific assistant** below the workflow. Add `GROQ_API_KEY = "your-key"` in Streamlit **App settings → Secrets**, or in the ignored `.streamlit/secrets.toml` locally. Environment variables are also supported. The default model is `openai/gpt-oss-120b`; optionally set `GROQ_MODEL` in secrets. Ask “What does docking exhaustiveness mean?” to test the connection.
 
 Answers remain visible across reruns within the same session. Requests occur only on Ask. Optional context includes box settings and a chosen calculation's settings/status and first 50 result rows; the exact snapshot remains available with the answer. Molecular files, SMILES, ligand names, paths, and interactions are not automatically sent. This assistant explains information; it cannot execute calculations, change settings, or search literature. Model/account quotas apply.
+
+
+### Automatic structure inspection
+
+Loading a complex now runs coordinate screening before component cleanup. The
+Structure issues panel shows the detected residue, explanation and next action;
+selecting an issue focuses and highlights that residue in the molecular viewer.
+Standard amino-acid checks identify missing heavy atoms by name, unexpected atom
+names, duplicate records, severe overlaps, terminal oxygen geometry, possible
+chain breaks, alternate positions and zero occupancy. Waters, metals and other
+components are flagged for review. LINK and SSBOND records are inventoried.
+
+Alternate conformations are selected per residue. Suggested choices prefer the
+more complete alternative, then higher mean occupancy; shared atoms are retained.
+These are starting suggestions, not experimentally established best conformers.
+Study binding-site alternatives in separate experiments when relevant.
+
+Selection retains CONECT bonds between retained atoms and LINK/SSBOND records
+whose two residues remain selected. Selection and preparation reports record
+choices, detected issues, software versions and heavy-atom changes. Preparation
+rejects unexpected heavy-atom loss or renaming rather than silently accepting it.
+The assistant receives the selected issue and current preparation choices when
+experiment context is enabled; molecular coordinates are not sent.
+
+**Scope:** this is conservative coordinate and component screening, not a
+MolProbity validation, electron-density assessment or automatic protonation
+prediction. The recorded pH does not assign residue states. Missing loops,
+metalloproteins, covalent components and unsupported templates can require
+curated preparation. Structural success does not establish docking accuracy.
+
+Design references: [wwPDB validation](https://www.wwpdb.org/validation/2016/XrayValidationReportHelp),
+[PDB2PQR algorithms](https://pdb2pqr.readthedocs.io/en/latest/using/algorithms.html),
+[PROPKA](https://propka.readthedocs.io/en/stable/command.html),
+[Vina zinc workflow](https://autodock-vina.readthedocs.io/en/latest/docking_zinc.html).

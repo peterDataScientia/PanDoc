@@ -125,3 +125,15 @@ def test_suggestion_sends_once_and_conversation_is_ordered(monkeypatch,tmp_path)
     at.chat_input[0].set_value('Why?').run()
     assert len(at.session_state['assistant_history'])==2
     assert [m.value for m in at.markdown]==[calls[0], 'Specific explanation','Why?','Specific explanation']
+
+
+def test_inspection_context_contains_evidence_and_current_choices():
+    issue=dict(residue='A:687:CYS', problem='Invalid terminal oxygen geometry', severity='Error', action='Inspect')
+    context=assistant.context_snapshot({'assistant_selected_issue':issue,
+        'preparation_review':{'pH_context':5, 'templates':'A:17=HID'},
+        'selection_record':{'chains':['A'],'overrides':{'A:10:ALA':'B'}},
+        'structure_report':{'repair_changes':[{'atom':'OXT','change':'Added heavy atom'}]}})
+    assert context['selected_structure_issue']==issue
+    assert context['component_selection']['overrides']['A:10:ALA']=='B'
+    assert context['preparation_under_review']['pH_context']==5
+    assert context['total_preparation_changes']==1
