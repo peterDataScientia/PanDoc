@@ -128,3 +128,24 @@ class ChemistryTests(unittest.TestCase):
 
 if __name__=='__main__':
     unittest.main()
+
+
+def test_repair_terminal_oxygen_preserves_original_coordinates():
+    import pytest
+    pytest.importorskip('pdbfixer')
+    from pandoc import core
+    import numpy as np
+    pdb = '''ATOM      1  N   CYS A 687       1.983  59.716  18.382  1.00117.90           N
+ATOM      2  CA  CYS A 687       3.000  60.775  18.317  1.00141.23           C
+ATOM      3  C   CYS A 687       2.385  62.146  18.573  1.00167.65           C
+ATOM      4  O   CYS A 687       1.589  62.301  19.498  1.00126.77           O
+ATOM      5  CB  CYS A 687       3.809  60.752  17.021  1.00141.38           C
+ATOM      6  SG  CYS A 687       2.837  60.572  15.502  1.00145.20           S
+END
+'''
+    original = {a['name']: a for a in core.atoms(pdb)}
+    repaired = {a['name']: a for a in core.atoms(core.repair_heavy_atoms(pdb))}
+    for name, atom in original.items():
+        assert np.allclose(atom['xyz'], repaired[name]['xyz'], atol=0.001)
+    assert np.linalg.norm(np.array(repaired['OXT']['xyz']) - repaired['O']['xyz']) > 2
+    assert abs(np.linalg.norm(np.array(repaired['OXT']['xyz']) - repaired['C']['xyz']) - 1.25) < 0.01

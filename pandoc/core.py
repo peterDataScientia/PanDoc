@@ -267,7 +267,39 @@ def repair_heavy_atoms(pdb):
     fixer.addMissingAtoms(seed=2026)
     out = io.StringIO()
     PDBFile.writeFile(fixer.topology, fixer.positions, out, keepIds=True)
-    return out.getvalue()
+    repaired = out.getvalue()
+    # PDBFixer may place a newly generated terminal OXT on the existing O.
+    # Correct only newly added OXT atoms; preserve every experimental atom.
+    original = {(key(a), a['name']) for a in atoms(pdb)}
+    groups = {}
+    for atom in atoms(repaired):
+        groups.setdefault(key(atom), {})[atom['name']] = atom
+    replacements = {}
+    import numpy as np
+    for ident, group in groups.items():
+        if not all(name in group for name in ('CA', 'C', 'O', 'OXT')) or (ident, 'OXT') in original:
+            continue
+        oxygen, terminal = group['O'], group['OXT']
+        carbon = np.array(group['C']['xyz'])
+        separation = np.linalg.norm(np.array(oxygen['xyz']) - terminal['xyz'])
+        bond_length = np.linalg.norm(np.array(terminal['xyz']) - carbon)
+        if separation >= 1.0 and 1.0 <= bond_length <= 1.5:
+            continue
+        directions = [np.array(group[name]['xyz']) - carbon for name in ('CA', 'O')]
+        lengths = [np.linalg.norm(v) for v in directions]
+        if min(lengths) < 0.1:
+            raise ValueError(f'Cannot reconstruct terminal oxygen geometry for {ident}.')
+        direction = -sum(v / length for v, length in zip(directions, lengths))
+        norm = np.linalg.norm(direction)
+        if norm < 0.1:
+            raise ValueError(f'Cannot reconstruct terminal oxygen geometry for {ident}.')
+        xyz = carbon + 1.25 * direction / norm
+        line = terminal['line']
+        replacements[line] = line[:30] + ''.join(f'{v:8.3f}' for v in xyz) + line[54:]
+    if replacements:
+        repaired = '\n'.join(replacements.get(line, line) for line in repaired.splitlines()) + '\n'
+        repaired = 'REMARK 900 CORRECTED OVERLAPPING NEW TERMINAL OXT GEOMETRY\n' + repaired
+    return repaired
 
 
 def prepare_receptor(pdb, directory, template_assignments=''):
