@@ -34,6 +34,8 @@ def run(directory):
                 if (directory/'cancel.request').exists():
                     update('cancelled', total=total)
                     return
+                update('running', total=total, current=f"{ligand['name']} / seed {seed}")
+                print(f"Starting docking: {ligand['name']} / seed {seed}", flush=True)
                 vina = Vina(sf_name='vina', cpu=config.get('cpu', 2), seed=int(seed))
                 vina.set_receptor(config['receptor'])
                 vina.set_ligand_from_file(ligand['path'])
@@ -62,6 +64,7 @@ def run(directory):
                     results.append(row)
                 writer.close()
                 completed_searches += 1
+                print(f"Completed docking search {completed_searches}/{total}", flush=True)
                 (directory/'results.json').write_text(json.dumps(results, indent=2))
                 update('running', total=total, current=f"{ligand['name']} / seed {seed}")
         update('completed', total=total)

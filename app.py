@@ -241,20 +241,33 @@ def settings(prefix):
 
 
 def show_job(directory):
-    state = jobs.status(directory)
-    st.info(f"Job: {state['state']} · {Path(directory).name[:8]}")
-    if state.get('error'):
-        st.error(state['error'])
-    if state['state'] in ('queued', 'running', 'starting'):
-        st.caption('Refresh to check progress. Cancellation takes effect between docking searches.')
-        if st.button('Cancel job', key=str(directory)+'cancel'):
-            jobs.cancel(directory)
-        if st.button('Refresh status', key=str(directory)+'refresh'):
+    initial = jobs.status(directory)
+    active_states = ('queued', 'running', 'starting')
+    polling = initial['state'] in active_states
+
+    @st.fragment(run_every=2 if polling else None)
+    def live_job():
+        state = jobs.status(directory)
+        # Refresh the surrounding results and run controls once the job finishes.
+        if polling and state['state'] not in active_states:
             st.rerun()
-    log = Path(directory)/'worker.log'
-    with st.expander('Calculation log'):
-        st.code(log.read_text()[-16000:] if log.exists() else 'Waiting for worker.')
-    return state
+        st.info(f"Job: {state['state']} · {Path(directory).name[:8]}")
+        if state.get('error'):
+            st.error(state['error'])
+        total = state.get('total', 0)
+        if total:
+            completed = state.get('completed', 0)
+            st.progress(min(completed / total, 1.0), text=f'{completed}/{total} docking searches completed')
+        if state['state'] in active_states:
+            st.caption('Updates automatically every 2 seconds. Cancellation takes effect between docking searches.')
+            if st.button('Cancel job', key=str(directory)+'cancel'):
+                jobs.cancel(directory)
+                st.info('Cancellation requested.')
+        log = Path(directory)/'worker.log'
+        with st.expander('Calculation log', expanded=polling):
+            st.code(log.read_text(errors='replace')[-16000:] if log.exists() else 'Waiting for worker.')
+    live_job()
+    return initial
 
 
 with st.sidebar:

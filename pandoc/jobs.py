@@ -16,7 +16,7 @@ def launch(root, config):
     (directory/'config.json').write_text(json.dumps(config, indent=2))
     (directory/'status.json').write_text(json.dumps({'state': 'queued', 'completed': 0}))
     with (directory/'worker.log').open('w') as log:
-        process = subprocess.Popen([sys.executable, '-m', 'pandoc.worker', str(directory)], stdout=log, stderr=log, start_new_session=True)
+        process = subprocess.Popen([sys.executable, '-u', '-m', 'pandoc.worker', str(directory)], stdout=log, stderr=log, start_new_session=True)
     (directory/'worker.pid').write_text(str(process.pid))
     return str(directory)
 
