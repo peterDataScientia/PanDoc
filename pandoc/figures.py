@@ -20,11 +20,11 @@ def overlay_html(reference, pose, *, seed, rank):
 
 
 _HTML = r'''<!doctype html><html><head><meta charset="utf-8">
-<style>body{font:14px Arial;margin:0;color:#16324f}#scene{width:666px;height:390px;touch-action:none;cursor:grab}button{padding:9px;margin:8px 6px 8px 0;cursor:pointer}label{margin-right:12px}</style></head><body>
+<style>body{font:14px Arial;margin:0;color:#16324f}#scene{width:100%;max-width:666px;height:auto;aspect-ratio:666/390;touch-action:none;cursor:grab}button{padding:9px;margin:8px 6px 8px 0;cursor:pointer}label{margin-right:12px}</style></head><body>
 <div style="overflow:auto"><canvas id="scene" width="1332" height="780"></canvas></div>
 <p><label>Reference <input id="referenceColor" type="color" value="#00cdd4"></label><label>Redocked <input id="poseColor" type="color" value="#d500d5"></label><label>Background <select id="background"><option value="#ffffff">White</option><option value="#2d3336">Dark</option></select></label><label>Style <select id="style"><option value="ball">Ball and stick</option><option value="stick">Sticks</option></select></label></p>
 <p><label><input id="borderEnabled" type="checkbox" checked> Border</label><label>Color <input id="borderColor" type="color" value="#18c43c"></label><label>Width <input id="borderWidth" type="range" min="0.5" max="12" step="0.5" value="4"><output id="borderWidthValue">4 px</output></label><label>Corner radius <input id="borderRadius" type="range" min="0" max="32" step="1" value="16"><output id="borderRadiusValue">16 px</output></label></p>
-<button type="button" id="reset">Reset view</button><button type="button" id="png">Download PNG · 600 DPI</button><button type="button" id="pdf">Download PDF</button>
+<button type="button" id="zoom-in">Zoom +</button><button type="button" id="zoom-out">Zoom −</button><label>Zoom <input id="zoom" type="range" min="0.2" max="5" step="0.05" value="1"></label><button type="button" id="reset">Reset view</button><button type="button" id="png">Download PNG · 600 DPI</button><button type="button" id="pdf">Download PDF</button>
 <div id="downloads"></div><details id="export-preview" style="display:none"><summary>Preview exported PNG</summary><img id="export-image" alt="Exported publication PNG" style="max-width:666px;width:100%;height:auto"></details><p id="status">Drag to rotate; Shift-drag to move; scroll to zoom. Both ligands move together.</p>
 <script>
 const data=__DATA__, W=3996,H=2340;
@@ -54,12 +54,16 @@ for(let i=0;i<2;i++){ctx.fillStyle=palette[i];ctx.fillRect(x,371,18,8);ctx.fillS
 if(colors.borderEnabled){const inset=Math.max(colors.borderWidth/2,1),right=666-inset,bottom=390-inset,r=Math.min(colors.borderRadius,(right-inset)/2,(bottom-inset)/2);ctx.strokeStyle=colors.borderColor;ctx.lineWidth=colors.borderWidth;ctx.lineJoin='round';ctx.beginPath();ctx.moveTo(inset+r,inset);ctx.lineTo(right-r,inset);ctx.quadraticCurveTo(right,inset,right,inset+r);ctx.lineTo(right,bottom-r);ctx.quadraticCurveTo(right,bottom,right-r,bottom);ctx.lineTo(inset+r,bottom);ctx.quadraticCurveTo(inset,bottom,inset,bottom-r);ctx.lineTo(inset,inset+r);ctx.quadraticCurveTo(inset,inset,inset+r,inset);ctx.stroke();}
 return canvas;}
 const preview=document.getElementById('scene');
-function refresh(){drawScene(preview);}
+function refresh(){drawScene(preview);document.getElementById('zoom').value=camera.zoom;}
+function setZoom(value){camera.zoom=Math.max(0.2,Math.min(5,value));refresh();}
+document.getElementById('zoom-in').onclick=()=>setZoom(camera.zoom*1.2);
+document.getElementById('zoom-out').onclick=()=>setZoom(camera.zoom/1.2);
+document.getElementById('zoom').oninput=e=>setZoom(Number(e.target.value));
 let drag=null;
 preview.onpointerdown=e=>{drag={x:e.clientX,y:e.clientY};preview.setPointerCapture(e.pointerId);};
 preview.onpointermove=e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(e.shiftKey){camera.x+=dx;camera.y+=dy;}else{camera.yaw+=dx*0.012;camera.pitch+=dy*0.012;}drag={x:e.clientX,y:e.clientY};refresh();};
 preview.onpointerup=()=>{drag=null;};preview.onpointercancel=()=>{drag=null;};
-preview.addEventListener('wheel',e=>{e.preventDefault();camera.zoom=Math.max(0.2,Math.min(5,camera.zoom*Math.exp(-e.deltaY*0.001)));refresh();},{passive:false});
+preview.addEventListener('wheel',e=>{e.preventDefault();e.stopPropagation();const delta=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?390:1);setZoom(camera.zoom*Math.exp(-delta*0.002));},{passive:false});
 const exportUrls={};
 function download(blob,name){const type=blob.type==='application/pdf'?'pdf':'png';if(exportUrls[type])URL.revokeObjectURL(exportUrls[type]);
 const url=URL.createObjectURL(blob);exportUrls[type]=url;const id='save-'+type;document.getElementById(id)?.remove();
