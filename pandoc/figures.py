@@ -24,17 +24,18 @@ _HTML = r'''<!doctype html><html><head><meta charset="utf-8">
 <div style="overflow:auto"><canvas id="scene" width="1332" height="780"></canvas></div>
 <p><label>Reference <input id="referenceColor" type="color" value="#00cdd4"></label><label>Redocked <input id="poseColor" type="color" value="#d500d5"></label><label>Background <select id="background"><option value="#ffffff">White</option><option value="#2d3336">Dark</option></select></label><label>Style <select id="style"><option value="ball">Ball and stick</option><option value="stick">Sticks</option></select></label></p>
 <button type="button" id="reset">Reset view</button><button type="button" id="png">Download PNG · 600 DPI</button><button type="button" id="pdf">Download PDF</button>
-<p id="status">Drag to rotate; Shift-drag to move; scroll to zoom. Both ligands move together.</p>
+<div id="downloads"></div><p id="status">Drag to rotate; Shift-drag to move; scroll to zoom. Both ligands move together.</p>
 <script>
 const data=__DATA__, W=3996,H=2340;
 // Original coordinates are immutable; only this shared camera changes.
 const points=data.models.flatMap(m=>m.atoms),bounds=[0,1,2].map(k=>[Math.min(...points.map(p=>p[k])),Math.max(...points.map(p=>p[k]))]);
 const center=bounds.map(b=>(b[0]+b[1])/2),radius=Math.max(...points.map(p=>Math.hypot(...p.map((v,k)=>v-center[k]))),1);
+const baseScale=Math.min(570/Math.max(bounds[0][1]-bounds[0][0],1),285/Math.max(bounds[1][1]-bounds[1][0],1));
 const camera={yaw:0,pitch:0,zoom:1,x:0,y:0};
 function appearance(){return {reference:document.getElementById('referenceColor').value,pose:document.getElementById('poseColor').value,background:document.getElementById('background').value,style:document.getElementById('style').value};}
 function tint(color,factor){const values=[1,3,5].map(i=>parseInt(color.slice(i,i+2),16));return 'rgb('+values.map(v=>Math.round(Math.min(255,v*factor))).join(',')+')';}
 function project(p){const x=p[0]-center[0],y=p[1]-center[1],z=p[2]-center[2],cy=Math.cos(camera.yaw),sy=Math.sin(camera.yaw),cp=Math.cos(camera.pitch),sp=Math.sin(camera.pitch);
-const a=cy*x+sy*z,b=-sy*x+cy*z,scale=150/radius*camera.zoom;
+const a=cy*x+sy*z,b=-sy*x+cy*z,scale=baseScale*camera.zoom;
 return {x:333+camera.x+a*scale,y:180+camera.y-(cp*y-sp*b)*scale,z:sp*y+cp*b,scale};}
 function drawScene(canvas){const ctx=canvas.getContext('2d',{alpha:false,willReadFrequently:true}),factor=canvas.width/666;
 ctx.setTransform(factor,0,0,factor,0,0);const colors=appearance();ctx.fillStyle=colors.background;ctx.fillRect(0,0,666,390);
@@ -57,7 +58,10 @@ preview.onpointerdown=e=>{drag={x:e.clientX,y:e.clientY};preview.setPointerCaptu
 preview.onpointermove=e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(e.shiftKey){camera.x+=dx;camera.y+=dy;}else{camera.yaw+=dx*0.012;camera.pitch+=dy*0.012;}drag={x:e.clientX,y:e.clientY};refresh();};
 preview.onpointerup=()=>{drag=null;};preview.onpointercancel=()=>{drag=null;};
 preview.addEventListener('wheel',e=>{e.preventDefault();camera.zoom=Math.max(0.2,Math.min(5,camera.zoom*Math.exp(-e.deltaY*0.001)));refresh();},{passive:false});
-function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.target='_blank';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);}
+const exportUrls={};
+function download(blob,name){const type=blob.type==='application/pdf'?'pdf':'png';if(exportUrls[type])URL.revokeObjectURL(exportUrls[type]);
+const url=URL.createObjectURL(blob);exportUrls[type]=url;const id='save-'+type;document.getElementById(id)?.remove();
+const a=document.createElement('a');a.id=id;a.href=url;a.download=name;a.textContent='Save '+type.toUpperCase();a.style.marginRight='20px';document.getElementById('downloads').appendChild(a);a.click();}
 // Insert PNG physical resolution, preserving rendered pixels and valid chunk CRCs.
 function dpiPNG(bytes){const body=new Uint8Array(13),dv=new DataView(body.buffer);dv.setUint32(0,Math.round(600/0.0254));dv.setUint32(4,Math.round(600/0.0254));body[8]=1;
 const chunk=new Uint8Array(21);new DataView(chunk.buffer).setUint32(0,9);chunk.set([112,72,89,115],4);chunk.set(body.subarray(0,9),8);

@@ -582,12 +582,12 @@ try:
                     publication_figure(job, row)
                 else:
                     viewer(pdb=receptor.read_text() if receptor.exists() else None, sdf=sdf)
-                st.download_button('Download results CSV',df.to_csv(index=False),'results.csv','text/csv')
-                st.download_button('Download selected pose SDF',sdf,'selected_pose.sdf')
+                st.download_button('Download results CSV',df.to_csv(index=False),'results.csv','text/csv', on_click='ignore')
+                st.download_button('Download selected pose SDF',sdf,'selected_pose.sdf', on_click='ignore')
             with st.expander('Saved docking settings'):
                 st.json(config)
         manifest()
-        st.download_button('Download complete experiment',core.bundle(root),'pandoc_experiment.zip','application/zip')
+        st.download_button('Download complete experiment',core.bundle(root),'pandoc_experiment.zip','application/zip', on_click='ignore')
 
 except Exception as exc:
     st.error(str(exc))
