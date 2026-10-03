@@ -60,7 +60,7 @@ def test_panel_context_change_marks_answer_stale(monkeypatch, tmp_path):
     at.session_state['center'] = [4,5,6]
     at.run()
     assert not list(at.exception)
-    assert any('earlier context' in w.value for w in at.warning)
+    assert any('experiment has changed' in c.value for c in at.caption)
 
 
 def test_followup_sends_conversation_history(monkeypatch):
@@ -77,3 +77,53 @@ def test_followup_sends_conversation_history(monkeypatch):
     assistant.ask('Why?', 'test', history=[dict(question='Explain RMSD', answer='RMSD measures pose deviation')])
     assert [m['role'] for m in captured] == ['system', 'user', 'assistant', 'user']
     assert captured[2]['content'] == 'RMSD measures pose deviation'
+
+
+def test_diagnostic_sanitization_and_contextual_suggestions():
+    context = assistant.context_snapshot({'workflow_stage':'2 · Prepare structures', 'assistant_diagnostic':'gsk_secret123 /private/user/preparation.log Invalid valence', 'preparation_record':{'pH_context':5,'curated_upload':'private.pdb','rationale':'private notes'}})
+    assert 'gsk_secret123' not in json.dumps(context)
+    assert '/private' not in json.dumps(context)
+    assert 'private.pdb' not in json.dumps(context)
+    assert 'Invalid valence' in context['diagnostic']
+    assert assistant.suggestions(context)[0][0]=='Explain this error'
+    assert context['preparation']['pH_context']==5
+
+
+def test_compounds_do_not_merge_and_current_snapshot_follows_history(tmp_path, monkeypatch):
+    import groq
+    (tmp_path/'config.json').write_text('{}')
+    (tmp_path/'results.json').write_text(json.dumps([{'ligand_id':'privateA','score_kcal_mol':-8}, {'ligand_id':'privateB','score_kcal_mol':-7}]))
+    context = assistant.context_snapshot({}, tmp_path)
+    assert [r['compound'] for r in context['results']]==['Compound 1','Compound 2']
+    captured=[]
+    class FakeClient:
+        def __init__(self, **kwargs): self.chat=SimpleNamespace(completions=self)
+        def __enter__(self): return self
+        def __exit__(self,*args): pass
+        def create(self, **kwargs):
+            captured.extend(kwargs['messages'])
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='Answer'))])
+    monkeypatch.setattr(groq,'Groq',FakeClient)
+    assistant.ask('Explain this selection','test',context,history=[dict(question='Old selection',answer='Old answer')])
+    assert 'current snapshot' in captured[-2]['content']
+    assert captured[-3]['role']=='assistant'
+
+
+def test_suggestion_sends_once_and_conversation_is_ordered(monkeypatch,tmp_path):
+    monkeypatch.setattr(assistant,'setting',lambda st,name,default='':'test-key' if name=='GROQ_API_KEY' else default)
+    calls=[]
+    def fake_ask(question,*args):
+        calls.append(question)
+        return 'Specific explanation'
+    monkeypatch.setattr(assistant,'ask',fake_ask)
+    at=AppTest.from_string("import streamlit as st\nfrom pandoc import assistant\nst.session_state.workflow_stage='3 · Validate docking'\nassistant.render(st, "+repr(str(tmp_path))+")").run()
+    next(b for b in at.button if b.label=='Explain my grid box').click().run()
+    assert not list(at.exception)
+    assert len(calls)==1 and 'current docking box' in calls[0]
+    at.run()
+    assert len(calls)==1
+    assert [m.value for m in at.markdown]==[calls[0], 'Specific explanation']
+    at.text_area[0].set_value('Why?')
+    next(b for b in at.button if b.label=='Ask').click().run()
+    assert len(at.session_state['assistant_history'])==2
+    assert [m.value for m in at.markdown]==[calls[0], 'Specific explanation','Why?','Specific explanation']

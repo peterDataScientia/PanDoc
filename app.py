@@ -98,7 +98,7 @@ def load_complex(text, suffix, provenance):
     if st.session_state.get('source_id') != source_id:
         for k in ('preparation_id', 'reference_path', 'receptor_path', 'validation_job', 'experiment_job',
                   'candidate_paths', 'selected_pdb', 'reference_pdb', 'selection_id', 'selection_record',
-                  'center', 'size', 'preparation_record', 'reference_id', 'reference_smiles', 'reference_chemistry_source'):
+                  'assistant_diagnostic', 'assistant_structure_checks', 'center', 'size', 'preparation_record', 'reference_id', 'reference_smiles', 'reference_chemistry_source'):
             st.session_state.pop(k, None)
         for original in root.glob('source_original.*'):
             original.unlink()
@@ -298,6 +298,11 @@ if st.session_state.assistant_open:
     workspace, assistant_panel = st.columns([7, 3], gap='large')
 else:
     workspace = st.container()
+def show_assistant():
+    if st.session_state.assistant_open:
+        with assistant_panel:
+            assistant.render(st, root, panel=True)
+
 st.session_state.pop('assistant_active_job', None)
 st.session_state.pop('assistant_selected_pose', None)
 if stage.startswith('3') or stage.startswith('4'):
@@ -376,6 +381,7 @@ with workspace:
                     notes = st.text_area('Preparation rationale', placeholder='Explain protonation, retained components and structural repairs.')
                     selected_input = curated.getvalue().decode() if curated else pdb
                     checks = structure_checks.check(selected_input)
+                    st.session_state.assistant_structure_checks = checks
                     with st.expander('Structure checks', expanded=bool(checks['issues'])):
                         st.caption(f"{checks['residue_count']} residues · {checks['heavy_atom_count']} heavy atoms")
                         if checks['issues']:
@@ -385,6 +391,7 @@ with workspace:
                         st.caption(checks['scope'])
                     confirm = st.checkbox('I reviewed the receptor components and intended protonation states.')
                     if st.button('Prepare receptor', type='primary', disabled=not confirm):
+                        st.session_state.pop('assistant_diagnostic', None)
                         final = selected_input
                         core.atoms(final)
                         if repair:
@@ -394,6 +401,8 @@ with workspace:
                         if blocking:
                             st.error('Resolve the structure errors listed below before preparation.')
                             st.dataframe(pd.DataFrame(blocking), hide_index=True)
+                            st.session_state.assistant_diagnostic = 'Coordinate screening found blocking structure errors.'
+                            show_assistant()
                             st.stop()
                         repair_changes = structure_checks.changes(selected_input, final)
                         prep_id = core.digest(final, templates, intended_ph, core.versions())
@@ -405,11 +414,13 @@ with workspace:
                             try:
                                 path = core.prepare_receptor(final, directory, templates)
                             except ValueError as exc:
+                                st.session_state.assistant_diagnostic = (directory/'preparation.log').read_text()
                                 st.error(str(exc).split(' Full diagnostics:')[0])
                                 with st.expander('Preparation diagnostic log'):
                                     st.code((directory/'preparation.log').read_text())
                                 st.download_button('Download failed preparation report', (directory/'structure_report.json').read_bytes(), 'structure_report.json', 'application/json')
                                 st.download_button('Download preparation input PDB', (directory/'receptor_input.pdb').read_bytes(), 'receptor_input.pdb')
+                                show_assistant()
                                 st.stop()
                             prepared_output = (directory/'receptor_prepared.pdb').read_text()
                             report.update(prepared_checks=structure_checks.check(prepared_output), preparation_changes=structure_checks.changes(final, prepared_output))
@@ -679,10 +690,9 @@ with workspace:
             st.download_button('Download complete experiment',core.bundle(root),'pandoc_experiment.zip','application/zip', on_click='ignore')
 
     except Exception as exc:
+        st.session_state.assistant_diagnostic = str(exc)
         st.error(str(exc))
         with st.expander('Diagnostic details'):
             st.exception(exc)
 
-if st.session_state.assistant_open:
-    with assistant_panel:
-        assistant.render(st, root, panel=True)
+show_assistant()
