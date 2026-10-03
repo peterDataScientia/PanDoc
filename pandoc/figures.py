@@ -24,7 +24,7 @@ _HTML = r'''<!doctype html><html><head><meta charset="utf-8">
 <div style="overflow:auto"><canvas id="scene" width="1332" height="780"></canvas></div>
 <p><label>Reference <input id="referenceColor" type="color" value="#00cdd4"></label><label>Redocked <input id="poseColor" type="color" value="#d500d5"></label><label>Background <select id="background"><option value="#ffffff">White</option><option value="#2d3336">Dark</option></select></label><label>Style <select id="style"><option value="ball">Ball and stick</option><option value="stick">Sticks</option></select></label></p>
 <button type="button" id="reset">Reset view</button><button type="button" id="png">Download PNG · 600 DPI</button><button type="button" id="pdf">Download PDF</button>
-<div id="downloads"></div><p id="status">Drag to rotate; Shift-drag to move; scroll to zoom. Both ligands move together.</p>
+<div id="downloads"></div><details id="export-preview" style="display:none"><summary>Preview exported PNG</summary><img id="export-image" alt="Exported publication PNG" style="max-width:666px;width:100%;height:auto"></details><p id="status">Drag to rotate; Shift-drag to move; scroll to zoom. Both ligands move together.</p>
 <script>
 const data=__DATA__, W=3996,H=2340;
 // Original coordinates are immutable; only this shared camera changes.
@@ -61,7 +61,7 @@ preview.addEventListener('wheel',e=>{e.preventDefault();camera.zoom=Math.max(0.2
 const exportUrls={};
 function download(blob,name){const type=blob.type==='application/pdf'?'pdf':'png';if(exportUrls[type])URL.revokeObjectURL(exportUrls[type]);
 const url=URL.createObjectURL(blob);exportUrls[type]=url;const id='save-'+type;document.getElementById(id)?.remove();
-const a=document.createElement('a');a.id=id;a.href=url;a.download=name;a.textContent='Save '+type.toUpperCase();a.style.marginRight='20px';document.getElementById('downloads').appendChild(a);a.click();}
+const a=document.createElement('a');a.id=id;a.href=url;a.download=name;a.textContent='Save '+type.toUpperCase();a.style.marginRight='20px';document.getElementById('downloads').appendChild(a);if(type==='png'){document.getElementById('export-image').src=url;document.getElementById('export-preview').style.display='block';}a.click();}
 // Insert PNG physical resolution, preserving rendered pixels and valid chunk CRCs.
 function dpiPNG(bytes){const body=new Uint8Array(13),dv=new DataView(body.buffer);dv.setUint32(0,Math.round(600/0.0254));dv.setUint32(4,Math.round(600/0.0254));body[8]=1;
 const chunk=new Uint8Array(21);new DataView(chunk.buffer).setUint32(0,9);chunk.set([112,72,89,115],4);chunk.set(body.subarray(0,9),8);
