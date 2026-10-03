@@ -20,6 +20,7 @@ def setting(st, name, default=''):
 
 def context_snapshot(state, job=None):
     context = {k: state.get(k) for k in ('workflow_stage', 'center', 'size') if state.get(k) is not None}
+    context['experiment_state'] = {'complex_loaded': bool(state.get('pdb')), 'component_selection_saved': bool(state.get('selected_pdb')), 'receptor_prepared': bool(state.get('receptor_path')), 'reference_prepared': bool(state.get('reference_path'))}
     context['box_units'] = 'angstrom'
     from . import core
     context['software_versions'] = core.versions()
@@ -62,7 +63,8 @@ def context_snapshot(state, job=None):
 
 def ask(question, api_key, context=None, model=MODEL, history=None):
     from groq import Groq
-    messages = [{'role': 'system', 'content': SYSTEM}]
+    guide = Path(__file__).with_name('assistant_guide.md').read_text()
+    messages = [{'role': 'system', 'content': SYSTEM+'\n\n'+guide}]
     for turn in (history or [])[-8:]:
         messages.extend([{'role': 'user', 'content': turn['question']}, {'role': 'assistant', 'content': turn['answer']}])
     if context is not None:
@@ -84,6 +86,8 @@ def clean_diagnostic(text):
 
 
 def suggestions(context):
+    if not context.get('experiment_state', {}).get('complex_loaded') and not context.get('diagnostic'):
+        return [('How do I start?', 'How do I start a docking study in PanDoc?'), ('What can PanDoc do?', 'What can PanDoc do? Explain briefly.')]
     if context.get('diagnostic'):
         return [('Explain this error', 'Explain the supplied diagnostic and structure checks. Distinguish the established problem from possible causes and suggest the next action in PanDoc.')]
     stage = str(context.get('workflow_stage', '1'))[:1]
@@ -107,28 +111,29 @@ def render(st, root, panel=False):
         except (ValueError, OSError, TypeError):
             context_now = {'workflow_stage': st.session_state.get('workflow_stage'), 'context_error': 'Current calculation could not be read.'}
         fingerprint = hashlib.sha256(json.dumps(context_now, sort_keys=True).encode()).hexdigest()
-        include = st.toggle('Use current experiment', value=True, key='assistant_include', help='Shares settings, anonymous result rows, preparation checks and a sanitized diagnostic with Groq when you send a question. Molecular files and ligand identities are excluded.')
-        pieces = ['current step']
-        if context_now.get('preparation'): pieces.append('preparation')
-        if context_now.get('structure_checks'): pieces.append('structure checks')
-        if context_now.get('diagnostic'): pieces.append('diagnostic')
-        if context_now.get('calculation_settings'): pieces.append('docking settings')
-        if context_now.get('results'): pieces.append('results')
-        if context_now.get('selected_pose'): pieces.append('selected pose')
-        st.caption('Using: '+', '.join(pieces) if include else 'Using: conversation only')
+        with st.popover('⋯', help='Conversation options'):
+            if st.button('New conversation'):
+                st.session_state.pop('assistant_history', None)
+                st.session_state.pop('assistant_answer', None)
+            include = st.checkbox('Share experiment context', value=True, key='assistant_include')
+            st.caption('Messages and recent conversation go to Groq when sent. Enabled context includes settings, anonymous scores and sanitized diagnostics; molecular files and ligand identities are excluded.')
         if not api_key:
             st.info('Assistant unavailable. The app owner can enable it in Streamlit secrets.')
+        history = st.session_state.get('assistant_history', [])
         pending = None
-        for label, prompt in suggestions(context_now):
-            if st.button(label, disabled=not api_key, width='stretch'):
-                pending = prompt
-        if st.button('New conversation'):
-            st.session_state.pop('assistant_history', None)
-            st.session_state.pop('assistant_answer', None)
         timeline = st.container(height=420, border=False)
-        with st.form('scientific_assistant_form', clear_on_submit=True):
-            question = st.text_area('Message', placeholder='Ask a question or follow up…', max_chars=4000, height=90)
-            submitted = st.form_submit_button('Ask', width='stretch')
+        with timeline:
+            if not history:
+                st.markdown('How can I help with PanDoc or your research?')
+                for label, prompt in suggestions(context_now):
+                    if st.button(label, disabled=not api_key, width='stretch'):
+                        pending = prompt
+            for turn in history:
+                with st.chat_message('user'): st.markdown(turn['question'])
+                with st.chat_message('assistant'): st.markdown(turn['answer'])
+            incoming = st.container()
+        question = st.chat_input('Ask about PanDoc or your research…', max_chars=4000, disabled=not api_key, key='assistant_message')
+        submitted = question is not None
         request = pending if pending else question.strip() if submitted else None
         if request is not None:
             if not request:
@@ -156,18 +161,9 @@ def render(st, root, panel=False):
                     st.error('The assistant could not connect. Please try again later.')
                 except (ValueError, OSError):
                     st.error('No answer was returned. Please try again.')
-        history = st.session_state.get('assistant_history', [])
         saved = st.session_state.get('assistant_answer')
-        with timeline:
-            if not history and not saved:
-                st.caption('Ask freely about your research, or choose a suggestion above.')
-            for turn in history or ([saved] if saved else []):
-                with st.chat_message('user'): st.markdown(turn['question'])
-                with st.chat_message('assistant'): st.markdown(turn['answer'])
-            if saved and saved.get('fingerprint') and saved['fingerprint'] != fingerprint:
-                st.caption('The experiment has changed since the last answer. Your next question will use the current selection.')
-        with st.expander('Details'):
-            st.caption('Questions, recent conversation and enabled experiment context are sent to Groq only when you submit. AI explanations require researcher review. No literature search or calculation tools are connected.')
-            if saved:
-                st.caption('Model: '+saved['model'])
-                st.json(saved.get('context') or {'context': 'Conversation only'})
+        if request and saved and saved.get('question') == request and st.session_state.get('assistant_history', []) != history:
+            with incoming:
+                with st.chat_message('user'): st.markdown(request)
+                with st.chat_message('assistant'): st.markdown(saved['answer'])
+            st.rerun()

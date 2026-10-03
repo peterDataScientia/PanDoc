@@ -31,8 +31,7 @@ def test_sdk_request_and_session_persistence(monkeypatch, tmp_path):
     monkeypatch.setattr(assistant,'setting',lambda st,name,default='': 'test-key' if name=='GROQ_API_KEY' else default)
     script="import streamlit as st\nfrom pandoc import assistant\nassistant.render(st, "+repr(str(tmp_path))+")"
     at=AppTest.from_string(script).run()
-    at.text_area[0].set_value('What does docking exhaustiveness mean?')
-    next(b for b in at.button if b.label=='Ask').click().run()
+    at.chat_input[0].set_value('What does docking exhaustiveness mean?').run()
     assert not list(at.exception)
     assert len(calls)==1
     assert calls[0]['model']==assistant.MODEL
@@ -46,21 +45,19 @@ def test_sdk_request_and_session_persistence(monkeypatch, tmp_path):
 def test_missing_key_is_nonfatal(monkeypatch,tmp_path):
     monkeypatch.setattr(assistant,'setting',lambda *args:'')
     at=AppTest.from_string("import streamlit as st\nfrom pandoc import assistant\nassistant.render(st, "+repr(str(tmp_path))+")").run()
-    at.text_area[0].set_value('Explain redocking')
-    next(b for b in at.button if b.label=='Ask').click().run()
+    assert at.chat_input[0].disabled
     assert not list(at.exception)
-    assert list(at.warning)
+    assert list(at.info)
 
 
-def test_panel_context_change_marks_answer_stale(monkeypatch, tmp_path):
+def test_empty_app_has_guide_and_simple_chat(monkeypatch, tmp_path):
     monkeypatch.setattr(assistant, 'setting', lambda *args: '')
-    script = "import streamlit as st\nfrom pandoc import assistant\nst.session_state.setdefault('center', [1,2,3])\nassistant.render(st, " + repr(str(tmp_path)) + ", panel=True)"
-    at = AppTest.from_string(script).run()
-    at.session_state['assistant_answer'] = dict(question='Old question', answer='Old answer', model=assistant.MODEL, context={}, fingerprint='old')
-    at.session_state['center'] = [4,5,6]
-    at.run()
+    at = AppTest.from_string("import streamlit as st\nfrom pandoc import assistant\nassistant.render(st, " + repr(str(tmp_path)) + ", panel=True)").run()
     assert not list(at.exception)
-    assert any('experiment has changed' in c.value for c in at.caption)
+    assert len(at.chat_input) == 1 and not list(at.text_area)
+    assert 'How do I start?' in [b.label for b in at.button]
+    assert 'Ask' not in [b.label for b in at.button]
+    assert assistant.context_snapshot({})['experiment_state']['complex_loaded'] is False
 
 
 def test_followup_sends_conversation_history(monkeypatch):
@@ -77,6 +74,8 @@ def test_followup_sends_conversation_history(monkeypatch):
     assistant.ask('Why?', 'test', history=[dict(question='Explain RMSD', answer='RMSD measures pose deviation')])
     assert [m['role'] for m in captured] == ['system', 'user', 'assistant', 'user']
     assert captured[2]['content'] == 'RMSD measures pose deviation'
+    assert 'Search PDB' in captured[0]['content']
+    assert 'heavy' in captured[0]['content']
 
 
 def test_diagnostic_sanitization_and_contextual_suggestions():
@@ -116,14 +115,13 @@ def test_suggestion_sends_once_and_conversation_is_ordered(monkeypatch,tmp_path)
         calls.append(question)
         return 'Specific explanation'
     monkeypatch.setattr(assistant,'ask',fake_ask)
-    at=AppTest.from_string("import streamlit as st\nfrom pandoc import assistant\nst.session_state.workflow_stage='3 · Validate docking'\nassistant.render(st, "+repr(str(tmp_path))+")").run()
+    at=AppTest.from_string("import streamlit as st\nfrom pandoc import assistant\nst.session_state.pdb='fixture'\nst.session_state.workflow_stage='3 · Validate docking'\nassistant.render(st, "+repr(str(tmp_path))+")").run()
     next(b for b in at.button if b.label=='Explain my grid box').click().run()
     assert not list(at.exception)
     assert len(calls)==1 and 'current docking box' in calls[0]
     at.run()
     assert len(calls)==1
     assert [m.value for m in at.markdown]==[calls[0], 'Specific explanation']
-    at.text_area[0].set_value('Why?')
-    next(b for b in at.button if b.label=='Ask').click().run()
+    at.chat_input[0].set_value('Why?').run()
     assert len(at.session_state['assistant_history'])==2
     assert [m.value for m in at.markdown]==[calls[0], 'Specific explanation','Why?','Specific explanation']
