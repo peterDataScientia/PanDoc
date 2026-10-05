@@ -36,21 +36,12 @@ def test_small_real_docking_workflow(tmp_path,monkeypatch):
                           reference_path=str(tmp_path/'ethanol.sdf'),reference_pdbqt=str(tmp_path/'ethanol.pdbqt'),
                           reference_id='reference',center=[0.,0.,0.],size=[12.,12.,12.]).items():
         at.session_state[key]=value
-    for view, stage in [
-        ('Preparation', '2 · Prepare structures'),
-        ('Validation', '3 · Validate docking'),
-        ('Docking', '4 · Run experiment'),
-        ('Results', '5 · Explore results'),
-    ]:
-        at.session_state['workspace_view'] = view
-        at.session_state['workflow_stage'] = stage
-        at.run()
+    for stage in ['2 · Prepare structures','3 · Validate docking','4 · Run experiment','5 · Explore results']:
+        at.sidebar.radio[0].set_value(stage).run()
         assert not list(at.exception)
         assert not list(at.error),list(at.error)
     monkeypatch.setattr(core,'fetch_ccd',lambda component:dict(component=component,name='Ethanol',formula='C2 H6 O',formal_charge=0,smiles='CCO',source='test fixture',heavy_atom_names=[]))
-    at.session_state['workspace_view'] = 'Preparation'
-    at.session_state['workflow_stage'] = '2 · Prepare structures'
-    at.run()
+    at.sidebar.radio[0].set_value('2 · Prepare structures').run()
     next(b for b in at.button if b.label=='Find ligand chemistry from PDB').click().run()
     assert not list(at.exception)
     field=next(t for t in at.text_input if t.label=='Reference ligand isomeric SMILES — editable')
@@ -64,21 +55,13 @@ def test_small_real_docking_workflow(tmp_path,monkeypatch):
     assert next(b for b in at.button if b.label=='Prepare reference ligand').disabled
     assert not list(at.exception)
     next(b for b in at.button if b.label=='Change selected ligand').click().run()
-    assert at.session_state['workflow_stage']=='1 · Load complex'
-    assert at.session_state['workspace_view']=='Structure'
+    assert at.sidebar.radio[0].value=='1 · Load complex'
 
 
 def test_guided_screens_render(tmp_path):
     at=AppTest.from_file(Path(__file__).resolve().parents[1]/'app.py').run()
     assert not list(at.exception)
-    for view, stage in [
-        ('Preparation', '2 · Prepare structures'),
-        ('Validation', '3 · Validate docking'),
-        ('Docking', '4 · Run experiment'),
-        ('Results', '5 · Explore results'),
-    ]:
-        at.session_state['workspace_view'] = view
-        at.session_state['workflow_stage'] = stage
-        at.run()
+    for stage in ['2 · Prepare structures','3 · Validate docking','4 · Run experiment','5 · Explore results']:
+        at.sidebar.radio[0].set_value(stage).run()
         assert not list(at.exception)
         assert not list(at.error)
