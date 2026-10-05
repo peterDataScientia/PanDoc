@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from pandoc import core, jobs, figures, pdb_search, structure_checks
+from pandoc import core, jobs, figures, pdb_search, structure_checks, workspace_ui
 
 st.set_page_config(page_title='PanDoc · Docking workbench', page_icon='🧬', layout='wide')
 st.markdown('''<style>
@@ -318,20 +318,10 @@ def show_job(directory):
 
 if st.session_state.get('next_stage'):
     st.session_state.workflow_stage = st.session_state.pop('next_stage')
+    st.session_state.workspace_view = workspace_ui.view_from_stage(st.session_state.workflow_stage)
 
 with st.sidebar:
-    st.title('PanDoc')
-    st.caption('Prepare · Validate · Dock')
-    st.text_input('Experiment name', 'My docking experiment', key='experiment')
-    stage = st.radio('Workflow', ['1 · Load complex', '2 · Prepare structures', '3 · Validate docking', '4 · Run experiment', '5 · Explore results'], key='workflow_stage')
-    st.divider()
-    st.caption('✓ Complex loaded' if st.session_state.get('pdb') else '○ Load a complex')
-    st.caption('✓ Receptor prepared' if st.session_state.get('preparation_id') else '○ Prepare receptor')
-    st.caption('✓ Reference prepared' if st.session_state.get('reference_path') else '○ Prepare reference')
-    st.caption('Coordinates in Å · Vina scores in kcal/mol')
-    if st.button('Start a new experiment'):
-        st.session_state.clear()
-        st.rerun()
+    stage, project_state = workspace_ui.render_sidebar(st, st.session_state, root, jobs)
 
 from pandoc import assistant
 
@@ -354,7 +344,7 @@ if stage.startswith('3') or stage.startswith('4'):
     if active:
         st.session_state.assistant_active_job = str(active)
 with workspace:
-    st.title(stage.split(' · ')[1])
+    workspace_ui.render_workspace_header(st, st.session_state, stage, project_state)
 
     try:
         if stage.startswith('1'):
@@ -687,7 +677,11 @@ with workspace:
                         st.success(f'{len(records)} ligands prepared.')
                     candidates=st.session_state.get('candidate_paths',[])
                     if candidates:
-                        st.dataframe(pd.DataFrame(candidates).drop(columns=['path']),hide_index=True)
+                        candidates = workspace_ui.select_candidates(
+                            st,
+                            candidates,
+                            key='candidate_run_selection',
+                        )
                     config['ligands']=candidates
                     matched = False
                     for job in jobs.list_jobs(root):
@@ -734,7 +728,11 @@ with workspace:
                         st.warning('These are partial results from an unfinished or interrupted calculation.')
                     rows=json.loads(path.read_text())
                     df=pd.DataFrame(rows)
-                    st.dataframe(df.drop(columns=['sdf']),hide_index=True,width='stretch')
+                    visible_df = workspace_ui.filter_results(
+                        st,
+                        df,
+                        key='results_' + job.name,
+                    )
                     if 'reference_rmsd_A' in df:
                         threshold=st.number_input('Pose-recovery RMSD threshold (Å)',0.1,10.,2.,0.1)
                         top=df[df['rank']==1]
@@ -742,27 +740,35 @@ with workspace:
                         a.metric('Best recovered RMSD',f"{df.reference_rmsd_A.min():.2f} Å")
                         b.metric('Top-ranked pose recovery',f"{int((top.reference_rmsd_A<=threshold).sum())}/{len(top)} seeds")
                         c.metric('Best-pose recovery',f"{int((df.groupby('seed').reference_rmsd_A.min()<=threshold).sum())}/{len(top)} seeds")
-                        st.caption('Pose recovery tests this receptor and protocol. It does not validate experimental affinity predictions.')
-                    pose_key = 'inspect_pose_' + job.name
-                    ordered = sorted(range(len(rows)), key=lambda i: rows[i].get('reference_rmsd_A', rows[i]['score_kcal_mol']))
-                    if st.button('Display lowest-RMSD pose' if 'reference_rmsd_A' in df else 'Display lowest-score pose', key='best_explore_' + job.name):
-                        st.session_state[pose_key] = ordered[0]
-                    index=st.selectbox('Inspect pose',ordered,format_func=lambda i:f"{rows[i]['ligand']} · seed {rows[i]['seed']} · pose {rows[i]['rank']} · score {rows[i]['score_kcal_mol']:.2f}" + (f" · RMSD {rows[i]['reference_rmsd_A']:.3f} Å" if 'reference_rmsd_A' in rows[i] else ''), key=pose_key)
-                    row=rows[index]
-                    st.session_state.assistant_selected_pose = row
-                    from rdkit import Chem
-                    poses=list(Chem.SDMolSupplier(str(job/row['sdf']),removeHs=False))
-                    pose=poses[row['rank']-1]
-                    if pose is None:
-                        raise ValueError('Selected pose could not be read from SDF.')
-                    sdf=Chem.MolToMolBlock(pose)+'\n$$$$\n'
-                    receptor=Path(config['receptor']).parent/'receptor_prepared.pdb'
-                    if config.get('reference'):
-                        publication_figure(job, row)
+                        st.caption('Validation metrics above use the complete calculation; filters below only change what you inspect and export.')
+                    if visible_df.empty:
+                        st.info('No result rows match the current filters. Adjust the result explorer above.')
                     else:
-                        viewer(pdb=receptor.read_text() if receptor.exists() else None, sdf=sdf)
-                    st.download_button('Download results CSV',df.to_csv(index=False),'results.csv','text/csv', on_click='ignore')
-                    st.download_button('Download selected pose SDF',sdf,'selected_pose.sdf', on_click='ignore')
+                        st.dataframe(visible_df.drop(columns=['sdf'], errors='ignore'),hide_index=True,width='stretch')
+                        pose_key = 'inspect_pose_' + job.name
+                        visible_indices = visible_df.index.tolist()
+                        ordered = sorted(visible_indices, key=lambda i: rows[i].get('reference_rmsd_A', rows[i]['score_kcal_mol']))
+                        if st.button('Display lowest-RMSD pose' if 'reference_rmsd_A' in df else 'Display lowest-score pose', key='best_explore_' + job.name):
+                            st.session_state[pose_key] = ordered[0]
+                        if st.session_state.get(pose_key) not in ordered:
+                            st.session_state[pose_key] = ordered[0]
+                        index=st.selectbox('Inspect visible pose',ordered,format_func=lambda i:f"{rows[i]['ligand']} · seed {rows[i]['seed']} · pose {rows[i]['rank']} · score {rows[i]['score_kcal_mol']:.2f}" + (f" · RMSD {rows[i]['reference_rmsd_A']:.3f} Å" if 'reference_rmsd_A' in rows[i] else ''), key=pose_key)
+                        row=rows[index]
+                        st.session_state.assistant_selected_pose = row
+                        from rdkit import Chem
+                        poses=list(Chem.SDMolSupplier(str(job/row['sdf']),removeHs=False))
+                        pose=poses[row['rank']-1]
+                        if pose is None:
+                            raise ValueError('Selected pose could not be read from SDF.')
+                        sdf=Chem.MolToMolBlock(pose)+'\n$$$$\n'
+                        receptor=Path(config['receptor']).parent/'receptor_prepared.pdb'
+                        if config.get('reference'):
+                            publication_figure(job, row)
+                        else:
+                            viewer(pdb=receptor.read_text() if receptor.exists() else None, sdf=sdf)
+                        export_df = visible_df.drop(columns=['sdf'], errors='ignore')
+                        st.download_button('Download visible results CSV',export_df.to_csv(index=False),'results_filtered.csv','text/csv', on_click='ignore')
+                        st.download_button('Download selected pose SDF',sdf,'selected_pose.sdf', on_click='ignore')
                 with st.expander('Saved docking settings'):
                     st.json(config)
             manifest()
