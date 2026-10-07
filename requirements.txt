@@ -21,3 +21,8 @@ groq>=0.31,<1
 # pH-aware preparation
 propka>=3.5,<4
 molscrub @ git+https://github.com/forlilab/molscrub.git@develop
+
+# REST API
+fastapi>=0.115,<1
+uvicorn>=0.30,<1
+python-multipart>=0.0.9,<1
