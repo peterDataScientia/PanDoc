@@ -1,7 +1,7 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "profile_set": "reviewed_2026_10",
-  "description": "Reviewed receptor preparation profiles for FYN, AR, CYP19A1 and PGR.",
+  "description": "Reviewed receptor preparation profiles for FYN, AR, CYP19A1 and PGR. Override keys use PanDoc/PROPKA residue identifiers (chain:number).",
   "targets": {
     "FYN": {
       "pdb": "10DJ",
@@ -15,12 +15,12 @@
         "A:731:HOH"
       ],
       "overrides": {
-        "A:323:HIS": "HIE",
-        "A:388:HIS": "HIE",
-        "A:390:ASP": "ASP",
-        "A:448:ASP": "ASP",
-        "A:496:HIS": "HIE",
-        "A:501:HIS": "HID"
+        "A:323": "HIE",
+        "A:388": "HIE",
+        "A:390": "ASP",
+        "A:448": "ASP",
+        "A:496": "HIE",
+        "A:501": "HID"
       },
       "notes": [
         "Primary receptor is dry.",
@@ -39,14 +39,14 @@
         "A:7:HOH"
       ],
       "overrides": {
-        "A:689:HIS": "HID",
-        "A:714:HIS": "HIE",
-        "A:729:HIS": "HIE",
-        "A:776:HIS": "HIE",
-        "A:789:HIS": "HIE",
-        "A:874:HIS": "HID",
-        "A:885:HIS": "HIE",
-        "A:917:HIS": "HID"
+        "A:689": "HID",
+        "A:714": "HIE",
+        "A:729": "HIE",
+        "A:776": "HIE",
+        "A:789": "HIE",
+        "A:874": "HID",
+        "A:885": "HIE",
+        "A:917": "HID"
       },
       "notes": [
         "ALA843-THR850 crystallographic discontinuity is documented and is not loop-built automatically.",
@@ -65,19 +65,19 @@
       "retain_waters_primary": [],
       "validation_water_candidates": [],
       "overrides": {
-        "A:62:HIS": "HIE",
-        "A:105:HIS": "HIE",
-        "A:109:HIS": "HID",
-        "A:111:HIS": "HIE",
-        "A:128:HIS": "HIE",
-        "A:171:HIS": "HIP",
-        "A:302:GLU": "GLU",
-        "A:309:ASP": "ASH",
-        "A:325:HIS": "HIE",
-        "A:402:HIS": "HID",
-        "A:459:HIS": "HID",
-        "A:475:HIS": "HIP",
-        "A:480:HIS": "HID"
+        "A:62": "HIE",
+        "A:105": "HIE",
+        "A:109": "HID",
+        "A:111": "HIE",
+        "A:128": "HIE",
+        "A:171": "HIP",
+        "A:302": "GLU",
+        "A:309": "ASH",
+        "A:325": "HIE",
+        "A:402": "HID",
+        "A:459": "HID",
+        "A:475": "HIP",
+        "A:480": "HID"
       },
       "notes": [
         "HEM must be retained.",
@@ -97,12 +97,12 @@
         "A:1004:HOH"
       ],
       "overrides": {
-        "A:703:HIS": "HIE",
-        "A:743:HIS": "HID",
-        "A:770:HIS": "HIE",
-        "A:881:HIS": "HIE",
-        "A:888:HIS": "HIE",
-        "A:931:HIS": "HID"
+        "A:703": "HIE",
+        "A:743": "HID",
+        "A:770": "HIE",
+        "A:881": "HIE",
+        "A:888": "HIE",
+        "A:931": "HID"
       },
       "notes": [
         "Primary receptor is dry.",
