@@ -1,1 +1,20 @@
-// PanDoc Cloudflare Worker config
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pandoc-api",
+  "main": "src/main.py",
+  "compatibility_date": "2026-10-08",
+  "compatibility_flags": ["python_workers"],
+  "vars": {
+    "PANDOC_GITHUB_REPOSITORY": "peterDataScientia/PanDoc",
+    "PANDOC_GITHUB_BRANCH": "main"
+  },
+  "r2_buckets": [
+    {
+      "binding": "PANDOC_JOBS",
+      "bucket_name": "pandoc-api-jobs"
+    }
+  ],
+  "python_modules": {
+    "exclude": ["**/*.pyc", "**/__pycache__"]
+  }
+}
