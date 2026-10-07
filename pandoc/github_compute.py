@@ -52,6 +52,14 @@ def _repo_url(repository: str, suffix: str) -> str:
     return f"https://api.github.com/repos/{repository}{suffix}"
 
 
+def _encrypt_archive(files: dict[str, bytes], key: str) -> bytes:
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, data in files.items():
+            archive.writestr(name, data)
+    return Fernet(validate_key(key).encode()).encrypt(stream.getvalue())
+
+
 def _payload(config: dict, key: str) -> bytes:
     portable = copy.deepcopy(config)
     stream = io.BytesIO()
@@ -97,7 +105,7 @@ class GitHubCompute:
         self.job_key = validate_key(job_key)
         self.repository = repository
 
-    def submit(self, config: dict) -> dict:
+    def _queue(self, payload: bytes, operation: str) -> dict:
         job_id = uuid.uuid4().hex
         branch = f"pandoc-job-{job_id}"
 
@@ -117,7 +125,6 @@ class GitHubCompute:
             json={"ref": f"refs/heads/{branch}", "sha": sha},
         )
 
-        payload = _payload(config, self.job_key)
         encoded = base64.b64encode(payload).decode()
         try:
             _request(
@@ -125,7 +132,7 @@ class GitHubCompute:
                 "PUT",
                 _repo_url(self.repository, f"/contents/.pandoc_jobs/{job_id}.bin"),
                 json={
-                    "message": f"Queue encrypted PanDoc job {job_id[:8]}",
+                    "message": f"Queue encrypted PanDoc {operation} job {job_id[:8]}",
                     "content": encoded,
                     "branch": branch,
                 },
@@ -134,7 +141,7 @@ class GitHubCompute:
                 self.token,
                 "POST",
                 _repo_url(self.repository, f"/actions/workflows/{WORKFLOW}/dispatches"),
-                json={"ref": branch, "inputs": {"job_id": job_id}},
+                json={"ref": branch, "inputs": {"job_id": job_id, "operation": operation}},
             )
         except Exception:
             try:
@@ -147,8 +154,24 @@ class GitHubCompute:
             "job_id": job_id,
             "branch": branch,
             "repository": self.repository,
+            "operation": operation,
             "submitted_at": time.time(),
         }
+
+    def submit(self, config: dict) -> dict:
+        return self._queue(_payload(config, self.job_key), "dock")
+
+    def submit_ligand_microstates(self, smiles: str, ph: float, max_states: int = 16) -> dict:
+        request = {
+            "smiles": str(smiles),
+            "ph": float(ph),
+            "max_states": int(max_states),
+        }
+        payload = _encrypt_archive(
+            {"request.json": json.dumps(request, indent=2).encode()},
+            self.job_key,
+        )
+        return self._queue(payload, "ligand-microstates")
 
     def _run(self, job: dict):
         params = {
@@ -166,9 +189,6 @@ class GitHubCompute:
         if matching:
             return matching[0]
 
-        # The temporary branch is deleted after result retrieval. Fall back to
-        # recent workflow-dispatch runs so a completed job remains addressable
-        # by job_id even after cleanup.
         recent = _request(
             self.token,
             "GET",
@@ -226,9 +246,9 @@ class GitHubCompute:
                         result["error"] = "GitHub Actions is missing the PANDOC_JOB_KEY repository secret."
                     else:
                         lines = [line.strip() for line in log.splitlines() if line.strip()]
-                        result["error"] = lines[-1][-500:] if lines else "GitHub Actions docking failed."
+                        result["error"] = lines[-1][-500:] if lines else "GitHub Actions compute failed."
             except Exception:
-                result["error"] = "GitHub Actions docking failed."
+                result["error"] = "GitHub Actions compute failed."
         return result
 
     def cancel(self, job: dict):
