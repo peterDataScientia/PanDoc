@@ -111,6 +111,28 @@ def _distance_to_reference(pdb, residue_prefix, reference_pdb):
     )
 
 
+def _strip_hydrogens(pdb):
+    """Remove deposited hydrogens before heavy-atom rebuilding.
+
+    Incomplete residues can carry hydrogens that were consistent with the
+    truncated experimental model but become inconsistent after PDBFixer adds
+    missing heavy atoms. Meeko will regenerate hydrogens from reviewed residue
+    templates, so receptor reconstruction should start from heavy atoms only.
+    """
+    kept = []
+    for line in pdb.splitlines():
+        if line.startswith(("ATOM  ", "HETATM")):
+            name = line[12:16].strip()
+            element = line[76:78].strip().upper() if len(line) >= 78 else ""
+            if not element:
+                letters = "".join(ch for ch in name if ch.isalpha())
+                element = letters[:1].upper()
+            if element in {"H", "D"}:
+                continue
+        kept.append(line)
+    return "\n".join(kept).rstrip() + "\n"
+
+
 def _remove_residue_prefixes(pdb, prefixes):
     prefixes = set(prefixes)
     kept = []
@@ -235,7 +257,10 @@ def prepare_from_profile(target, output_dir, force_curated=False):
     checks_before = structure_checks.check(selected)
     _write_csv(checks_before["issues"], root / "06_issues_before_repair.csv")
 
-    repaired = core.repair_heavy_atoms(selected)
+    heavy_only = _strip_hydrogens(selected)
+    (root / "06b_receptor_heavy_only_before_repair.pdb").write_text(heavy_only)
+
+    repaired = core.repair_heavy_atoms(heavy_only)
     (root / "07_receptor_repaired.pdb").write_text(repaired)
 
     checks_after = structure_checks.check(repaired)
@@ -291,7 +316,7 @@ def prepare_from_profile(target, output_dir, force_curated=False):
 
     result = {
         "profile_set": meta.get("profile_set"),
-        "engine_revision": "remote-fallback-v2",
+        "engine_revision": "heavy-only-repair-v3",
         "target": target,
         "pdb": cfg["pdb"],
         "chain": cfg["chain"],
