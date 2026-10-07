@@ -995,7 +995,7 @@ with workspace:
                 if backend:
                     st.caption('Compute · GitHub Actions')
                 else:
-                    st.error('GitHub Actions compute is required but is not configured.')
+                    st.warning('GitHub Actions compute is required but is not configured.')
                 if st.button('Run redocking' if validation else 'Run docking', type='primary', disabled=busy or not config['ligands'] or backend is None):
                     manifest()
                     try:
