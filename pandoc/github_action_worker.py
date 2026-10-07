@@ -9,7 +9,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from . import phprep
+from . import core, phprep
 from .github_compute import decrypt_payload
 from .worker import run as run_worker
 
@@ -71,6 +71,64 @@ def _run_ligand_microstates(root: Path, result_dir: Path):
     )
 
 
+def _run_candidate_preparation(root: Path, result_dir: Path):
+    from rdkit import Chem
+    from rdkit.Chem import rdMolDescriptors
+
+    request = json.loads((root / "request.json").read_text())
+    ligands = list(request.get("ligands", []))
+    ph = float(request.get("ph", 7.0))
+    enumerate_states = bool(request.get("enumerate_states", True))
+    if not 1 <= len(ligands) <= 25:
+        raise ValueError("Prepare between one and 25 input candidate ligands.")
+
+    prepared = []
+    for parent_index, item in enumerate(ligands, 1):
+        name = str(item.get("name") or f"Ligand {parent_index}")
+        smiles = str(item.get("smiles") or "").strip()
+        if not smiles:
+            raise ValueError(f"Candidate {parent_index} is missing SMILES.")
+
+        if enumerate_states:
+            states = phprep.enumerate_ligand_states(smiles, ph)
+            for state in states:
+                prepared.append((name, parent_index, state["index"], state["mol"], state["smiles"]))
+        else:
+            mol = core.molecule(smiles=smiles)
+            state_smiles = Chem.MolToSmiles(Chem.RemoveHs(mol), isomericSmiles=True)
+            prepared.append((name, parent_index, 1, mol, state_smiles))
+
+    if len(prepared) > 25:
+        raise ValueError(
+            f"pH-aware enumeration generated {len(prepared)} states. "
+            "Reduce the input set or prepare compounds in smaller batches (maximum 25 states per run)."
+        )
+
+    out_dir = result_dir / "candidates"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    records = []
+    for i, (name, parent_index, state_index, mol, state_smiles) in enumerate(prepared, 1):
+        ident = f"ligand_{i:03d}"
+        path = out_dir / f"{ident}.pdbqt"
+        core.write_ligand(mol, path)
+        records.append({
+            "id": ident,
+            "name": name,
+            "parent": parent_index,
+            "microstate": state_index,
+            "smiles": state_smiles,
+            "pH": ph,
+            "path": str(path.relative_to(result_dir)),
+            "formula": rdMolDescriptors.CalcMolFormula(mol),
+            "charge": int(Chem.GetFormalCharge(mol)),
+        })
+
+    (result_dir / "results.json").write_text(json.dumps({"records": records}, indent=2))
+    (result_dir / "status.json").write_text(
+        json.dumps({"state": "completed", "completed": len(records), "total": len(records)}, indent=2)
+    )
+
+
 def main(job_id: str, operation: str = "dock"):
     key = os.environ.get("PANDOC_JOB_KEY", "").strip()
     if not key:
@@ -93,6 +151,8 @@ def main(job_id: str, operation: str = "dock"):
             _run_docking(root, result_dir)
         elif operation == "ligand-microstates":
             _run_ligand_microstates(root, result_dir)
+        elif operation == "prepare-candidates":
+            _run_candidate_preparation(root, result_dir)
         else:
             raise RuntimeError(f"Unsupported PanDoc Actions operation: {operation}")
 
