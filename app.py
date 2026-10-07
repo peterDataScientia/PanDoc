@@ -348,6 +348,57 @@ def show_microstate_job(task_key, result_key):
     live_microstate_job()
 
 
+def show_candidate_prep_job(task_key):
+    remote = st.session_state.get(task_key)
+    if not remote:
+        return
+    backend = github_backend()
+    if backend is None:
+        st.warning('GitHub Actions compute is required for candidate preparation.')
+        return
+
+    try:
+        initial = backend.status(remote)
+    except compute.ComputeBackendError as exc:
+        st.warning(str(exc))
+        return
+    polling = initial.get('state') in ('queued', 'running', 'starting')
+
+    @st.fragment(run_every=5 if polling else None)
+    def live_candidate_job():
+        try:
+            state = backend.status(remote)
+        except compute.ComputeBackendError as exc:
+            st.warning(str(exc))
+            return
+
+        st.info(f"Candidate preparation · {state['state']} · {remote['job_id'][:8]}")
+        if state.get('html_url'):
+            st.link_button('Open preparation run', state['html_url'])
+
+        if state.get('state') == 'completed':
+            target = root/'candidates'/('github_'+remote['job_id'])
+            try:
+                if not (target/'results.json').exists():
+                    backend.materialize(remote, target)
+                payload = json.loads((target/'results.json').read_text())
+                records = payload.get('records', [])
+                for record in records:
+                    record['path'] = str((target/record['path']).resolve())
+                st.session_state.candidate_paths = records
+                backend.cleanup(remote)
+                st.session_state.pop(task_key, None)
+                st.rerun()
+            except (OSError, json.JSONDecodeError, compute.ComputeBackendError) as exc:
+                st.warning(str(exc))
+        elif state.get('state') == 'failed':
+            st.error(state.get('error') or 'Candidate preparation failed on GitHub Actions.')
+        elif state.get('state') == 'cancelled':
+            st.warning('Candidate preparation was cancelled.')
+
+    live_candidate_job()
+
+
 def show_remote_job(remote, local_key, remote_key):
     backend = github_backend()
     if backend is None:
@@ -982,48 +1033,40 @@ with workspace:
                     candidate_ph = float(st.session_state.get('preparation_record', {}).get('pH', 7.0))
                     enumerate_states = st.checkbox(f'Enumerate candidate protonation/tautomer states at pH {candidate_ph:.1f} with Molscrub', value=True)
                     chemical_review = st.checkbox('I will review the generated candidate microstates before docking.')
-                    if st.button('Prepare candidate ligands', disabled=not chemical_review):
+                    candidate_task_key = 'candidate_preparation_job'
+                    candidate_busy = bool(st.session_state.get(candidate_task_key))
+                    if st.button('Prepare candidate ligands', disabled=not chemical_review or candidate_busy):
                         from rdkit import Chem
-                        from rdkit.Chem import rdMolDescriptors
-                        mols = []
+                        ligand_inputs = []
                         if upload:
                             import io
-                            for i,mol in enumerate(Chem.ForwardSDMolSupplier(io.BytesIO(upload.getvalue()), removeHs=False)):
+                            for i, mol in enumerate(Chem.ForwardSDMolSupplier(io.BytesIO(upload.getvalue()), removeHs=False)):
                                 if mol is None:
                                     raise ValueError(f'Invalid molecule in SDF record {i+1}.')
-                                mols.append((mol.GetProp('_Name') if mol.HasProp('_Name') else f'Ligand {i+1}', core.molecule(sdf=Chem.MolToMolBlock(mol))))
+                                name = mol.GetProp('_Name') if mol.HasProp('_Name') and mol.GetProp('_Name').strip() else f'Ligand {i+1}'
+                                state_smiles = Chem.MolToSmiles(Chem.RemoveHs(mol), isomericSmiles=True)
+                                ligand_inputs.append({'name': name, 'smiles': state_smiles})
                         for line in smiles_text.splitlines():
                             if line.strip():
-                                pieces=line.split(maxsplit=1)
-                                mols.append((pieces[1] if len(pieces)>1 else f'Ligand {len(mols)+1}', core.molecule(smiles=pieces[0])))
-                        if not 1<=len(mols)<=25:
+                                pieces = line.split(maxsplit=1)
+                                ligand_inputs.append({
+                                    'name': pieces[1] if len(pieces) > 1 else f'Ligand {len(ligand_inputs)+1}',
+                                    'smiles': pieces[0],
+                                })
+                        if not 1 <= len(ligand_inputs) <= 25:
                             raise ValueError('Prepare between one and 25 input candidate ligands.')
-                        prepared_states = []
-                        for parent_index, (name, mol) in enumerate(mols, 1):
-                            if enumerate_states:
-                                parent_smiles = Chem.MolToSmiles(Chem.RemoveHs(mol), isomericSmiles=True)
-                                states = phprep.enumerate_ligand_states(parent_smiles, candidate_ph)
-                                for state in states:
-                                    prepared_states.append((name, parent_index, state['index'], state['mol'], state['smiles']))
-                            else:
-                                state_smiles = Chem.MolToSmiles(Chem.RemoveHs(mol), isomericSmiles=True)
-                                prepared_states.append((name, parent_index, 1, mol, state_smiles))
-                        if len(prepared_states) > 25:
-                            raise ValueError(f'pH-aware enumeration generated {len(prepared_states)} states. Reduce the input set or prepare compounds in smaller batches (maximum 25 states per run).')
-                        directory = root/'candidates'/uuid.uuid4().hex
-                        directory.mkdir(parents=True)
-                        records=[]
-                        for i,(name,parent_index,state_index,mol,state_smiles) in enumerate(prepared_states,1):
-                            ident=f'ligand_{i:03d}'
-                            path=directory/(ident+'.pdbqt')
-                            core.write_ligand(mol,path)
-                            records.append(dict(
-                                id=ident, name=name, parent=parent_index, microstate=state_index,
-                                smiles=state_smiles, pH=candidate_ph, path=str(path),
-                                formula=rdMolDescriptors.CalcMolFormula(mol),
-                                charge=Chem.GetFormalCharge(mol)))
-                        st.session_state.candidate_paths=records
-                        st.success(f'{len(records)} pH-aware ligand state(s) prepared from {len(mols)} input ligand(s). Review the table before docking.')
+                        backend = github_backend()
+                        if backend is None:
+                            st.warning('GitHub Actions compute is required for candidate preparation.')
+                        else:
+                            try:
+                                st.session_state[candidate_task_key] = backend.submit_candidate_preparation(
+                                    ligand_inputs, candidate_ph, enumerate_states
+                                )
+                                st.rerun()
+                            except compute.ComputeBackendError as exc:
+                                st.warning(str(exc))
+                    show_candidate_prep_job(candidate_task_key)
                     candidates=st.session_state.get('candidate_paths',[])
                     if candidates:
                         st.dataframe(pd.DataFrame(candidates).drop(columns=['path']),hide_index=True)
