@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from pandoc import core, jobs, figures, pdb_search, structure_checks
+from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep
 
 st.set_page_config(page_title='PanDoc · Docking workbench', page_icon='🧬', layout='wide')
 st.markdown('''<style>
@@ -437,18 +437,84 @@ with workspace:
                     st.write('Prepare the selected receptor for docking. Missing heavy atoms are rebuilt and checked automatically.')
                     with st.expander('Advanced preparation', expanded=bool(st.session_state.get('assistant_diagnostic'))):
                         repair = st.checkbox('Rebuild missing heavy atoms with PDBFixer', value=True)
-                        intended_ph = st.number_input('Intended preparation pH (recorded context)', 0.0, 14.0, 7.0, 0.1)
-                        st.caption('This records pH; reviewed residue states still need template assignments or a curated receptor.')
+                        intended_ph = st.number_input('Preparation pH', 0.0, 14.0, 7.0, 0.1)
+                        st.caption('PROPKA predicts structure-dependent residue pKa values at this pH. Review proposed residue states before receptor preparation.')
                         curated = st.file_uploader('Optional curated receptor PDB', type=['pdb'], key='curated')
-                        templates = st.text_input('Meeko residue template assignments', placeholder='A:17=HID,A:32=ASH')
+                        templates = st.text_input('Additional Meeko residue template assignments', placeholder='Optional manual overrides, e.g. A:17=HID,A:32=ASH')
                         notes = st.text_area('Preparation rationale', placeholder='Optional notes about your preparation choices.')
                     st.session_state.preparation_review = dict(pH_context=intended_ph, templates=templates, rebuild_missing_atoms=repair, curated_input=bool(curated))
                     selected_input = curated.getvalue().decode() if curated else pdb
+                    ph_prediction_key = core.digest(selected_input, repair, intended_ph)
+                    if st.button('Analyze protonation at selected pH'):
+                        try:
+                            ph_input = selected_input
+                            if repair:
+                                with st.spinner('Repairing heavy atoms before pKa prediction…'):
+                                    ph_input = core.repair_heavy_atoms(ph_input)
+                            with st.spinner('Running PROPKA pKa prediction…'):
+                                ph_dir = root/'protonation'/ph_prediction_key
+                                rows, raw_propka = phprep.predict_protein_states(ph_input, ph_dir, intended_ph)
+                            st.session_state.protonation_prediction = dict(
+                                key=ph_prediction_key, pH=float(intended_ph), rows=rows,
+                                propka_output=str(ph_dir/'propka_input.pka'),
+                                propka_log=str(ph_dir/'propka.log'))
+                            st.success(f'Predicted protonation behavior for {len(rows)} titratable residues. Review the table below.')
+                        except (ValueError, RuntimeError) as exc:
+                            st.session_state.pop('protonation_prediction', None)
+                            st.error(str(exc))
+                    prediction = st.session_state.get('protonation_prediction')
+                    reviewed_templates = ''
+                    if prediction and prediction.get('key') == ph_prediction_key:
+                        st.subheader('pH-aware residue-state review')
+                        st.caption('Residues within ±1 pH unit of their predicted pKa are flagged for review. Neutral histidines require an explicit HID/HIE choice.')
+                        display_rows = []
+                        state_overrides = {}
+                        for row in prediction['rows']:
+                            item = dict(row)
+                            residue = row['residue']
+                            if row['residue_name'] == 'HIS' and row['suggested_state'].startswith('neutral'):
+                                choice = st.selectbox(
+                                    f'{residue} HIS tautomer',
+                                    ['HID', 'HIE', 'HIP'],
+                                    index=1,
+                                    key='ph_state_'+ph_prediction_key+'_'+residue)
+                                state_overrides[residue] = choice
+                                item['selected_state'] = choice
+                            elif row.get('template'):
+                                options = [row['template']]
+                                if row['residue_name'] == 'ASP':
+                                    options = ['ASP','ASH']
+                                elif row['residue_name'] == 'GLU':
+                                    options = ['GLU','GLH']
+                                elif row['residue_name'] == 'LYS':
+                                    options = ['LYS','LYN']
+                                elif row['residue_name'] == 'HIS':
+                                    options = ['HIP','HID','HIE']
+                                default = options.index(row['template']) if row['template'] in options else 0
+                                choice = st.selectbox(
+                                    f'{residue} {row["residue_name"]}',
+                                    options,
+                                    index=default,
+                                    key='ph_state_'+ph_prediction_key+'_'+residue)
+                                state_overrides[residue] = choice
+                                item['selected_state'] = choice
+                            else:
+                                item['selected_state'] = row['suggested_state']
+                            display_rows.append(item)
+                        st.dataframe(pd.DataFrame(display_rows)[['residue','residue_name','pKa','pH','suggested_state','selected_state','near_pKa','review_required']], hide_index=True, width='stretch')
+                        reviewed_templates = phprep.template_assignments(prediction['rows'], state_overrides)
+                        st.session_state.protonation_review = dict(
+                            pH=float(intended_ph), rows=display_rows,
+                            template_assignments=reviewed_templates,
+                            propka_output=prediction.get('propka_output'))
+                        st.caption('The selected states will be passed to Meeko as explicit residue-template assignments.')
+                    else:
+                        st.info('Run Analyze protonation at selected pH before preparing the receptor.')
                     checks = inspect_structure(selected_input)
                     st.session_state.assistant_structure_checks = checks
                     if not st.session_state.get('receptor_path'):
                         structure_review(selected_input, checks, 'preparation_issue_'+core.digest(selected_input))
-                    if st.button('Prepare receptor', type='primary'):
+                    if st.button('Prepare receptor', type='primary', disabled=not bool(reviewed_templates)):
                         st.session_state.pop('assistant_diagnostic', None)
                         for stale in ('receptor_path', 'preparation_id', 'validation_job', 'experiment_job', 'structure_report'):
                             st.session_state.pop(stale, None)
@@ -474,15 +540,16 @@ with workspace:
                             show_assistant()
                             st.stop()
                         repair_changes = structure_checks.changes(selected_input, final)
-                        prep_id = core.digest(final, templates, intended_ph, core.versions())
+                        combined_templates = ','.join(x for x in (reviewed_templates, templates.strip()) if x)
+                        prep_id = core.digest(final, combined_templates, intended_ph, st.session_state.get('protonation_review'), core.versions())
                         directory = root/'preparations'/prep_id
                         with st.spinner('Checking chemistry and preparing receptor…'):
                             selection_path = root/'selection_report.json'
-                            report = dict(selection_report=json.loads(selection_path.read_text()) if selection_path.exists() else {}, input_checks=checks, repaired_checks=final_checks, repair_changes=repair_changes, settings=dict(pH_context=intended_ph, templates=templates, rationale=notes, curated_input=bool(curated)), software_versions=core.versions())
+                            report = dict(selection_report=json.loads(selection_path.read_text()) if selection_path.exists() else {}, input_checks=checks, repaired_checks=final_checks, repair_changes=repair_changes, settings=dict(pH=intended_ph, templates=combined_templates, rationale=notes, curated_input=bool(curated), protonation_review=st.session_state.get('protonation_review')), software_versions=core.versions())
                             directory.mkdir(parents=True, exist_ok=True)
                             (directory/'structure_report.json').write_text(json.dumps(report, indent=2))
                             try:
-                                path = core.prepare_receptor(final, directory, templates)
+                                path = core.prepare_receptor(final, directory, combined_templates)
                             except ValueError as exc:
                                 st.session_state.assistant_diagnostic = (directory/'preparation.log').read_text()
                                 st.error(str(exc).split(' Full diagnostics:')[0])
@@ -508,7 +575,7 @@ with workspace:
                                 st.download_button('Download rejected preparation report', (directory/'structure_report.json').read_bytes(), 'structure_report.json', 'application/json')
                                 raise ValueError('Prepared receptor failed coordinate validation. Inspect the saved structure report before using it.')
                         st.session_state.update(receptor_path=str(path), prepared_pdb=(directory/'receptor_prepared.pdb').read_text(), preparation_id=prep_id,
-                            preparation_record=dict(pH_context=intended_ph, templates=templates, repaired_heavy_atoms=repair, curated_upload=curated.name if curated else None, rationale=notes))
+                            preparation_record=dict(pH=intended_ph, templates=combined_templates, protonation_review=st.session_state.get('protonation_review'), repaired_heavy_atoms=repair, curated_upload=curated.name if curated else None, rationale=notes))
                         manifest()
                     if st.session_state.get('receptor_path'):
                         path = Path(st.session_state.receptor_path)
