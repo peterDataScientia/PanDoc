@@ -38,14 +38,14 @@ Official guidance: https://docs.streamlit.io/deploy/streamlit-community-cloud/ma
 ## Workflow
 
 1. Upload PDB/mmCIF. Select protein chains, retained components and reference ligand. Choose alternate conformations per residue.
-2. Prepare the receptor with Meeko. Optionally upload a curated receptor or reconstruct missing heavy atoms using PDBFixer. Record pH context and explicit residue template assignments. No blanket deletion of failed residues and no automatic missing-loop reconstruction.
-3. Click **Find ligand chemistry from PDB** in the Reference ligand tab to retrieve the selected component's CCD SMILES, name, formula and formal charge. Review the molecular preview and side-by-side atom comparison. Manual SMILES entry remains editable. Mismatches show clear actions and block preparation; deposited atom-name comparisons can identify absent atoms when naming is consistent. Custom residue names may require manual chemistry. After reviewing identity and chemical state, prepare the reference. Bond orders are assigned to extracted crystal coordinates; CCD ideal coordinates never replace the crystal reference. Click **Continue to Validate docking**.
+2. Prepare the receptor with PDBFixer, PROPKA and Meeko. Optionally upload a curated receptor or reconstruct missing heavy atoms using PDBFixer, then run PROPKA at the selected preparation pH to obtain structure-dependent residue pKa predictions. PanDoc presents proposed residue states for review, flags residues near their predicted pKa, and requires explicit HID/HIE selection for neutral histidines before passing reviewed template assignments to Meeko. No blanket deletion of failed residues and no automatic missing-loop reconstruction.
+3. Click **Find ligand chemistry from PDB** in the Reference ligand tab to retrieve the selected component's CCD SMILES, name, formula and formal charge. Review the molecular preview and side-by-side atom comparison. Manual SMILES entry remains editable. At the receptor preparation pH, PanDoc can use Molscrub to enumerate ligand protonation/tautomer microstates; review and select the intended state before preparation. Mismatches show clear actions and block preparation; deposited atom-name comparisons can identify absent atoms when naming is consistent. Custom residue names may require manual chemistry. Bond orders are assigned to extracted crystal coordinates; CCD ideal coordinates never replace the crystal reference. Click **Continue to Validate docking**.
 4. Define a box, redock across seeds and inspect reference RMSD. RMSD uses RDKit CalcRMS, heavy atoms and symmetry handling in the fixed receptor coordinate frame. No independent ligand alignment is performed.
-5. Prepare up to 25 candidate ligands from multi-record SDF or SMILES. Run Vina jobs in a separate process. Inspect poses, scores and export the complete experiment.
+5. Prepare candidate ligands from multi-record SDF or SMILES. By default, PanDoc can enumerate pH-dependent protonation/tautomer microstates with Molscrub at the receptor preparation pH; review the generated states before docking. A maximum of 25 prepared ligand states is accepted per run. Run Vina jobs in a separate process, inspect poses and scores, and export the complete experiment.
 
 ## Scientific behavior and limits
 
-- pH is recorded as context; PanDoc does not predict site-specific pKa or automatically enumerate protonation states/tautomers. User-reviewed chemical states are required.
+- pH is an active preparation parameter. PanDoc runs PROPKA on the receptor to obtain structure-dependent residue pKa predictions and proposes residue states for review. Predictions do not silently override expert judgment: residues near their pKa are flagged, neutral histidines require explicit HID/HIE review, and manual/curated assignments remain available. For ligands, PanDoc can use Molscrub to enumerate protonation and tautomer microstates at the selected pH; users review/select the states used for docking.
 - Missing-heavy-atom counts are preliminary heuristics. Meeko template matching is the actual chemical check. OXT, modified residues and chain boundaries require individual interpretation.
 - PDBFixer repairs are modeled coordinates. Review pocket repairs; missing loops require a separate curated model.
 - A curated receptor must remain in the original reference coordinate frame. Align the receptor externally if necessary; do not independently align ligand poses for RMSD.
@@ -126,8 +126,13 @@ The assistant receives the selected issue and current preparation choices when
 experiment context is enabled; molecular coordinates are not sent.
 
 **Scope:** this is conservative coordinate and component screening, not a
-MolProbity validation, electron-density assessment or automatic protonation
-prediction. The recorded pH does not assign residue states. Missing loops,
+MolProbity validation or electron-density assessment. Protonation is handled in
+the preparation stage: PROPKA provides structure-dependent residue pKa
+predictions, PanDoc converts them into reviewable residue-state proposals, and
+reviewed assignments are passed to Meeko. PROPKA output is not treated as an
+unquestionable ground truth, and neutral histidines require explicit HID/HIE
+selection. Ligand protonation/tautomer states can be enumerated with Molscrub at
+the selected pH and must be reviewed before docking. Missing loops,
 metalloproteins, covalent components and unsupported templates can require
 curated preparation. Structural success does not establish docking accuracy.
 
