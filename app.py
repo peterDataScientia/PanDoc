@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review
+from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review, profile_engine
 
 PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.png'
 PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
@@ -356,6 +356,38 @@ with st.sidebar:
             'application/zip',
         )
 
+    st.divider()
+    st.markdown('<div class="pd-section-label">Reviewed receptor profiles</div>', unsafe_allow_html=True)
+    profile_targets = list(profile_engine.load_profiles()[0])
+    selected_profiles = st.multiselect(
+        'Targets to prepare',
+        profile_targets,
+        default=profile_targets,
+        key='reviewed_profile_targets',
+    )
+    st.caption('Applies the reviewed pH 7.4 residue states automatically. CYP19A1 is held before generic Meeko preparation because its heme/Fe–Cys chemistry requires the curated branch.')
+    if st.button('Prepare reviewed profiles', type='primary', disabled=not selected_profiles):
+        try:
+            with st.spinner('Applying reviewed receptor states and preparing supported receptors…'):
+                st.session_state.profile_prepare_result = profile_engine.prepare_many(
+                    selected_profiles,
+                    root/'reviewed_profile_preparation',
+                )
+            st.success('Reviewed-profile preparation finished.')
+        except Exception as exc:
+            st.session_state.pop('profile_prepare_result', None)
+            st.error('Reviewed-profile preparation failed: '+str(exc))
+
+    profile_result = st.session_state.get('profile_prepare_result')
+    if profile_result:
+        st.download_button(
+            'Download prepared-profile bundle',
+            profile_result['bundle'],
+            'PanDoc_Reviewed_Profile_Preparation.zip',
+            'application/zip',
+            key='profile_bundle_download_sidebar',
+        )
+
 from pandoc import assistant
 
 heading, assistant_control = st.columns([7, 3])
@@ -380,6 +412,23 @@ with workspace:
     stage_title = stage.split(' · ')[1]
     ui.shell_header(st, stage_title, '')
     ui.workflow_stepper(st, stage)
+
+    profile_result = st.session_state.get('profile_prepare_result')
+    if profile_result:
+        with st.expander('Reviewed receptor profile preparation', expanded=True):
+            if profile_result['results']:
+                st.dataframe(pd.DataFrame(profile_result['results']), hide_index=True, width='stretch')
+            if profile_result['errors']:
+                st.error('One or more reviewed profiles failed.')
+                st.dataframe(pd.DataFrame(profile_result['errors']), hide_index=True, width='stretch')
+            st.caption('Standard receptors are prepared with reviewed residue states. CYP19A1 remains explicitly held for curated heme-aware preparation.')
+            st.download_button(
+                'Download reviewed-profile bundle',
+                profile_result['bundle'],
+                'PanDoc_Reviewed_Profile_Preparation.zip',
+                'application/zip',
+                key='profile_bundle_download_main',
+            )
 
     batch_result = st.session_state.get('batch_review_result')
     if batch_result:
