@@ -9,6 +9,11 @@ on:
         description: Encrypted PanDoc job identifier
         required: true
         type: string
+      operation:
+        description: PanDoc compute operation
+        required: false
+        default: dock
+        type: string
 
 permissions:
   contents: read
@@ -40,7 +45,7 @@ jobs:
           PANDOC_JOB_KEY: ${{ secrets.PANDOC_JOB_KEY }}
         run: |
           test -n "$PANDOC_JOB_KEY" || { echo "PANDOC_JOB_KEY repository secret is not configured."; exit 1; }
-          python -m pandoc.github_action_worker "${{ inputs.job_id }}"
+          python -m pandoc.github_action_worker "${{ inputs.job_id }}" "${{ inputs.operation }}"
 
       - name: Upload PanDoc results
         if: always()
