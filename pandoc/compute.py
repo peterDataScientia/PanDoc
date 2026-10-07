@@ -33,6 +33,13 @@ class GitHubActionsCompute:
             raise ComputeBackendError(str(exc)) from exc
         return {"backend": self.name, **remote}
 
+    def submit_ligand_microstates(self, smiles: str, ph: float, max_states: int = 16) -> dict:
+        try:
+            remote = self.client.submit_ligand_microstates(smiles, ph, max_states)
+        except GitHubComputeError as exc:
+            raise ComputeBackendError(str(exc)) from exc
+        return {"backend": self.name, **remote}
+
     def status(self, handle: dict) -> dict:
         try:
             return self.client.status(handle)
