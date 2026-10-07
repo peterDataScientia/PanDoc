@@ -11,6 +11,8 @@ import streamlit as st
 
 from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep
 
+PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.jpg'
+
 st.set_page_config(page_title='PanDoc · Docking workbench', page_icon='🧬', layout='wide')
 st.markdown('''<style>
 .stApp { background: #f7f9fc; }
@@ -320,8 +322,11 @@ if st.session_state.get('next_stage'):
     st.session_state.workflow_stage = st.session_state.pop('next_stage')
 
 with st.sidebar:
-    st.title('PanDoc')
-    st.caption('Prepare · Validate · Dock')
+    if PANDOC_LOGO.exists():
+        st.image(str(PANDOC_LOGO), width=250)
+    else:
+        st.title('PanDoc')
+    st.caption('Protein–ligand docking workbench · Prepare · Validate · Dock')
     st.text_input('Experiment name', 'My docking experiment', key='experiment')
     stage = st.radio('Workflow', ['1 · Load complex', '2 · Prepare structures', '3 · Validate docking', '4 · Run experiment', '5 · Explore results'], key='workflow_stage')
     st.divider()
