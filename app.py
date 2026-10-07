@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review, profile_engine, github_compute
+from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review, profile_engine, compute
 
 PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.png'
 PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
@@ -287,16 +287,17 @@ def github_backend():
     try:
         token = st.secrets.get('GITHUB_TOKEN', os.environ.get('GITHUB_TOKEN', ''))
         job_key = st.secrets.get('PANDOC_JOB_KEY', os.environ.get('PANDOC_JOB_KEY', ''))
-        repository = st.secrets.get('PANDOC_GITHUB_REPOSITORY', github_compute.DEFAULT_REPOSITORY)
+        repository = st.secrets.get('PANDOC_GITHUB_REPOSITORY', compute.DEFAULT_REPOSITORY)
     except Exception:
         token = os.environ.get('GITHUB_TOKEN', '')
         job_key = os.environ.get('PANDOC_JOB_KEY', '')
-        repository = os.environ.get('PANDOC_GITHUB_REPOSITORY', github_compute.DEFAULT_REPOSITORY)
+        repository = os.environ.get('PANDOC_GITHUB_REPOSITORY', compute.DEFAULT_REPOSITORY)
     if not token or not job_key:
         return None
     try:
-        return github_compute.GitHubCompute(token, job_key, repository)
-    except github_compute.GitHubComputeError:
+        backend = compute.from_credentials(token, job_key, repository, allow_local=False)
+        return backend
+    except compute.ComputeBackendError:
         return None
 
 
@@ -307,7 +308,7 @@ def show_remote_job(remote, local_key, remote_key):
         return {'state': 'failed'}
     try:
         state = backend.status(remote)
-    except github_compute.GitHubComputeError as exc:
+    except compute.ComputeBackendError as exc:
         st.error(str(exc))
         return {'state': 'failed'}
 
@@ -318,7 +319,7 @@ def show_remote_job(remote, local_key, remote_key):
     def live_remote_job():
         try:
             current = backend.status(remote)
-        except github_compute.GitHubComputeError as exc:
+        except compute.ComputeBackendError as exc:
             st.error(str(exc))
             return
         st.info(f"GitHub Actions job: {current['state']} · {remote['job_id'][:8]}")
@@ -339,7 +340,7 @@ def show_remote_job(remote, local_key, remote_key):
                 st.session_state[local_key] = str(target)
                 st.session_state.pop(remote_key, None)
                 st.rerun()
-            except github_compute.GitHubComputeError as exc:
+            except compute.ComputeBackendError as exc:
                 st.error(str(exc))
         elif current['state'] == 'failed':
             st.error(current.get('error') or 'GitHub Actions docking failed. Open the compute run for diagnostics.')
@@ -1002,10 +1003,10 @@ with workspace:
                     manifest()
                     if backend:
                         try:
-                            remote_job = backend.submit(config)
+                            remote_job = backend.submit(root, config)
                             st.session_state[prefix+'_github_job'] = remote_job
                             st.session_state.pop(prefix+'_job', None)
-                        except github_compute.GitHubComputeError as exc:
+                        except compute.ComputeBackendError as exc:
                             st.error(str(exc))
                         else:
                             st.rerun()
