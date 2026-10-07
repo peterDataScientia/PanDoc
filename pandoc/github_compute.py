@@ -154,7 +154,7 @@ class GitHubCompute:
         params = {
             "branch": job["branch"],
             "event": "workflow_dispatch",
-            "per_page": 10,
+            "per_page": 20,
         }
         runs = _request(
             self.token,
@@ -162,10 +162,21 @@ class GitHubCompute:
             _repo_url(self.repository, f"/actions/workflows/{WORKFLOW}/runs"),
             params=params,
         ).json().get("workflow_runs", [])
-        if not runs:
-            return None
         matching = [r for r in runs if job["job_id"] in (r.get("display_title") or "")]
-        return matching[0] if matching else runs[0]
+        if matching:
+            return matching[0]
+
+        # The temporary branch is deleted after result retrieval. Fall back to
+        # recent workflow-dispatch runs so a completed job remains addressable
+        # by job_id even after cleanup.
+        recent = _request(
+            self.token,
+            "GET",
+            _repo_url(self.repository, f"/actions/workflows/{WORKFLOW}/runs"),
+            params={"event": "workflow_dispatch", "per_page": 100},
+        ).json().get("workflow_runs", [])
+        matching = [r for r in recent if job["job_id"] in (r.get("display_title") or "")]
+        return matching[0] if matching else None
 
     def status(self, job: dict) -> dict:
         run = self._run(job)
