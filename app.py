@@ -363,7 +363,7 @@ if stage.startswith('3') or stage.startswith('4'):
         st.session_state.assistant_active_job = str(active)
 with workspace:
     stage_title = stage.split(' · ')[1]
-    ui.shell_header(st, stage_title, 'Reproducible protein–ligand docking with structure checks, pH-aware preparation, redocking validation and traceable outputs.')
+    ui.shell_header(st, stage_title, '')
     ui.workflow_stepper(st, stage)
     ui.status_grid(st,
         complex_loaded=bool(st.session_state.get('pdb')),
@@ -460,7 +460,7 @@ with workspace:
                 protein_tab, ligand_tab = st.tabs(['Receptor', 'Reference ligand'])
                 with protein_tab:
                     pdb = st.session_state.selected_pdb
-                    ui.card(st, 'Receptor preparation', 'Repair missing heavy atoms, predict pKa values at the selected pH, review residue states and generate a docking-ready receptor.', badge_text='pH-aware', badge_kind='running')
+                    ui.card(st, 'Receptor preparation', '', badge_text='pH-aware', badge_kind='running')
                     with st.expander('Advanced preparation', expanded=bool(st.session_state.get('assistant_diagnostic'))):
                         repair = st.checkbox('Rebuild missing heavy atoms with PDBFixer', value=True)
                         intended_ph = st.number_input('Preparation pH', 0.0, 14.0, 7.0, 0.1)
@@ -648,7 +648,7 @@ with workspace:
                         input_key='reference_input_'+identity
                         definition_key='ccd_definition_'+identity
                         st.markdown('### Reference ligand: '+residue)
-                        ui.card(st, 'Reference-ligand chemistry', 'Retrieve deposited chemistry, inspect identity and stereochemistry, then enumerate pH-dependent protonation/tautomer microstates before redocking.', badge_text='Review chemistry', badge_kind='review')
+                        ui.card(st, 'Reference ligand', '', badge_text='Review', badge_kind='review')
                         st.write('Find its PDB chemical definition, review the molecule, then prepare it using the original crystal coordinates.')
                         left,right=st.columns([2,1])
                         if left.button('Find ligand chemistry from PDB', type='primary'):
@@ -753,7 +753,7 @@ with workspace:
             elif validation and not st.session_state.get('reference_path'):
                 st.info('Prepare the crystallographic reference ligand first.')
             else:
-                ui.card(st, 'Docking protocol', 'Inspect the search box and choose reproducible search settings before launching Vina.', badge_text='Validated workflow' if validation else 'Experiment setup', badge_kind='ready' if validation else 'running')
+                ui.card(st, 'Docking protocol', '', badge_text='Validation' if validation else 'Experiment', badge_kind='ready' if validation else 'running')
                 center = st.session_state.get('center', [0.,0.,0.])
                 size = st.session_state.get('size', [20.,20.,20.])
                 with st.form('box_form'):
