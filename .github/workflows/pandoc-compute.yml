@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   dock:
@@ -26,26 +27,27 @@ jobs:
       - name: Check out queued job
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
-          python-version: "3.11"
-          cache: pip
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install system libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libxrender1 libxext6 libsm6
-
-      - name: Install PanDoc
-        run: pip install -r requirements.txt
+      - name: Pull PanDoc compute image
+        run: docker pull ghcr.io/peterdatascientia/pandoc-compute:latest
 
       - name: Run encrypted PanDoc job
         env:
           PANDOC_JOB_KEY: ${{ secrets.PANDOC_JOB_KEY }}
         run: |
           test -n "$PANDOC_JOB_KEY" || { echo "PANDOC_JOB_KEY repository secret is not configured."; exit 1; }
-          python -m pandoc.github_action_worker "${{ inputs.job_id }}" "${{ inputs.operation }}"
+          docker run --rm \
+            -e PANDOC_JOB_KEY="$PANDOC_JOB_KEY" \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            -w /workspace \
+            ghcr.io/peterdatascientia/pandoc-compute:latest \
+            python -m pandoc.github_action_worker "${{ inputs.job_id }}" "${{ inputs.operation }}"
 
       - name: Upload PanDoc results
         if: always()
