@@ -84,7 +84,7 @@ Workflow: `.github/workflows/pandoc-compute.yml`
 
 ## REST API
 
-PanDoc includes a FastAPI service for programmatic access to the same scientific engine used by the Streamlit workbench.
+PanDoc includes a FastAPI service for programmatic access to the same scientific engine and the same shared compute service used by the Streamlit workbench. When `GITHUB_TOKEN` and `PANDOC_JOB_KEY` are configured, docking endpoints dispatch encrypted jobs to GitHub Actions; without them, local development falls back to the subprocess worker.
 
 Run locally:
 
@@ -98,18 +98,19 @@ Core endpoints:
 
 - `GET /api/v1/health` — service health.
 - `GET /api/v1/versions` — software provenance.
+- `GET /api/v1/compute` — report the active compute backend.
 - `POST /api/v1/structures/inspect` — inspect an uploaded PDB/mmCIF structure.
 - `POST /api/v1/proteins/protonation` — run PDBFixer (optional) and PROPKA at a selected pH and return reviewable residue-state proposals.
 - `POST /api/v1/ligands/microstates` — enumerate ligand protonation/tautomer microstates with Molscrub.
 - `POST /api/v1/receptors/prepare` — prepare a receptor with reviewed Meeko template assignments.
 - `POST /api/v1/ligands/prepare` — prepare a selected ligand state for docking.
-- `POST /api/v1/jobs/dock` — submit a Vina docking job.
-- `GET /api/v1/jobs/{job_id}` — read job status.
-- `GET /api/v1/jobs/{job_id}/results` — read accumulated docking results.
-- `POST /api/v1/jobs/{job_id}/cancel` — request cancellation.
-- `GET /api/v1/jobs/{job_id}/bundle` — download job outputs as ZIP.
+- `POST /api/v1/jobs/dock` — submit a Vina job to GitHub Actions when configured.
+- `GET /api/v1/jobs/{job_id}` — read GitHub/local job status and materialize a completed Actions artifact.
+- `GET /api/v1/jobs/{job_id}/results` — read docking results returned by the compute backend.
+- `POST /api/v1/jobs/{job_id}/cancel` — cancel the GitHub Actions run or local worker.
+- `GET /api/v1/jobs/{job_id}/bundle` — download completed job outputs as ZIP.
 
-For public deployments, set `PANDOC_API_KEY`; protected endpoints then require an `X-API-Key` header. `PANDOC_API_DATA_DIR` controls persistent API storage and `PANDOC_API_MAX_UPLOAD_MB` controls the per-file upload limit. Optional browser clients can be allowed with `PANDOC_CORS_ORIGINS`.
+For public deployments, set `PANDOC_API_KEY`; protected endpoints then require an `X-API-Key` header. Set `GITHUB_TOKEN` and the same `PANDOC_JOB_KEY` used by the GitHub repository Actions secret to activate the GitHub Actions compute backend. `PANDOC_GITHUB_REPOSITORY` optionally overrides the default repository. `PANDOC_API_DATA_DIR` controls API-side materialized result storage and `PANDOC_API_MAX_UPLOAD_MB` controls the per-file upload limit. Optional browser clients can be allowed with `PANDOC_CORS_ORIGINS`.
 
 A separate API container is provided:
 
@@ -117,11 +118,13 @@ A separate API container is provided:
 docker build -f Dockerfile.api -t pandoc-api .
 docker run --rm -p 8000:8000 \
   -e PANDOC_API_KEY=change-me \
+  -e GITHUB_TOKEN=your-fine-grained-token \
+  -e PANDOC_JOB_KEY=the-same-fernet-key-as-github-actions \
   -v pandoc-api-data:/data/pandoc_api \
   pandoc-api
 ```
 
-Streamlit Community Cloud serves the web UI only; expose the FastAPI service as a separate ASGI/container deployment when remote API access is required.
+`pandoc/compute.py` is the shared compute gateway used by both Streamlit and FastAPI. Streamlit Community Cloud can therefore use GitHub Actions directly without a paid API host. A separately reachable FastAPI URL is only required when an external program needs HTTP endpoints.
 
 ## Verification
 
@@ -135,7 +138,7 @@ Tests cover alternate conformations, incomplete residues, box calculation, inval
 
 ## Layout
 
-`app.py` contains the guided interface. `pandoc/core.py` handles inspection and chemistry, `pandoc/jobs.py` launches isolated jobs, and `pandoc/worker.py` runs Vina and reconstructs SDF poses. `tests/` contains scientific regression checks.
+`app.py` contains the guided interface. `pandoc/compute.py` selects the shared local/GitHub Actions compute backend, `pandoc/core.py` handles inspection and chemistry, `pandoc/jobs.py` launches local fallback jobs, and `pandoc/worker.py` runs Vina and reconstructs SDF poses. `tests/` contains scientific regression checks.
 
 Meeko: https://github.com/forlilab/Meeko
 
