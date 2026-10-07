@@ -4,6 +4,7 @@ import base64
 import copy
 import io
 import json
+import re
 import time
 import uuid
 import zipfile
@@ -262,6 +263,37 @@ class GitHubCompute:
             except Exception:
                 result["error"] = "GitHub Actions compute failed."
         return result
+
+    def logs(self, job: dict, tail: int = 80) -> str:
+        run = self._run(job)
+        if run is None:
+            return "Waiting for GitHub Actions to register the job."
+        try:
+            jobs_data = _request(
+                self.token,
+                "GET",
+                _repo_url(self.repository, f"/actions/runs/{run['id']}/jobs"),
+            ).json().get("jobs", [])
+            if not jobs_data:
+                return "Waiting for the compute job to start."
+            active = next(
+                (j for j in jobs_data if j.get("status") == "in_progress"),
+                jobs_data[-1],
+            )
+            response = _request(
+                self.token,
+                "GET",
+                _repo_url(self.repository, f"/actions/jobs/{active['id']}/logs"),
+            )
+            lines = []
+            for line in response.text.splitlines():
+                line = re.sub(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s*", "", line)
+                line = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", line)
+                if line.strip():
+                    lines.append(line.rstrip())
+            return "\n".join(lines[-max(1, int(tail)):]) or "Waiting for compute output."
+        except Exception:
+            return "Live log is not available yet."
 
     def cancel(self, job: dict):
         run = self._run(job)
