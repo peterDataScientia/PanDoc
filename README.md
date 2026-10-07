@@ -59,6 +59,29 @@ Official guidance: https://docs.streamlit.io/deploy/streamlit-community-cloud/ma
 - 3D visualization loads the 3Dmol JavaScript viewer; the browser needs access to its CDN.
 - PDB chemistry lookup uses the RCSB Data API and optionally the CCD CIF download for atom-name checks. It is cached for one day per component. Service failures are shown with retry/manual-entry guidance. CCD chemistry is not a pH prediction, and matching atom counts alone do not establish matching connectivity. Lookup provenance is saved with the experiment.
 
+## Free GitHub Actions compute
+
+PanDoc can offload docking calculations from Streamlit Community Cloud to GitHub-hosted Actions runners without a paid API server.
+
+The Streamlit app automatically uses this backend when both of these Streamlit secrets are present:
+
+```toml
+GITHUB_TOKEN = "fine-grained GitHub token"
+PANDOC_JOB_KEY = "Fernet key"
+```
+
+The repository must also contain the same `PANDOC_JOB_KEY` as a GitHub Actions repository secret. The token should be limited to this repository and needs Contents read/write plus Actions read/write permissions so PanDoc can create the encrypted temporary job branch, dispatch the workflow, inspect its status, download the result artifact, cancel jobs, and delete the temporary branch.
+
+Generate a Fernet key with:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Job inputs are compressed and encrypted before being committed to the temporary public branch. The workflow decrypts them only inside the GitHub runner. Docking logs and outputs are returned as a GitHub Actions artifact and are materialized back into the Streamlit session for the existing results UI. The temporary branch is deleted after successful result retrieval.
+
+Workflow: `.github/workflows/pandoc-compute.yml`
+
 ## REST API
 
 PanDoc includes a FastAPI service for programmatic access to the same scientific engine used by the Streamlit workbench.
