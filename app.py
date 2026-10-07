@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui
+from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review
 
 PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.png'
 PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
@@ -336,6 +336,26 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
 
+    st.divider()
+    st.markdown('<div class="pd-section-label">Batch receptor QC</div>', unsafe_allow_html=True)
+    st.caption('Server-side review of FYN 10DJ, AR 2AMA, CYP19A1 3S79 and PGR 1A28. No Playwright or local installation.')
+    if st.button('Run 4-receptor batch review', type='primary'):
+        try:
+            with st.spinner('Running structure checks, heavy-atom repair and PROPKA for four receptors…'):
+                st.session_state.batch_review_result = batch_review.run_batch(root/'batch_review')
+            st.success('Four-receptor batch review completed.')
+        except Exception as exc:
+            st.session_state.pop('batch_review_result', None)
+            st.error('Batch review failed: '+str(exc))
+    batch_result = st.session_state.get('batch_review_result')
+    if batch_result:
+        st.download_button(
+            'Download 4-receptor review ZIP',
+            batch_result['bundle'],
+            'PanDoc_4Receptors_Review_Outputs.zip',
+            'application/zip',
+        )
+
 from pandoc import assistant
 
 heading, assistant_control = st.columns([7, 3])
@@ -360,6 +380,23 @@ with workspace:
     stage_title = stage.split(' · ')[1]
     ui.shell_header(st, stage_title, '')
     ui.workflow_stepper(st, stage)
+
+    batch_result = st.session_state.get('batch_review_result')
+    if batch_result:
+        with st.expander('4-receptor batch review', expanded=True):
+            if batch_result['summary']:
+                st.dataframe(pd.DataFrame(batch_result['summary']), hide_index=True, width='stretch')
+            if batch_result['errors']:
+                st.warning('Some receptors need attention before review can be considered complete.')
+                st.dataframe(pd.DataFrame(batch_result['errors']), hide_index=True, width='stretch')
+            st.caption('Each target folder includes structure issues before/after repair, repair changes, full PROPKA review, residues requiring review, histidines and candidate crystallographic waters within 4 Å of the reference ligand.')
+            st.download_button(
+                'Download complete batch review',
+                batch_result['bundle'],
+                'PanDoc_4Receptors_Review_Outputs.zip',
+                'application/zip',
+                key='batch_review_download_main',
+            )
     ui.status_grid(st,
         complex_loaded=bool(st.session_state.get('pdb')),
         receptor_ready=bool(st.session_state.get('preparation_id')),
