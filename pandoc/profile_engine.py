@@ -63,6 +63,18 @@ def _select_profile_receptor(pdb, inventory_rows, cfg):
     return core.select(pdb, protein + retained), retained
 
 
+def _normalize_override_keys(overrides):
+    """Accept both legacy chain:number:resname and canonical chain:number keys."""
+    normalized = {}
+    for key, state in (overrides or {}).items():
+        parts = str(key).split(":")
+        canonical = ":".join(parts[:2]) if len(parts) >= 2 else str(key)
+        if canonical in normalized and normalized[canonical] != state:
+            raise ValueError(f"Conflicting reviewed states for {canonical}.")
+        normalized[canonical] = state
+    return normalized
+
+
 def _validate_overrides(rows, overrides):
     by_residue = {r["residue"]: r for r in rows}
     missing = sorted(set(overrides) - set(by_residue))
@@ -130,7 +142,7 @@ def prepare_from_profile(target, output_dir, force_curated=False):
     )
     _write_csv(ph_rows, root / "10_propka.csv")
 
-    overrides = dict(cfg.get("overrides", {}))
+    overrides = _normalize_override_keys(cfg.get("overrides", {}))
     _validate_overrides(ph_rows, overrides)
     assignments = phprep.template_assignments(ph_rows, overrides)
     (root / "11_meeko_template_assignments.txt").write_text(assignments + "\n")
