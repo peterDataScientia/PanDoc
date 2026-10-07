@@ -5,6 +5,7 @@ import io
 import json
 import os
 import sys
+import shutil
 import tempfile
 import zipfile
 from pathlib import Path
@@ -40,14 +41,17 @@ def _safe_extract(archive: zipfile.ZipFile, target: Path):
 
 
 def _run_docking(root: Path, result_dir: Path):
-    config = json.loads((root / "config.json").read_text())
-    config["receptor"] = str((root / config["receptor"]).resolve())
-    for ligand in config.get("ligands", []):
-        ligand["path"] = str((root / ligand["path"]).resolve())
-    if config.get("reference"):
-        config["reference"] = str((root / config["reference"]).resolve())
+    portable = json.loads((root / "config.json").read_text())
+    runtime = json.loads(json.dumps(portable))
 
-    (result_dir / "config.json").write_text(json.dumps(config, indent=2))
+    runtime["receptor"] = str((root / runtime["receptor"]).resolve())
+    for ligand in runtime.get("ligands", []):
+        ligand["path"] = str((root / ligand["path"]).resolve())
+    if runtime.get("reference"):
+        runtime["reference"] = str((root / runtime["reference"]).resolve())
+
+    # The worker needs absolute temporary paths while the job is running.
+    (result_dir / "config.json").write_text(json.dumps(runtime, indent=2))
     log_path = result_dir / "worker.log"
     with log_path.open("w") as log:
         tee_out = _Tee(sys.stdout, log)
@@ -63,6 +67,30 @@ def _run_docking(root: Path, result_dir: Path):
         raise RuntimeError("PanDoc docking failed. Download the artifact and inspect worker.log.")
     if status.get("state") == "cancelled":
         raise RuntimeError("PanDoc docking was cancelled.")
+
+    # Make the artifact self-contained. Never persist /tmp/pandoc-action-* paths.
+    inputs_dir = result_dir / "inputs"
+    inputs_dir.mkdir(parents=True, exist_ok=True)
+
+    receptor_src = Path(runtime["receptor"])
+    receptor_dst = inputs_dir / "receptor.pdbqt"
+    shutil.copy2(receptor_src, receptor_dst)
+    portable["receptor"] = "inputs/receptor.pdbqt"
+
+    for index, ligand in enumerate(runtime.get("ligands", []), 1):
+        source = Path(ligand["path"])
+        suffix = source.suffix or ".pdbqt"
+        destination = inputs_dir / f"ligand_{index:03d}{suffix}"
+        shutil.copy2(source, destination)
+        portable["ligands"][index - 1]["path"] = str(destination.relative_to(result_dir))
+
+    if runtime.get("reference"):
+        reference_src = Path(runtime["reference"])
+        reference_dst = inputs_dir / "reference.sdf"
+        shutil.copy2(reference_src, reference_dst)
+        portable["reference"] = "inputs/reference.sdf"
+
+    (result_dir / "config.json").write_text(json.dumps(portable, indent=2))
 
 
 def _run_ligand_microstates(root: Path, result_dir: Path):
