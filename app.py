@@ -9,17 +9,13 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep
+from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui
 
 PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.jpg'
+PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
 
 st.set_page_config(page_title='PanDoc · Docking workbench', page_icon='🧬', layout='wide')
-st.markdown('''<style>
-.stApp { background: #f7f9fc; }
-h1,h2,h3 { color: #16324f; }
-[data-testid="stSidebar"] { background: #eaf0f7; }
-.block-container { padding-top: 2rem; }
-</style>''', unsafe_allow_html=True)
+ui.load_css(st, PANDOC_CSS)
 
 # Isolated publication-export demonstration for browser regression checks.
 if st.query_params.get('publication_demo') == '1':
@@ -333,6 +329,7 @@ with st.sidebar:
     st.caption('✓ Complex loaded' if st.session_state.get('pdb') else '○ Load a complex')
     st.caption('✓ Receptor prepared' if st.session_state.get('preparation_id') else '○ Prepare receptor')
     st.caption('✓ Reference prepared' if st.session_state.get('reference_path') else '○ Prepare reference')
+    st.markdown('<div class="pd-section-label">Scientific units</div>', unsafe_allow_html=True)
     st.caption('Coordinates in Å · Vina scores in kcal/mol')
     if st.button('Start a new experiment'):
         st.session_state.clear()
@@ -359,7 +356,13 @@ if stage.startswith('3') or stage.startswith('4'):
     if active:
         st.session_state.assistant_active_job = str(active)
 with workspace:
-    st.title(stage.split(' · ')[1])
+    stage_title = stage.split(' · ')[1]
+    ui.shell_header(st, stage_title, 'Reproducible protein–ligand docking with structure checks, pH-aware preparation, redocking validation and traceable outputs.')
+    ui.workflow_stepper(st, stage)
+    ui.status_grid(st,
+        complex_loaded=bool(st.session_state.get('pdb')),
+        receptor_ready=bool(st.session_state.get('preparation_id')),
+        reference_ready=bool(st.session_state.get('reference_path')))
 
     try:
         if stage.startswith('1'):
@@ -439,7 +442,7 @@ with workspace:
                 protein_tab, ligand_tab = st.tabs(['Receptor', 'Reference ligand'])
                 with protein_tab:
                     pdb = st.session_state.selected_pdb
-                    st.write('Prepare the selected receptor for docking. Missing heavy atoms are rebuilt and checked automatically.')
+                    ui.card(st, 'Receptor preparation', 'Repair missing heavy atoms, predict pKa values at the selected pH, review residue states and generate a docking-ready receptor.', badge_text='pH-aware', badge_kind='running')
                     with st.expander('Advanced preparation', expanded=bool(st.session_state.get('assistant_diagnostic'))):
                         repair = st.checkbox('Rebuild missing heavy atoms with PDBFixer', value=True)
                         intended_ph = st.number_input('Preparation pH', 0.0, 14.0, 7.0, 0.1)
@@ -470,7 +473,8 @@ with workspace:
                     prediction = st.session_state.get('protonation_prediction')
                     reviewed_templates = ''
                     if prediction and prediction.get('key') == ph_prediction_key:
-                        st.subheader('pH-aware residue-state review')
+                        st.markdown('### pH-aware residue-state review')
+                        ui.callout(st, 'PROPKA predictions are proposals, not unquestionable assignments. Review residues near their pKa and all neutral histidines.', 'warn')
                         st.caption('Residues within ±1 pH unit of their predicted pKa are flagged for review. Neutral histidines require an explicit HID/HIE choice.')
                         display_rows = []
                         state_overrides = {}
@@ -625,7 +629,8 @@ with workspace:
                         identity=core.digest(ref)
                         input_key='reference_input_'+identity
                         definition_key='ccd_definition_'+identity
-                        st.subheader('Reference ligand: '+residue)
+                        st.markdown('### Reference ligand: '+residue)
+                        ui.card(st, 'Reference-ligand chemistry', 'Retrieve deposited chemistry, inspect identity and stereochemistry, then enumerate pH-dependent protonation/tautomer microstates before redocking.', badge_text='Review chemistry', badge_kind='review')
                         st.write('Find its PDB chemical definition, review the molecule, then prepare it using the original crystal coordinates.')
                         left,right=st.columns([2,1])
                         if left.button('Find ligand chemistry from PDB', type='primary'):
@@ -730,7 +735,7 @@ with workspace:
             elif validation and not st.session_state.get('reference_path'):
                 st.info('Prepare the crystallographic reference ligand first.')
             else:
-                st.write('Inspect the search box and choose reproducible docking settings.')
+                ui.card(st, 'Docking protocol', 'Inspect the search box and choose reproducible search settings before launching Vina.', badge_text='Validated workflow' if validation else 'Experiment setup', badge_kind='ready' if validation else 'running')
                 center = st.session_state.get('center', [0.,0.,0.])
                 size = st.session_state.get('size', [20.,20.,20.])
                 with st.form('box_form'):
