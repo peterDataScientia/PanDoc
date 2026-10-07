@@ -59,6 +59,47 @@ Official guidance: https://docs.streamlit.io/deploy/streamlit-community-cloud/ma
 - 3D visualization loads the 3Dmol JavaScript viewer; the browser needs access to its CDN.
 - PDB chemistry lookup uses the RCSB Data API and optionally the CCD CIF download for atom-name checks. It is cached for one day per component. Service failures are shown with retry/manual-entry guidance. CCD chemistry is not a pH prediction, and matching atom counts alone do not establish matching connectivity. Lookup provenance is saved with the experiment.
 
+## REST API
+
+PanDoc includes a FastAPI service for programmatic access to the same scientific engine used by the Streamlit workbench.
+
+Run locally:
+
+```bash
+uvicorn api:app --host 0.0.0.0 --port 8000
+```
+
+Interactive API documentation is available at `/docs` and `/redoc`.
+
+Core endpoints:
+
+- `GET /api/v1/health` — service health.
+- `GET /api/v1/versions` — software provenance.
+- `POST /api/v1/structures/inspect` — inspect an uploaded PDB/mmCIF structure.
+- `POST /api/v1/proteins/protonation` — run PDBFixer (optional) and PROPKA at a selected pH and return reviewable residue-state proposals.
+- `POST /api/v1/ligands/microstates` — enumerate ligand protonation/tautomer microstates with Molscrub.
+- `POST /api/v1/receptors/prepare` — prepare a receptor with reviewed Meeko template assignments.
+- `POST /api/v1/ligands/prepare` — prepare a selected ligand state for docking.
+- `POST /api/v1/jobs/dock` — submit a Vina docking job.
+- `GET /api/v1/jobs/{job_id}` — read job status.
+- `GET /api/v1/jobs/{job_id}/results` — read accumulated docking results.
+- `POST /api/v1/jobs/{job_id}/cancel` — request cancellation.
+- `GET /api/v1/jobs/{job_id}/bundle` — download job outputs as ZIP.
+
+For public deployments, set `PANDOC_API_KEY`; protected endpoints then require an `X-API-Key` header. `PANDOC_API_DATA_DIR` controls persistent API storage and `PANDOC_API_MAX_UPLOAD_MB` controls the per-file upload limit. Optional browser clients can be allowed with `PANDOC_CORS_ORIGINS`.
+
+A separate API container is provided:
+
+```bash
+docker build -f Dockerfile.api -t pandoc-api .
+docker run --rm -p 8000:8000 \
+  -e PANDOC_API_KEY=change-me \
+  -v pandoc-api-data:/data/pandoc_api \
+  pandoc-api
+```
+
+Streamlit Community Cloud serves the web UI only; expose the FastAPI service as a separate ASGI/container deployment when remote API access is required.
+
 ## Verification
 
 ```bash
