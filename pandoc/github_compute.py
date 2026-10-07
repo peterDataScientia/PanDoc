@@ -173,6 +173,18 @@ class GitHubCompute:
         )
         return self._queue(payload, "ligand-microstates")
 
+    def submit_candidate_preparation(self, ligands: list[dict], ph: float, enumerate_states: bool = True) -> dict:
+        request = {
+            "ligands": ligands,
+            "ph": float(ph),
+            "enumerate_states": bool(enumerate_states),
+        }
+        payload = _encrypt_archive(
+            {"request.json": json.dumps(request, indent=2).encode()},
+            self.job_key,
+        )
+        return self._queue(payload, "prepare-candidates")
+
     def _run(self, job: dict):
         params = {
             "branch": job["branch"],
