@@ -166,7 +166,6 @@ def pdb_discovery():
     st.caption('Search experimental PDB structures, read the details, then choose a complex to load.')
     with st.form('pdb_search_form'):
         mode = st.selectbox('Search by', ['Keywords', 'Protein name', 'PDB ID', 'UniProt accession', 'Ligand name / ID'])
-        st.caption('PDB ID opens an exact entry and bypasses search filters. Protein name searches deposited descriptions; Keywords also searches synonyms and annotations.')
         query = st.text_input('Search term', placeholder='plasmepsin II, 1LF2, P46925 or R37')
         with st.expander('Search filters'):
             organism = st.text_input('Source organism', placeholder='Plasmodium falciparum')
@@ -328,7 +327,6 @@ with st.sidebar:
             </div>""",
         unsafe_allow_html=True,
     )
-    st.caption('Protein–ligand docking workbench · Prepare · Validate · Dock')
     st.text_input('Experiment name', 'My docking experiment', key='experiment')
     stage = st.radio('Workflow', ['1 · Load complex', '2 · Prepare structures', '3 · Validate docking', '4 · Run experiment', '5 · Explore results'], key='workflow_stage')
     st.divider()
