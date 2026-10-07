@@ -17,3 +17,7 @@ openmm>=8.2,<9
 
 # Optional scientific assistant
 groq>=0.31,<1
+
+# pH-aware preparation
+propka>=3.5,<4
+molscrub @ git+https://github.com/forlilab/molscrub.git@develop
