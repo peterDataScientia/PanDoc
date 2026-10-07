@@ -1,0 +1,52 @@
+name: PanDoc Compute
+
+run-name: PanDoc ${{ inputs.job_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: Encrypted PanDoc job identifier
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  dock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - name: Check out queued job
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libxrender1 libxext6 libsm6
+
+      - name: Install PanDoc
+        run: pip install -r requirements.txt
+
+      - name: Run encrypted PanDoc job
+        env:
+          PANDOC_JOB_KEY: ${{ secrets.PANDOC_JOB_KEY }}
+        run: |
+          test -n "$PANDOC_JOB_KEY" || { echo "PANDOC_JOB_KEY repository secret is not configured."; exit 1; }
+          python -m pandoc.github_action_worker "${{ inputs.job_id }}"
+
+      - name: Upload PanDoc results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pandoc-job-${{ inputs.job_id }}
+          path: .pandoc_action_runs/${{ inputs.job_id }}/
+          if-no-files-found: warn
+          retention-days: 7
