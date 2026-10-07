@@ -1,0 +1,113 @@
+{
+  "schema_version": "1.0",
+  "profile_set": "reviewed_2026_10",
+  "description": "Reviewed receptor preparation profiles for FYN, AR, CYP19A1 and PGR.",
+  "targets": {
+    "FYN": {
+      "pdb": "10DJ",
+      "chain": "A",
+      "reference_component": "H8H",
+      "pH": 7.4,
+      "preparation_mode": "standard",
+      "retain_components": [],
+      "retain_waters_primary": [],
+      "validation_water_candidates": [
+        "A:731:HOH"
+      ],
+      "overrides": {
+        "A:323:HIS": "HIE",
+        "A:388:HIS": "HIE",
+        "A:390:ASP": "ASP",
+        "A:448:ASP": "ASP",
+        "A:496:HIS": "HIE",
+        "A:501:HIS": "HID"
+      },
+      "notes": [
+        "Primary receptor is dry.",
+        "HOH731 is reserved for a separate retained-water validation branch."
+      ]
+    },
+    "AR": {
+      "pdb": "2AMA",
+      "chain": "A",
+      "reference_component": "DHT",
+      "pH": 7.4,
+      "preparation_mode": "standard",
+      "retain_components": [],
+      "retain_waters_primary": [],
+      "validation_water_candidates": [
+        "A:7:HOH"
+      ],
+      "overrides": {
+        "A:689:HIS": "HID",
+        "A:714:HIS": "HIE",
+        "A:729:HIS": "HIE",
+        "A:776:HIS": "HIE",
+        "A:789:HIS": "HIE",
+        "A:874:HIS": "HID",
+        "A:885:HIS": "HIE",
+        "A:917:HIS": "HID"
+      },
+      "notes": [
+        "ALA843-THR850 crystallographic discontinuity is documented and is not loop-built automatically.",
+        "Primary receptor is dry; HOH7 is reserved for a validation branch."
+      ]
+    },
+    "CYP19A1": {
+      "pdb": "3S79",
+      "chain": "A",
+      "reference_component": "ASD",
+      "pH": 7.4,
+      "preparation_mode": "curated_heme",
+      "retain_components": [
+        "HEM"
+      ],
+      "retain_waters_primary": [],
+      "validation_water_candidates": [],
+      "overrides": {
+        "A:62:HIS": "HIE",
+        "A:105:HIS": "HIE",
+        "A:109:HIS": "HID",
+        "A:111:HIS": "HIE",
+        "A:128:HIS": "HIE",
+        "A:171:HIS": "HIP",
+        "A:302:GLU": "GLU",
+        "A:309:ASP": "ASH",
+        "A:325:HIS": "HIE",
+        "A:402:HIS": "HID",
+        "A:459:HIS": "HID",
+        "A:475:HIS": "HIP",
+        "A:480:HIS": "HID"
+      },
+      "notes": [
+        "HEM must be retained.",
+        "Fe-HEM-Cys437 coordination must be preserved.",
+        "Generic Meeko receptor preparation is intentionally blocked."
+      ]
+    },
+    "PGR": {
+      "pdb": "1A28",
+      "chain": "A",
+      "reference_component": "STR",
+      "pH": 7.4,
+      "preparation_mode": "standard",
+      "retain_components": [],
+      "retain_waters_primary": [],
+      "validation_water_candidates": [
+        "A:1004:HOH"
+      ],
+      "overrides": {
+        "A:703:HIS": "HIE",
+        "A:743:HIS": "HID",
+        "A:770:HIS": "HIE",
+        "A:881:HIS": "HIE",
+        "A:888:HIS": "HIE",
+        "A:931:HIS": "HID"
+      },
+      "notes": [
+        "Primary receptor is dry.",
+        "HOH1004 is reserved for a separate retained-water validation branch."
+      ]
+    }
+  }
+}
