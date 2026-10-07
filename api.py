@@ -79,9 +79,10 @@ def job_dir(job_id: str) -> Path:
     return path
 
 
-def compute_backend(*, require_github: bool = False):
+def compute_backend(*, require_github: bool = True):
+    del require_github
     try:
-        return compute.from_environment(allow_local=not require_github)
+        return compute.from_environment()
     except compute.ComputeBackendError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -107,7 +108,7 @@ def save_remote_job(directory: Path, handle: dict):
 def sync_remote_job(directory: Path, *, materialize: bool = False) -> dict:
     handle = load_remote_job(directory)
     if handle is None:
-        return jobs.status(directory)
+        raise HTTPException(status_code=500, detail="GitHub Actions job metadata is missing.")
 
     if handle.get("materialized") and (directory / "status.json").is_file():
         return jobs.status(directory)
@@ -157,10 +158,10 @@ def root():
 @app.get("/api/v1/health")
 def health():
     try:
-        backend = compute.from_environment(allow_local=True)
+        backend = compute.from_environment()
         backend_name = backend.name
     except compute.ComputeBackendError:
-        backend_name = "misconfigured"
+        backend_name = "unavailable"
     return {
         "status": "ok",
         "service": "pandoc-api",
@@ -385,13 +386,10 @@ async def submit_docking_job(
         domain_error(exc)
 
     job_id = handle["job_id"]
-    if handle["backend"] == "github-actions":
-        directory = API_ROOT / "jobs" / job_id
-        directory.mkdir(parents=True, exist_ok=True)
-        save_remote_job(directory, handle)
-        (directory / "status.json").write_text(json.dumps({"state": "queued", "completed": 0}, indent=2))
-    else:
-        directory = Path(handle["directory"])
+    directory = API_ROOT / "jobs" / job_id
+    directory.mkdir(parents=True, exist_ok=True)
+    save_remote_job(directory, handle)
+    (directory / "status.json").write_text(json.dumps({"state": "queued", "completed": 0}, indent=2))
 
     return {
         "job_id": job_id,
@@ -407,10 +405,12 @@ async def submit_docking_job(
 def docking_status(job_id: str):
     directory = job_dir(job_id)
     remote = load_remote_job(directory)
-    status_data = sync_remote_job(directory, materialize=True) if remote else jobs.status(directory)
+    if remote is None:
+        raise HTTPException(status_code=500, detail="GitHub Actions job metadata is missing.")
+    status_data = sync_remote_job(directory, materialize=True)
     return {
         "job_id": job_id,
-        "backend": remote.get("backend", "github-actions") if remote else "local",
+        "backend": "github-actions",
         **status_data,
     }
 
@@ -419,12 +419,14 @@ def docking_status(job_id: str):
 def docking_results(job_id: str):
     directory = job_dir(job_id)
     remote = load_remote_job(directory)
-    status_data = sync_remote_job(directory, materialize=True) if remote else jobs.status(directory)
+    if remote is None:
+        raise HTTPException(status_code=500, detail="GitHub Actions job metadata is missing.")
+    status_data = sync_remote_job(directory, materialize=True)
     path = directory / "results.json"
     results = json.loads(path.read_text()) if path.is_file() else []
     return {
         "job_id": job_id,
-        "backend": remote.get("backend", "github-actions") if remote else "local",
+        "backend": "github-actions",
         "status": status_data,
         "results": results,
     }
@@ -434,15 +436,13 @@ def docking_results(job_id: str):
 def cancel_docking_job(job_id: str):
     directory = job_dir(job_id)
     remote = load_remote_job(directory)
-    if remote:
-        backend = compute_backend(require_github=True)
-        try:
-            requested = backend.cancel(remote)
-        except compute.ComputeBackendError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
-    else:
-        jobs.cancel(directory)
-        requested = True
+    if remote is None:
+        raise HTTPException(status_code=500, detail="GitHub Actions job metadata is missing.")
+    backend = compute_backend()
+    try:
+        requested = backend.cancel(remote)
+    except compute.ComputeBackendError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"job_id": job_id, "cancel_requested": bool(requested)}
 
 
@@ -450,7 +450,9 @@ def cancel_docking_job(job_id: str):
 def docking_bundle(job_id: str):
     directory = job_dir(job_id)
     remote = load_remote_job(directory)
-    status_data = sync_remote_job(directory, materialize=True) if remote else jobs.status(directory)
+    if remote is None:
+        raise HTTPException(status_code=500, detail="GitHub Actions job metadata is missing.")
+    status_data = sync_remote_job(directory, materialize=True)
     if status_data.get("state") != "completed":
         raise HTTPException(status_code=409, detail=f"Job is {status_data.get('state', 'not complete')}.")
     payload = core.bundle(directory)
