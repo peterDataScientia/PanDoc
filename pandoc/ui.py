@@ -80,3 +80,17 @@ def status_grid(st, *, complex_loaded=False, receptor_ready=False, reference_rea
             f'<div class="pd-status-value">{badge(value, kind)}</div></div>'
         )
     st.markdown('<div class="pd-status-grid">' + "".join(parts) + "</div>", unsafe_allow_html=True)
+
+
+def glossary(st, items):
+    chips = []
+    for label, description in items:
+        chips.append(tooltip(label, description))
+    st.markdown(
+        '<div class="pd-card"><div class="pd-card-title"><span>Scientific terms</span>'
+        + badge('Hover for definitions', 'neutral')
+        + '</div><div class="pd-card-body" style="display:flex;gap:16px;flex-wrap:wrap">'
+        + ' · '.join(chips)
+        + '</div></div>',
+        unsafe_allow_html=True,
+    )
