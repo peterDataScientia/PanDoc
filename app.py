@@ -318,10 +318,19 @@ if st.session_state.get('next_stage'):
     st.session_state.workflow_stage = st.session_state.pop('next_stage')
 
 with st.sidebar:
+    logo_ok = False
     if PANDOC_LOGO.exists():
+        try:
+            from PIL import Image
+            with Image.open(PANDOC_LOGO) as _logo_check:
+                _logo_check.verify()
+            logo_ok = True
+        except Exception:
+            logo_ok = False
+    if logo_ok:
         st.image(str(PANDOC_LOGO), width=250)
     else:
-        st.title('PanDoc')
+        st.markdown('<div style="font-size:1.7rem;font-weight:850;color:#0f2a43;letter-spacing:-.03em">Pan<span style="color:#0f8f91">Doc</span></div>', unsafe_allow_html=True)
     st.caption('Protein–ligand docking workbench · Prepare · Validate · Dock')
     st.text_input('Experiment name', 'My docking experiment', key='experiment')
     stage = st.radio('Workflow', ['1 · Load complex', '2 · Prepare structures', '3 · Validate docking', '4 · Run experiment', '5 · Explore results'], key='workflow_stage')
