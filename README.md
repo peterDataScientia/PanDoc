@@ -84,7 +84,7 @@ Workflow: `.github/workflows/pandoc-compute.yml`
 
 ## REST API
 
-PanDoc includes a FastAPI service for programmatic access to the same scientific engine and the same shared compute service used by the Streamlit workbench. When `GITHUB_TOKEN` and `PANDOC_JOB_KEY` are configured, docking endpoints dispatch encrypted jobs to GitHub Actions; without them, local development falls back to the subprocess worker.
+PanDoc includes a FastAPI service for programmatic access to the same scientific engine and the same shared compute service used by the Streamlit workbench. Docking compute is GitHub Actions only: `GITHUB_TOKEN` and `PANDOC_JOB_KEY` are required, and there is no local compute fallback.
 
 Run locally:
 
@@ -124,7 +124,7 @@ docker run --rm -p 8000:8000 \
   pandoc-api
 ```
 
-`pandoc/compute.py` is the shared compute gateway used by both Streamlit and FastAPI. Streamlit Community Cloud can therefore use GitHub Actions directly without a paid API host. A separately reachable FastAPI URL is only required when an external program needs HTTP endpoints.
+`pandoc/compute.py` is the shared GitHub Actions compute gateway used by both Streamlit and FastAPI. Streamlit Community Cloud therefore remains a lightweight UI while docking compute runs remotely on GitHub Actions. A separately reachable FastAPI URL is only required when an external program needs HTTP endpoints.
 
 ## Verification
 
@@ -138,7 +138,7 @@ Tests cover alternate conformations, incomplete residues, box calculation, inval
 
 ## Layout
 
-`app.py` contains the guided interface. `pandoc/compute.py` selects the shared local/GitHub Actions compute backend, `pandoc/core.py` handles inspection and chemistry, `pandoc/jobs.py` launches local fallback jobs, and `pandoc/worker.py` runs Vina and reconstructs SDF poses. `tests/` contains scientific regression checks.
+`app.py` contains the guided interface. `pandoc/compute.py` provides the GitHub Actions compute backend, `pandoc/core.py` handles inspection and chemistry, and `pandoc/worker.py` runs Vina and reconstructs SDF poses inside the Actions runner. `tests/` contains scientific regression checks.
 
 Meeko: https://github.com/forlilab/Meeko
 
