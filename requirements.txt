@@ -21,6 +21,7 @@ groq>=0.31,<1
 # pH-aware preparation
 propka>=3.5,<4
 molscrub @ git+https://github.com/forlilab/molscrub.git@1afc6f99e6635bc43d1baf189517eec5463b2912
+joblib>=1.3,<2
 
 # REST API
 fastapi>=0.115,<1
