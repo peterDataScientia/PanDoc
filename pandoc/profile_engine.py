@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import math
+import re
 import shutil
 from pathlib import Path
 
@@ -86,6 +88,86 @@ def _validate_overrides(rows, overrides):
     return by_residue
 
 
+def _residue_prefix(atom):
+    chain = atom["chain"] or "_"
+    return f"{chain}:{atom['number']}{atom['icode']}"
+
+
+def _distance_to_reference(pdb, residue_prefix, reference_pdb):
+    residue_atoms = [
+        a for a in core.atoms(pdb)
+        if _residue_prefix(a) == residue_prefix and a["element"] not in ("H", "D")
+    ]
+    reference_atoms = [
+        a for a in core.atoms(reference_pdb)
+        if a["element"] not in ("H", "D")
+    ]
+    if not residue_atoms or not reference_atoms:
+        return None
+    return min(
+        math.dist(a["xyz"], b["xyz"])
+        for a in residue_atoms
+        for b in reference_atoms
+    )
+
+
+def _remove_residue_prefixes(pdb, prefixes):
+    prefixes = set(prefixes)
+    kept = []
+    for line in pdb.splitlines():
+        if line.startswith(("ATOM  ", "HETATM")):
+            chain = line[21:22].strip() or "_"
+            number = line[22:26].strip()
+            icode = line[26:27].strip()
+            prefix = f"{chain}:{number}{icode}"
+            if prefix in prefixes:
+                continue
+        kept.append(line)
+    return "\n".join(kept).rstrip() + "\n"
+
+
+def _prepare_with_remote_fallback(repaired, reference_pdb, directory, assignments,
+                                  minimum_distance_A=20.0):
+    """Prepare normally; only if Meeko rejects a residue, permit audited exclusion
+    when every rejected residue is remote from the crystallographic ligand.
+    """
+    try:
+        path = core.prepare_receptor(
+            repaired,
+            directory,
+            template_assignments=assignments,
+        )
+        return path, [], repaired
+    except ValueError as exc:
+        bad = sorted(set(re.findall(r"[A-Za-z0-9_]+:[0-9]+[A-Za-z]?", str(exc))))
+        if not bad:
+            raise
+
+        exclusions = []
+        for residue in bad:
+            distance = _distance_to_reference(repaired, residue, reference_pdb)
+            if distance is None or distance < float(minimum_distance_A):
+                raise ValueError(
+                    f"Meeko rejected {residue}, which cannot be safely excluded "
+                    f"(distance to reference ligand: {distance})."
+                ) from exc
+            exclusions.append({
+                "residue": residue,
+                "distance_to_reference_A": round(distance, 3),
+                "reason": "Meeko template/bonding failure; remote from docking site",
+                "minimum_allowed_distance_A": float(minimum_distance_A),
+            })
+
+        cleaned = _remove_residue_prefixes(repaired, [x["residue"] for x in exclusions])
+        fallback_dir = Path(directory).parent / (Path(directory).name + "_remote_fallback")
+        path = core.prepare_receptor(
+            cleaned,
+            fallback_dir,
+            template_assignments=assignments,
+        )
+        return path, exclusions, cleaned
+
+
 def prepare_from_profile(target, output_dir, force_curated=False):
     targets, meta = load_profiles()
     if target not in targets:
@@ -158,6 +240,7 @@ def prepare_from_profile(target, output_dir, force_curated=False):
     mode = cfg.get("preparation_mode", "standard")
     status = "reviewed"
     receptor_pdbqt = None
+    remote_exclusions = []
 
     if mode == "curated_heme" and not force_curated:
         status = "held_for_curated_heme_preparation"
@@ -166,12 +249,19 @@ def prepare_from_profile(target, output_dir, force_curated=False):
             "Preserve HEM/Fe-Cys coordination and use a curated heme-aware preparation workflow.\n"
         )
     else:
-        receptor_pdbqt = core.prepare_receptor(
+        receptor_pdbqt, remote_exclusions, prepared_input = _prepare_with_remote_fallback(
             repaired,
+            reference_pdb,
             root / "prepared_receptor",
-            template_assignments=assignments,
+            assignments,
+            minimum_distance_A=20.0,
         )
-        status = "prepared"
+        if remote_exclusions:
+            _write_csv(remote_exclusions, root / "13_remote_meeko_exclusions.csv")
+            (root / "14_receptor_after_remote_exclusions.pdb").write_text(prepared_input)
+            status = "prepared_with_remote_exclusion"
+        else:
+            status = "prepared"
 
     result = {
         "profile_set": meta.get("profile_set"),
@@ -187,6 +277,7 @@ def prepare_from_profile(target, output_dir, force_curated=False):
         "validation_water_candidates": cfg.get("validation_water_candidates", []),
         "override_count": len(overrides),
         "issues_after_repair": len(checks_after["issues"]),
+        "remote_meeko_exclusions": remote_exclusions,
         "receptor_pdbqt": str(receptor_pdbqt) if receptor_pdbqt else None,
         "source_url": source.get("url"),
         "notes": cfg.get("notes", []),
