@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from pandoc import core, jobs, phprep
+from pandoc import compute, core, jobs, phprep
 
 
 API_ROOT = Path(os.environ.get("PANDOC_API_DATA_DIR", "/tmp/pandoc_api")).resolve()
@@ -22,8 +22,8 @@ API_KEY = os.environ.get("PANDOC_API_KEY", "").strip()
 
 app = FastAPI(
     title="PanDoc API",
-    version="0.1.0",
-    description="Programmatic access to PanDoc structure preparation and docking workflows.",
+    version="0.2.0",
+    description="Programmatic access to PanDoc preparation and encrypted GitHub Actions docking compute.",
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -79,6 +79,60 @@ def job_dir(job_id: str) -> Path:
     return path
 
 
+def compute_backend(*, require_github: bool = False):
+    try:
+        return compute.from_environment(allow_local=not require_github)
+    except compute.ComputeBackendError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def remote_record_path(directory: Path) -> Path:
+    return directory / "remote_job.json"
+
+
+def load_remote_job(directory: Path) -> dict | None:
+    path = remote_record_path(directory)
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=500, detail="Stored remote job metadata is unreadable.") from exc
+
+
+def save_remote_job(directory: Path, handle: dict):
+    remote_record_path(directory).write_text(json.dumps(handle, indent=2))
+
+
+def sync_remote_job(directory: Path, *, materialize: bool = False) -> dict:
+    handle = load_remote_job(directory)
+    if handle is None:
+        return jobs.status(directory)
+
+    if handle.get("materialized") and (directory / "status.json").is_file():
+        return jobs.status(directory)
+
+    backend = compute_backend(require_github=True)
+    try:
+        state = backend.status(handle)
+    except compute.ComputeBackendError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    (directory / "status.json").write_text(json.dumps(state, indent=2))
+
+    if state.get("state") == "completed" and materialize:
+        try:
+            backend.materialize(handle, directory)
+            backend.cleanup(handle)
+        except compute.ComputeBackendError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        handle["materialized"] = True
+        save_remote_job(directory, handle)
+        if (directory / "status.json").is_file():
+            return jobs.status(directory)
+    return state
+
+
 class LigandMicrostatesRequest(BaseModel):
     smiles: str = Field(min_length=1)
     ph: float = Field(default=7.0, ge=0.0, le=14.0)
@@ -102,7 +156,27 @@ def root():
 
 @app.get("/api/v1/health")
 def health():
-    return {"status": "ok", "service": "pandoc-api", "version": app.version}
+    try:
+        backend = compute.from_environment(allow_local=True)
+        backend_name = backend.name
+    except compute.ComputeBackendError:
+        backend_name = "misconfigured"
+    return {
+        "status": "ok",
+        "service": "pandoc-api",
+        "version": app.version,
+        "compute_backend": backend_name,
+    }
+
+
+@app.get("/api/v1/compute", dependencies=[Depends(require_api_key)])
+def compute_status():
+    backend = compute_backend()
+    payload = {"backend": backend.name}
+    if backend.name == "github-actions":
+        payload["repository"] = backend.repository
+        payload["encrypted_payloads"] = True
+    return payload
 
 
 @app.get("/api/v1/versions", dependencies=[Depends(require_api_key)])
@@ -304,43 +378,81 @@ async def submit_docking_job(
         "cpu": max(1, min(int(cpu), 8)),
     }
     try:
-        directory = Path(jobs.launch(API_ROOT, config))
-    except ValueError as exc:
+        core.validate_config(config)
+        backend = compute_backend()
+        handle = backend.submit(API_ROOT, config)
+    except (ValueError, compute.ComputeBackendError) as exc:
         domain_error(exc)
+
+    job_id = handle["job_id"]
+    if handle["backend"] == "github-actions":
+        directory = API_ROOT / "jobs" / job_id
+        directory.mkdir(parents=True, exist_ok=True)
+        save_remote_job(directory, handle)
+        (directory / "status.json").write_text(json.dumps({"state": "queued", "completed": 0}, indent=2))
+    else:
+        directory = Path(handle["directory"])
+
     return {
-        "job_id": directory.name,
+        "job_id": job_id,
+        "backend": handle["backend"],
         "state": "queued",
-        "status_url": f"/api/v1/jobs/{directory.name}",
-        "results_url": f"/api/v1/jobs/{directory.name}/results",
-        "bundle_url": f"/api/v1/jobs/{directory.name}/bundle",
+        "status_url": f"/api/v1/jobs/{job_id}",
+        "results_url": f"/api/v1/jobs/{job_id}/results",
+        "bundle_url": f"/api/v1/jobs/{job_id}/bundle",
     }
 
 
 @app.get("/api/v1/jobs/{job_id}", dependencies=[Depends(require_api_key)])
 def docking_status(job_id: str):
     directory = job_dir(job_id)
-    return {"job_id": job_id, **jobs.status(directory)}
+    remote = load_remote_job(directory)
+    status_data = sync_remote_job(directory, materialize=True) if remote else jobs.status(directory)
+    return {
+        "job_id": job_id,
+        "backend": remote.get("backend", "github-actions") if remote else "local",
+        **status_data,
+    }
 
 
 @app.get("/api/v1/jobs/{job_id}/results", dependencies=[Depends(require_api_key)])
 def docking_results(job_id: str):
     directory = job_dir(job_id)
-    status_data = jobs.status(directory)
+    remote = load_remote_job(directory)
+    status_data = sync_remote_job(directory, materialize=True) if remote else jobs.status(directory)
     path = directory / "results.json"
     results = json.loads(path.read_text()) if path.is_file() else []
-    return {"job_id": job_id, "status": status_data, "results": results}
+    return {
+        "job_id": job_id,
+        "backend": remote.get("backend", "github-actions") if remote else "local",
+        "status": status_data,
+        "results": results,
+    }
 
 
 @app.post("/api/v1/jobs/{job_id}/cancel", dependencies=[Depends(require_api_key)])
 def cancel_docking_job(job_id: str):
     directory = job_dir(job_id)
-    jobs.cancel(directory)
-    return {"job_id": job_id, "cancel_requested": True}
+    remote = load_remote_job(directory)
+    if remote:
+        backend = compute_backend(require_github=True)
+        try:
+            requested = backend.cancel(remote)
+        except compute.ComputeBackendError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+    else:
+        jobs.cancel(directory)
+        requested = True
+    return {"job_id": job_id, "cancel_requested": bool(requested)}
 
 
 @app.get("/api/v1/jobs/{job_id}/bundle", dependencies=[Depends(require_api_key)])
 def docking_bundle(job_id: str):
     directory = job_dir(job_id)
+    remote = load_remote_job(directory)
+    status_data = sync_remote_job(directory, materialize=True) if remote else jobs.status(directory)
+    if status_data.get("state") != "completed":
+        raise HTTPException(status_code=409, detail=f"Job is {status_data.get('state', 'not complete')}.")
     payload = core.bundle(directory)
     return Response(
         payload,
