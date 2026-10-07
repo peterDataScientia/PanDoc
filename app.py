@@ -300,6 +300,38 @@ def github_backend():
         return None
 
 
+def show_compute_progress(backend, remote):
+    try:
+        progress = backend.progress(remote)
+    except compute.ComputeBackendError as exc:
+        st.warning(str(exc))
+        return
+
+    steps = progress.get('steps', [])
+    if not steps:
+        st.caption('Waiting for compute runner…')
+        return
+
+    marks = {
+        'success': '✓',
+        'failure': '✕',
+        'cancelled': '■',
+        'skipped': '–',
+    }
+    lines = []
+    for step in steps:
+        status = step.get('status')
+        conclusion = step.get('conclusion')
+        if status == 'in_progress':
+            mark = '●'
+        elif status == 'queued':
+            mark = '○'
+        else:
+            mark = marks.get(conclusion, '○')
+        lines.append(f"{mark} {step.get('name', 'Compute step')}")
+    st.code('\n'.join(lines), language=None)
+
+
 def show_microstate_job(task_key, result_key):
     remote = st.session_state.get(task_key)
     if not remote:
@@ -325,10 +357,8 @@ def show_microstate_job(task_key, result_key):
             return
 
         st.info(f"Ligand-state enumeration · {state['state']} · {remote['job_id'][:8]}")
-        with st.expander('Live log', expanded=True):
-            st.code(backend.logs(remote, tail=60), language=None)
-        if state.get('html_url'):
-            st.link_button('Open GitHub run', state['html_url'])
+        with st.expander('Compute progress', expanded=True):
+            show_compute_progress(backend, remote)
 
         if state.get('state') == 'completed':
             target = root/'remote_tasks'/remote['job_id']
@@ -375,10 +405,8 @@ def show_candidate_prep_job(task_key):
             return
 
         st.info(f"Candidate preparation · {state['state']} · {remote['job_id'][:8]}")
-        with st.expander('Live log', expanded=True):
-            st.code(backend.logs(remote, tail=60), language=None)
-        if state.get('html_url'):
-            st.link_button('Open GitHub run', state['html_url'])
+        with st.expander('Compute progress', expanded=True):
+            show_compute_progress(backend, remote)
 
         if state.get('state') == 'completed':
             target = root/'candidates'/('github_'+remote['job_id'])
@@ -425,10 +453,8 @@ def show_remote_job(remote, local_key, remote_key):
             st.error(str(exc))
             return
         st.info(f"GitHub Actions job: {current['state']} · {remote['job_id'][:8]}")
-        with st.expander('Live log', expanded=True):
-            st.code(backend.logs(remote, tail=80), language=None)
-        if current.get('html_url'):
-            st.link_button('Open GitHub run', current['html_url'])
+        with st.expander('Compute progress', expanded=True):
+            show_compute_progress(backend, remote)
         if current['state'] in active_states:
             st.caption('Runs on a free GitHub-hosted runner. Status refreshes every 5 seconds.')
             if st.button('Cancel job', key=remote['job_id']+'cancel'):
@@ -447,7 +473,7 @@ def show_remote_job(remote, local_key, remote_key):
             except compute.ComputeBackendError as exc:
                 st.error(str(exc))
         elif current['state'] == 'failed':
-            st.error(current.get('error') or 'GitHub Actions docking failed. Open the compute run for diagnostics.')
+            st.error(current.get('error') or 'GitHub Actions docking failed.')
         elif current['state'] == 'cancelled':
             st.warning('Docking job cancelled.')
 
