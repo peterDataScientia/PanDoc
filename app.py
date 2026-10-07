@@ -317,16 +317,13 @@ if st.session_state.get('next_stage'):
     st.session_state.workflow_stage = st.session_state.pop('next_stage')
 
 with st.sidebar:
-    st.markdown(
-        """<div class="pd-brand">
-              <div class="pd-brand-mark">
-                <span class="pd-brand-dot"></span>
-                <span class="pd-brand-ring"></span>
-              </div>
-              <div class="pd-brand-word">Pan<span>Doc</span></div>
-            </div>""",
-        unsafe_allow_html=True,
-    )
+    if PANDOC_LOGO.exists():
+        st.image(str(PANDOC_LOGO), width=250)
+    else:
+        st.markdown(
+            '<div style="font-size:1.7rem;font-weight:850;color:#0f2a43;letter-spacing:-.03em">Pan<span style="color:#0f8f91">Doc</span></div>',
+            unsafe_allow_html=True,
+        )
     st.text_input('Experiment name', 'My docking experiment', key='experiment')
     stage = st.radio('Workflow', ['1 · Load complex', '2 · Prepare structures', '3 · Validate docking', '4 · Run experiment', '5 · Explore results'], key='workflow_stage')
     st.divider()
