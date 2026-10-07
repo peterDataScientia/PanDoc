@@ -300,6 +300,54 @@ def github_backend():
         return None
 
 
+def show_microstate_job(task_key, result_key):
+    remote = st.session_state.get(task_key)
+    if not remote:
+        return
+    backend = github_backend()
+    if backend is None:
+        st.warning('GitHub Actions compute is required for ligand pH enumeration.')
+        return
+
+    try:
+        initial = backend.status(remote)
+    except compute.ComputeBackendError as exc:
+        st.warning(str(exc))
+        return
+    polling = initial.get('state') in ('queued', 'running', 'starting')
+
+    @st.fragment(run_every=5 if polling else None)
+    def live_microstate_job():
+        try:
+            state = backend.status(remote)
+        except compute.ComputeBackendError as exc:
+            st.warning(str(exc))
+            return
+
+        st.info(f"Ligand-state enumeration · {state['state']} · {remote['job_id'][:8]}")
+        if state.get('html_url'):
+            st.link_button('Open compute run', state['html_url'])
+
+        if state.get('state') == 'completed':
+            target = root/'remote_tasks'/remote['job_id']
+            try:
+                if not (target/'results.json').exists():
+                    backend.materialize(remote, target)
+                payload = json.loads((target/'results.json').read_text())
+                st.session_state[result_key] = payload.get('states', [])
+                backend.cleanup(remote)
+                st.session_state.pop(task_key, None)
+                st.rerun()
+            except (OSError, json.JSONDecodeError, compute.ComputeBackendError) as exc:
+                st.warning(str(exc))
+        elif state.get('state') == 'failed':
+            st.error(state.get('error') or 'Ligand-state enumeration failed on GitHub Actions.')
+        elif state.get('state') == 'cancelled':
+            st.warning('Ligand-state enumeration was cancelled.')
+
+    live_microstate_job()
+
+
 def show_remote_job(remote, local_key, remote_key):
     backend = github_backend()
     if backend is None:
@@ -820,16 +868,21 @@ with workspace:
                         ligand_ph = float(st.session_state.get('preparation_review', {}).get('pH_context',
                                          st.session_state.get('preparation_record', {}).get('pH', 7.0)))
                         state_key = 'reference_microstates_'+identity+'_'+str(ligand_ph)
-                        if st.button(f'Enumerate ligand states at pH {ligand_ph:.1f}'):
-                            try:
-                                with st.spinner('Enumerating protonation and tautomer states with Molscrub…'):
-                                    states = phprep.enumerate_ligand_states(smiles, ligand_ph)
-                                st.session_state[state_key] = [
-                                    dict(index=s['index'], smiles=s['smiles'], formal_charge=s['formal_charge'])
-                                    for s in states
-                                ]
-                            except (ValueError, RuntimeError) as exc:
-                                st.warning(str(exc))
+                        task_key = 'reference_microstates_job_'+identity+'_'+str(ligand_ph)
+                        microstate_busy = bool(st.session_state.get(task_key))
+                        if st.button(f'Enumerate ligand states at pH {ligand_ph:.1f}', disabled=microstate_busy):
+                            backend = github_backend()
+                            if backend is None:
+                                st.warning('GitHub Actions compute is required for ligand pH enumeration.')
+                            elif not smiles.strip():
+                                st.warning('Enter or retrieve the ligand SMILES first.')
+                            else:
+                                try:
+                                    st.session_state[task_key] = backend.submit_ligand_microstates(smiles, ligand_ph, 16)
+                                    st.rerun()
+                                except compute.ComputeBackendError as exc:
+                                    st.warning(str(exc))
+                        show_microstate_job(task_key, state_key)
                         ligand_states = st.session_state.get(state_key, [])
                         selected_smiles = smiles
                         selected_state = None
