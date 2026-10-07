@@ -351,7 +351,7 @@ def prepare_receptor(pdb, directory, template_assignments=''):
 
 def versions():
     result = {'python': sys.version.split()[0]}
-    for name in ('streamlit', 'rdkit', 'meeko', 'vina', 'pdbfixer', 'openmm'):
+    for name in ('streamlit', 'rdkit', 'meeko', 'vina', 'pdbfixer', 'openmm', 'propka', 'molscrub'):
         try:
             result[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
