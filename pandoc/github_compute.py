@@ -264,6 +264,33 @@ class GitHubCompute:
                 result["error"] = "GitHub Actions compute failed."
         return result
 
+    def progress(self, job: dict) -> dict:
+        run = self._run(job)
+        if run is None:
+            return {"state": "queued", "steps": [{"name": "Waiting for GitHub Actions", "status": "queued"}]}
+        try:
+            jobs_data = _request(
+                self.token,
+                "GET",
+                _repo_url(self.repository, f"/actions/runs/{run['id']}/jobs"),
+            ).json().get("jobs", [])
+            if not jobs_data:
+                return {"state": run.get("status", "queued"), "steps": []}
+            current = jobs_data[0]
+            return {
+                "state": current.get("status", run.get("status", "queued")),
+                "steps": [
+                    {
+                        "name": step.get("name", "step"),
+                        "status": step.get("status", "queued"),
+                        "conclusion": step.get("conclusion"),
+                    }
+                    for step in current.get("steps", [])
+                ],
+            }
+        except Exception:
+            return {"state": run.get("status", "queued"), "steps": []}
+
     def logs(self, job: dict, tail: int = 80) -> str:
         run = self._run(job)
         if run is None:
