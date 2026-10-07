@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review, profile_engine
+from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review, profile_engine, github_compute
 
 PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.png'
 PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
@@ -281,6 +281,73 @@ def settings(prefix):
     seeds_text = c.text_input('Seeds (comma-separated)', '2026,2027,2028' if prefix=='validation' else '2026', key=prefix+'seeds')
     seeds = [int(x.strip()) for x in seeds_text.split(',')]
     return dict(exhaustiveness=int(exhaustive), poses=int(poses), seeds=seeds, cpu=min(2, os.cpu_count() or 1))
+
+
+def github_backend():
+    try:
+        token = st.secrets.get('GITHUB_TOKEN', os.environ.get('GITHUB_TOKEN', ''))
+        job_key = st.secrets.get('PANDOC_JOB_KEY', os.environ.get('PANDOC_JOB_KEY', ''))
+        repository = st.secrets.get('PANDOC_GITHUB_REPOSITORY', github_compute.DEFAULT_REPOSITORY)
+    except Exception:
+        token = os.environ.get('GITHUB_TOKEN', '')
+        job_key = os.environ.get('PANDOC_JOB_KEY', '')
+        repository = os.environ.get('PANDOC_GITHUB_REPOSITORY', github_compute.DEFAULT_REPOSITORY)
+    if not token or not job_key:
+        return None
+    try:
+        return github_compute.GitHubCompute(token, job_key, repository)
+    except github_compute.GitHubComputeError:
+        return None
+
+
+def show_remote_job(remote, local_key, remote_key):
+    backend = github_backend()
+    if backend is None:
+        st.error('GitHub Actions compute is not configured. Add GITHUB_TOKEN and PANDOC_JOB_KEY to Streamlit secrets.')
+        return {'state': 'failed'}
+    try:
+        state = backend.status(remote)
+    except github_compute.GitHubComputeError as exc:
+        st.error(str(exc))
+        return {'state': 'failed'}
+
+    active_states = ('queued', 'running', 'starting')
+    polling = state['state'] in active_states
+
+    @st.fragment(run_every=5 if polling else None)
+    def live_remote_job():
+        try:
+            current = backend.status(remote)
+        except github_compute.GitHubComputeError as exc:
+            st.error(str(exc))
+            return
+        st.info(f"GitHub Actions job: {current['state']} · {remote['job_id'][:8]}")
+        if current.get('html_url'):
+            st.link_button('Open compute run', current['html_url'])
+        if current['state'] in active_states:
+            st.caption('Runs on a free GitHub-hosted runner. Status refreshes every 5 seconds.')
+            if st.button('Cancel job', key=remote['job_id']+'cancel'):
+                backend.cancel(remote)
+                st.info('Cancellation requested.')
+        elif current['state'] == 'completed':
+            target = root/'jobs'/('github_'+remote['job_id'])
+            try:
+                if not (target/'status.json').exists():
+                    with st.spinner('Retrieving docking results...'):
+                        backend.materialize(remote, target)
+                        backend.cleanup(remote)
+                st.session_state[local_key] = str(target)
+                st.session_state.pop(remote_key, None)
+                st.rerun()
+            except github_compute.GitHubComputeError as exc:
+                st.error(str(exc))
+        elif current['state'] == 'failed':
+            st.error('GitHub Actions docking failed. Open the compute run for diagnostics.')
+        elif current['state'] == 'cancelled':
+            st.warning('Docking job cancelled.')
+
+    live_remote_job()
+    return state
 
 
 def show_job(directory):
@@ -916,12 +983,38 @@ with workspace:
                             break
                     st.info('A completed redocking run matches these exact settings.' if matched else 'No completed redocking run matches these exact settings. Review validation before interpreting docking results.')
                 active = st.session_state.get(prefix+'_job')
-                busy = active and jobs.status(active)['state'] in ('queued','running','starting')
-                if st.button('Run redocking' if validation else 'Run docking', type='primary', disabled=bool(busy) or not config['ligands']):
+                remote = st.session_state.get(prefix+'_github_job')
+                local_busy = active and jobs.status(active)['state'] in ('queued','running','starting')
+                remote_state = None
+                backend = github_backend()
+                if remote and backend:
+                    try:
+                        remote_state = backend.status(remote)
+                    except github_compute.GitHubComputeError:
+                        remote_state = {'state': 'failed'}
+                remote_busy = remote_state and remote_state.get('state') in ('queued','running','starting')
+                busy = bool(local_busy or remote_busy)
+                if backend:
+                    st.caption('Compute · GitHub Actions')
+                else:
+                    st.caption('Compute · local fallback')
+                if st.button('Run redocking' if validation else 'Run docking', type='primary', disabled=busy or not config['ligands']):
                     manifest()
-                    directory=jobs.launch(root,config)
-                    st.session_state[prefix+'_job']=directory
-                    st.rerun()
+                    if backend:
+                        try:
+                            remote_job = backend.submit(config)
+                            st.session_state[prefix+'_github_job'] = remote_job
+                            st.session_state.pop(prefix+'_job', None)
+                        except github_compute.GitHubComputeError as exc:
+                            st.error(str(exc))
+                        else:
+                            st.rerun()
+                    else:
+                        directory=jobs.launch(root,config)
+                        st.session_state[prefix+'_job']=directory
+                        st.rerun()
+                if st.session_state.get(prefix+'_github_job'):
+                    show_remote_job(st.session_state[prefix+'_github_job'], prefix+'_job', prefix+'_github_job')
                 if st.session_state.get(prefix+'_job'):
                     active_job = Path(st.session_state[prefix+'_job'])
                     show_job(active_job)
