@@ -26,3 +26,6 @@ molscrub @ git+https://github.com/forlilab/molscrub.git@develop
 fastapi>=0.115,<1
 uvicorn>=0.30,<1
 python-multipart>=0.0.9,<1
+
+# Encrypted GitHub Actions compute payloads
+cryptography>=42,<47
