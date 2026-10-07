@@ -189,7 +189,7 @@ class GitHubCompute:
             state = "failed"
         else:
             state = gh_status or "starting"
-        return {
+        result = {
             "state": state,
             "run_id": run["id"],
             "html_url": run.get("html_url"),
@@ -197,6 +197,28 @@ class GitHubCompute:
             "completed": 1 if state == "completed" else 0,
             "total": 1,
         }
+        if state == "failed":
+            try:
+                jobs_data = _request(
+                    self.token,
+                    "GET",
+                    _repo_url(self.repository, f"/actions/runs/{run['id']}/jobs"),
+                ).json().get("jobs", [])
+                failed_job = next((j for j in jobs_data if j.get("conclusion") == "failure"), None)
+                if failed_job:
+                    log = _request(
+                        self.token,
+                        "GET",
+                        _repo_url(self.repository, f"/actions/jobs/{failed_job['id']}/logs"),
+                    ).text
+                    if "PANDOC_JOB_KEY repository secret is not configured." in log:
+                        result["error"] = "GitHub Actions is missing the PANDOC_JOB_KEY repository secret."
+                    else:
+                        lines = [line.strip() for line in log.splitlines() if line.strip()]
+                        result["error"] = lines[-1][-500:] if lines else "GitHub Actions docking failed."
+            except Exception:
+                result["error"] = "GitHub Actions docking failed."
+        return result
 
     def cancel(self, job: dict):
         run = self._run(job)
