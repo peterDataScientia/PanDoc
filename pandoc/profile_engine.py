@@ -126,47 +126,73 @@ def _remove_residue_prefixes(pdb, prefixes):
     return "\n".join(kept).rstrip() + "\n"
 
 
+def _filter_assignments(assignments, excluded_prefixes):
+    excluded = set(excluded_prefixes)
+    kept = []
+    for item in (assignments or "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        residue = item.split("=", 1)[0].strip()
+        if residue not in excluded:
+            kept.append(item)
+    return ",".join(kept)
+
+
 def _prepare_with_remote_fallback(repaired, reference_pdb, directory, assignments,
-                                  minimum_distance_A=20.0):
-    """Prepare normally; only if Meeko rejects a residue, permit audited exclusion
-    when every rejected residue is remote from the crystallographic ligand.
+                                  minimum_distance_A=20.0, max_exclusions=5):
+    """Prepare normally; if Meeko rejects remote residues, remove only those
+    residues, remove their template assignments too, audit every exclusion, and retry.
     """
-    try:
-        path = core.prepare_receptor(
-            repaired,
-            directory,
-            template_assignments=assignments,
+    current_pdb = repaired
+    exclusions = []
+    excluded_prefixes = set()
+
+    for attempt in range(max_exclusions + 1):
+        current_assignments = _filter_assignments(assignments, excluded_prefixes)
+        current_dir = (
+            Path(directory)
+            if attempt == 0
+            else Path(directory).parent / f"{Path(directory).name}_remote_fallback_{attempt}"
         )
-        return path, [], repaired
-    except ValueError as exc:
-        bad = sorted(set(re.findall(r"[A-Za-z0-9_]+:[0-9]+[A-Za-z]?", str(exc))))
-        if not bad:
-            raise
+        try:
+            path = core.prepare_receptor(
+                current_pdb,
+                current_dir,
+                template_assignments=current_assignments,
+            )
+            return path, exclusions, current_pdb
+        except ValueError as exc:
+            bad = sorted(set(re.findall(r"[A-Za-z0-9_]+:[0-9]+[A-Za-z]?", str(exc))))
+            bad = [r for r in bad if r not in excluded_prefixes]
+            if not bad:
+                raise
 
-        exclusions = []
-        for residue in bad:
-            distance = _distance_to_reference(repaired, residue, reference_pdb)
-            if distance is None or distance < float(minimum_distance_A):
-                raise ValueError(
-                    f"Meeko rejected {residue}, which cannot be safely excluded "
-                    f"(distance to reference ligand: {distance})."
-                ) from exc
-            exclusions.append({
-                "residue": residue,
-                "distance_to_reference_A": round(distance, 3),
-                "reason": "Meeko template/bonding failure; remote from docking site",
-                "minimum_allowed_distance_A": float(minimum_distance_A),
-            })
+            newly_excluded = []
+            for residue in bad:
+                distance = _distance_to_reference(current_pdb, residue, reference_pdb)
+                if distance is None or distance < float(minimum_distance_A):
+                    raise ValueError(
+                        f"Meeko rejected {residue}, which cannot be safely excluded "
+                        f"(distance to reference ligand: {distance})."
+                    ) from exc
+                newly_excluded.append(residue)
+                exclusions.append({
+                    "residue": residue,
+                    "distance_to_reference_A": round(distance, 3),
+                    "reason": "Meeko template/bonding failure; remote from docking site",
+                    "minimum_allowed_distance_A": float(minimum_distance_A),
+                    "retry_number": attempt + 1,
+                })
 
-        cleaned = _remove_residue_prefixes(repaired, [x["residue"] for x in exclusions])
-        fallback_dir = Path(directory).parent / (Path(directory).name + "_remote_fallback")
-        path = core.prepare_receptor(
-            cleaned,
-            fallback_dir,
-            template_assignments=assignments,
-        )
-        return path, exclusions, cleaned
+            if not newly_excluded:
+                raise
+            excluded_prefixes.update(newly_excluded)
+            current_pdb = _remove_residue_prefixes(current_pdb, newly_excluded)
 
+    raise ValueError(
+        f"Meeko preparation still failed after {max_exclusions} audited remote-residue exclusions."
+    )
 
 def prepare_from_profile(target, output_dir, force_curated=False):
     targets, meta = load_profiles()
@@ -265,6 +291,7 @@ def prepare_from_profile(target, output_dir, force_curated=False):
 
     result = {
         "profile_set": meta.get("profile_set"),
+        "engine_revision": "remote-fallback-v2",
         "target": target,
         "pdb": cfg["pdb"],
         "chain": cfg["chain"],
