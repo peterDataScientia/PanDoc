@@ -14,6 +14,22 @@ from .github_compute import decrypt_payload
 from .worker import run as run_worker
 
 
+class _Tee:
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, data):
+        for stream in self.streams:
+            stream.write(data)
+            stream.flush()
+        return len(data)
+
+    def flush(self):
+        for stream in self.streams:
+            stream.flush()
+
+
+
 def _safe_extract(archive: zipfile.ZipFile, target: Path):
     root = target.resolve()
     for member in archive.infolist():
@@ -33,8 +49,11 @@ def _run_docking(root: Path, result_dir: Path):
 
     (result_dir / "config.json").write_text(json.dumps(config, indent=2))
     log_path = result_dir / "worker.log"
-    with log_path.open("w") as log, contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
-        run_worker(result_dir)
+    with log_path.open("w") as log:
+        tee_out = _Tee(sys.stdout, log)
+        tee_err = _Tee(sys.stderr, log)
+        with contextlib.redirect_stdout(tee_out), contextlib.redirect_stderr(tee_err):
+            run_worker(result_dir)
 
     status_path = result_dir / "status.json"
     if not status_path.is_file():
