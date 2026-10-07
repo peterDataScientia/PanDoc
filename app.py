@@ -295,8 +295,7 @@ def github_backend():
     if not token or not job_key:
         return None
     try:
-        backend = compute.from_credentials(token, job_key, repository, allow_local=False)
-        return backend
+        return compute.from_credentials(token, job_key, repository)
     except compute.ComputeBackendError:
         return None
 
@@ -983,36 +982,29 @@ with workspace:
                             matched=True
                             break
                     st.info('A completed redocking run matches these exact settings.' if matched else 'No completed redocking run matches these exact settings. Review validation before interpreting docking results.')
-                active = st.session_state.get(prefix+'_job')
                 remote = st.session_state.get(prefix+'_github_job')
-                local_busy = active and jobs.status(active)['state'] in ('queued','running','starting')
                 remote_state = None
                 backend = github_backend()
                 if remote and backend:
                     try:
                         remote_state = backend.status(remote)
-                    except github_compute.GitHubComputeError:
+                    except compute.ComputeBackendError:
                         remote_state = {'state': 'failed'}
                 remote_busy = remote_state and remote_state.get('state') in ('queued','running','starting')
-                busy = bool(local_busy or remote_busy)
+                busy = bool(remote_busy)
                 if backend:
                     st.caption('Compute · GitHub Actions')
                 else:
-                    st.caption('Compute · local fallback')
-                if st.button('Run redocking' if validation else 'Run docking', type='primary', disabled=busy or not config['ligands']):
+                    st.error('GitHub Actions compute is required but is not configured.')
+                if st.button('Run redocking' if validation else 'Run docking', type='primary', disabled=busy or not config['ligands'] or backend is None):
                     manifest()
-                    if backend:
-                        try:
-                            remote_job = backend.submit(root, config)
-                            st.session_state[prefix+'_github_job'] = remote_job
-                            st.session_state.pop(prefix+'_job', None)
-                        except compute.ComputeBackendError as exc:
-                            st.error(str(exc))
-                        else:
-                            st.rerun()
+                    try:
+                        remote_job = backend.submit(root, config)
+                        st.session_state[prefix+'_github_job'] = remote_job
+                        st.session_state.pop(prefix+'_job', None)
+                    except compute.ComputeBackendError as exc:
+                        st.error(str(exc))
                     else:
-                        directory=jobs.launch(root,config)
-                        st.session_state[prefix+'_job']=directory
                         st.rerun()
                 if st.session_state.get(prefix+'_github_job'):
                     show_remote_job(st.session_state[prefix+'_github_job'], prefix+'_job', prefix+'_github_job')
