@@ -325,8 +325,10 @@ def show_microstate_job(task_key, result_key):
             return
 
         st.info(f"Ligand-state enumeration · {state['state']} · {remote['job_id'][:8]}")
+        with st.expander('Live log', expanded=True):
+            st.code(backend.logs(remote, tail=60), language=None)
         if state.get('html_url'):
-            st.link_button('Open compute run', state['html_url'])
+            st.link_button('Open GitHub run', state['html_url'])
 
         if state.get('state') == 'completed':
             target = root/'remote_tasks'/remote['job_id']
@@ -373,8 +375,10 @@ def show_candidate_prep_job(task_key):
             return
 
         st.info(f"Candidate preparation · {state['state']} · {remote['job_id'][:8]}")
+        with st.expander('Live log', expanded=True):
+            st.code(backend.logs(remote, tail=60), language=None)
         if state.get('html_url'):
-            st.link_button('Open preparation run', state['html_url'])
+            st.link_button('Open GitHub run', state['html_url'])
 
         if state.get('state') == 'completed':
             target = root/'candidates'/('github_'+remote['job_id'])
@@ -421,8 +425,10 @@ def show_remote_job(remote, local_key, remote_key):
             st.error(str(exc))
             return
         st.info(f"GitHub Actions job: {current['state']} · {remote['job_id'][:8]}")
+        with st.expander('Live log', expanded=True):
+            st.code(backend.logs(remote, tail=80), language=None)
         if current.get('html_url'):
-            st.link_button('Open compute run', current['html_url'])
+            st.link_button('Open GitHub run', current['html_url'])
         if current['state'] in active_states:
             st.caption('Runs on a free GitHub-hosted runner. Status refreshes every 5 seconds.')
             if st.button('Cancel job', key=remote['job_id']+'cancel'):
