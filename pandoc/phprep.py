@@ -98,8 +98,15 @@ def enumerate_ligand_states(smiles: str, ph: float, max_states: int = 16):
     from rdkit import Chem
     try:
         from molscrub import Scrub
+    except ModuleNotFoundError as exc:
+        missing = exc.name or "unknown dependency"
+        if missing == "molscrub":
+            raise RuntimeError("Molscrub is not installed; ligand pH enumeration is unavailable.") from exc
+        raise RuntimeError(
+            f"Molscrub could not start because its dependency '{missing}' is missing."
+        ) from exc
     except ImportError as exc:
-        raise RuntimeError("Molscrub is not installed; ligand pH enumeration is unavailable.") from exc
+        raise RuntimeError(f"Molscrub import failed: {exc}") from exc
     base = Chem.MolFromSmiles(smiles.strip())
     if base is None:
         raise ValueError("RDKit could not read the ligand SMILES.")
