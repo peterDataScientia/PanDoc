@@ -1,1 +1,110 @@
-# PanDoc API compute workflow
+name: PanDoc API Compute
+
+run-name: PanDoc API ${{ inputs.job_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: PanDoc API job identifier
+        required: true
+        type: string
+      operation:
+        description: PanDoc compute operation
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  compute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - name: Check out PanDoc
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull PanDoc compute image
+        run: docker pull ghcr.io/peterdatascientia/pandoc-compute:latest
+
+      - name: Fetch private API inputs
+        env:
+          PANDOC_API_WORKER_URL: ${{ secrets.PANDOC_API_WORKER_URL }}
+          PANDOC_API_WORKER_SECRET: ${{ secrets.PANDOC_API_WORKER_SECRET }}
+          JOB_ID: ${{ inputs.job_id }}
+        run: |
+          test -n "$PANDOC_API_WORKER_URL" || { echo "PANDOC_API_WORKER_URL is not configured."; exit 1; }
+          test -n "$PANDOC_API_WORKER_SECRET" || { echo "PANDOC_API_WORKER_SECRET is not configured."; exit 1; }
+          ROOT=".pandoc_api_inputs/$JOB_ID"
+          mkdir -p "$ROOT"
+          curl -fSsL \
+            -H "Authorization: Bearer $PANDOC_API_WORKER_SECRET" \
+            "$PANDOC_API_WORKER_URL/internal/jobs/$JOB_ID/manifest.json" \
+            -o "$ROOT/manifest.json"
+          python - <<'PY'
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          job_id = os.environ["JOB_ID"]
+          base = os.environ["PANDOC_API_WORKER_URL"].rstrip("/")
+          secret = os.environ["PANDOC_API_WORKER_SECRET"]
+          root = Path(".pandoc_api_inputs") / job_id
+          manifest = json.loads((root / "manifest.json").read_text())
+
+          for rel in manifest["files"]:
+              url = f"{base}/internal/jobs/{job_id}/" + urllib.parse.quote(rel, safe="/")
+              req = urllib.request.Request(
+                  url,
+                  headers={"Authorization": f"Bearer {secret}"},
+              )
+              destination = root / rel
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              with urllib.request.urlopen(req, timeout=120) as response:
+                  destination.write_bytes(response.read())
+          PY
+
+      - name: Run PanDoc API job
+        env:
+          JOB_ID: ${{ inputs.job_id }}
+          OPERATION: ${{ inputs.operation }}
+        run: |
+          docker run --rm \
+            -e PANDOC_RAW_PAYLOAD_DIR="/workspace/.pandoc_api_inputs/$JOB_ID" \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            -w /workspace \
+            ghcr.io/peterdatascientia/pandoc-compute:latest \
+            python -m pandoc.github_action_worker "$JOB_ID" "$OPERATION"
+
+      - name: Upload PanDoc results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pandoc-job-${{ inputs.job_id }}
+          path: .pandoc_action_runs/${{ inputs.job_id }}/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Delete private API inputs
+        if: always()
+        env:
+          PANDOC_API_WORKER_URL: ${{ secrets.PANDOC_API_WORKER_URL }}
+          PANDOC_API_WORKER_SECRET: ${{ secrets.PANDOC_API_WORKER_SECRET }}
+          JOB_ID: ${{ inputs.job_id }}
+        run: |
+          if [ -n "$PANDOC_API_WORKER_URL" ] && [ -n "$PANDOC_API_WORKER_SECRET" ]; then
+            curl -fSsL -X DELETE \
+              -H "Authorization: Bearer $PANDOC_API_WORKER_SECRET" \
+              "$PANDOC_API_WORKER_URL/internal/jobs/$JOB_ID" || true
+          fi
