@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 import uuid
 from pathlib import Path
@@ -300,6 +301,49 @@ def github_backend():
         return None
 
 
+def prepare_candidates_on_streamlit(ligands, ph, enumerate_states):
+    from rdkit import Chem
+    from rdkit.Chem import rdMolDescriptors
+
+    prepared = []
+    for parent_index, item in enumerate(ligands, 1):
+        name = item['name']
+        smiles = item['smiles']
+        if enumerate_states:
+            states = phprep.enumerate_ligand_states(smiles, ph)
+            for state in states:
+                prepared.append((name, parent_index, state['index'], state['mol'], state['smiles']))
+        else:
+            mol = core.molecule(smiles=smiles)
+            state_smiles = Chem.MolToSmiles(Chem.RemoveHs(mol), isomericSmiles=True)
+            prepared.append((name, parent_index, 1, mol, state_smiles))
+
+    if len(prepared) > 25:
+        raise ValueError(
+            f'pH-aware enumeration generated {len(prepared)} states. '
+            'Reduce the input set or prepare compounds in smaller batches (maximum 25 states per run).'
+        )
+
+    directory = root/'candidates'/uuid.uuid4().hex
+    directory.mkdir(parents=True, exist_ok=True)
+    records = []
+    for i, (name, parent_index, state_index, mol, state_smiles) in enumerate(prepared, 1):
+        ident = f'ligand_{i:03d}'
+        path = directory/(ident+'.pdbqt')
+        core.write_ligand(mol, path)
+        records.append(dict(
+            id=ident, name=name, parent=parent_index, microstate=state_index,
+            smiles=state_smiles, pH=ph, path=str(path),
+            formula=rdMolDescriptors.CalcMolFormula(mol),
+            charge=int(Chem.GetFormalCharge(mol)),
+        ))
+    return records
+
+
+def cloud_compute_mode():
+    return st.session_state.get('compute_mode', 'Streamlit Cloud · fast').startswith('Streamlit Cloud')
+
+
 def show_compute_progress(backend, remote):
     try:
         progress = backend.progress(remote)
@@ -524,6 +568,12 @@ with st.sidebar:
         )
     st.text_input('Experiment name', 'My docking experiment', key='experiment')
     stage = st.radio('Workflow', ['1 · Load complex', '2 · Prepare structures', '3 · Validate docking', '4 · Run experiment', '5 · Explore results'], key='workflow_stage')
+    st.radio(
+        'Compute',
+        ['Streamlit Cloud · fast', 'GitHub Actions · fallback'],
+        key='compute_mode',
+        help='Streamlit Cloud is the default fast path. GitHub Actions is the fallback when cloud resources are constrained.',
+    )
     st.divider()
     st.caption('✓ Complex loaded' if st.session_state.get('pdb') else '○ Load a complex')
     st.caption('✓ Receptor prepared' if st.session_state.get('preparation_id') else '○ Prepare receptor')
@@ -954,17 +1004,35 @@ with workspace:
                         task_key = 'reference_microstates_job_'+identity+'_'+str(ligand_ph)
                         microstate_busy = bool(st.session_state.get(task_key))
                         if st.button(f'Enumerate ligand states at pH {ligand_ph:.1f}', disabled=microstate_busy):
-                            backend = github_backend()
-                            if backend is None:
-                                st.warning('GitHub Actions compute is required for ligand pH enumeration.')
-                            elif not smiles.strip():
+                            if not smiles.strip():
                                 st.warning('Enter or retrieve the ligand SMILES first.')
-                            else:
+                            elif cloud_compute_mode():
                                 try:
-                                    st.session_state[task_key] = backend.submit_ligand_microstates(smiles, ligand_ph, 16)
-                                    st.rerun()
-                                except compute.ComputeBackendError as exc:
-                                    st.warning(str(exc))
+                                    with st.spinner('Enumerating ligand states on Streamlit Cloud…'):
+                                        states = phprep.enumerate_ligand_states(smiles, ligand_ph, 16)
+                                    st.session_state[state_key] = [
+                                        dict(index=s['index'], smiles=s['smiles'], formal_charge=s['formal_charge'])
+                                        for s in states
+                                    ]
+                                    st.success('Completed on Streamlit Cloud.')
+                                except (RuntimeError, MemoryError, OSError) as exc:
+                                    backend = github_backend()
+                                    if backend is None:
+                                        st.warning(f'Streamlit Cloud compute failed and GitHub fallback is unavailable: {exc}')
+                                    else:
+                                        st.warning('Streamlit Cloud compute was unavailable. Switching to GitHub Actions…')
+                                        st.session_state[task_key] = backend.submit_ligand_microstates(smiles, ligand_ph, 16)
+                                        st.rerun()
+                            else:
+                                backend = github_backend()
+                                if backend is None:
+                                    st.warning('GitHub Actions compute is not configured.')
+                                else:
+                                    try:
+                                        st.session_state[task_key] = backend.submit_ligand_microstates(smiles, ligand_ph, 16)
+                                        st.rerun()
+                                    except compute.ComputeBackendError as exc:
+                                        st.warning(str(exc))
                         show_microstate_job(task_key, state_key)
                         ligand_states = st.session_state.get(state_key, [])
                         selected_smiles = smiles
@@ -1087,17 +1155,35 @@ with workspace:
                                 })
                         if not 1 <= len(ligand_inputs) <= 25:
                             raise ValueError('Prepare between one and 25 input candidate ligands.')
-                        backend = github_backend()
-                        if backend is None:
-                            st.warning('GitHub Actions compute is required for candidate preparation.')
-                        else:
+                        if cloud_compute_mode():
                             try:
-                                st.session_state[candidate_task_key] = backend.submit_candidate_preparation(
-                                    ligand_inputs, candidate_ph, enumerate_states
-                                )
-                                st.rerun()
-                            except compute.ComputeBackendError as exc:
-                                st.warning(str(exc))
+                                with st.spinner('Preparing candidate ligands on Streamlit Cloud…'):
+                                    st.session_state.candidate_paths = prepare_candidates_on_streamlit(
+                                        ligand_inputs, candidate_ph, enumerate_states
+                                    )
+                                st.success('Candidate preparation completed on Streamlit Cloud.')
+                            except (RuntimeError, MemoryError, OSError) as exc:
+                                backend = github_backend()
+                                if backend is None:
+                                    st.warning(f'Streamlit Cloud preparation failed and GitHub fallback is unavailable: {exc}')
+                                else:
+                                    st.warning('Streamlit Cloud resources were unavailable. Switching preparation to GitHub Actions…')
+                                    st.session_state[candidate_task_key] = backend.submit_candidate_preparation(
+                                        ligand_inputs, candidate_ph, enumerate_states
+                                    )
+                                    st.rerun()
+                        else:
+                            backend = github_backend()
+                            if backend is None:
+                                st.warning('GitHub Actions compute is not configured.')
+                            else:
+                                try:
+                                    st.session_state[candidate_task_key] = backend.submit_candidate_preparation(
+                                        ligand_inputs, candidate_ph, enumerate_states
+                                    )
+                                    st.rerun()
+                                except compute.ComputeBackendError as exc:
+                                    st.warning(str(exc))
                     show_candidate_prep_job(candidate_task_key)
                     candidates=st.session_state.get('candidate_paths',[])
                     if candidates:
@@ -1111,6 +1197,7 @@ with workspace:
                             break
                     st.info('A completed redocking run matches these exact settings.' if matched else 'No completed redocking run matches these exact settings. Review validation before interpreting docking results.')
                 remote = st.session_state.get(prefix+'_github_job')
+                active = st.session_state.get(prefix+'_job')
                 remote_state = None
                 backend = github_backend()
                 if remote and backend:
@@ -1119,21 +1206,46 @@ with workspace:
                     except compute.ComputeBackendError:
                         remote_state = {'state': 'failed'}
                 remote_busy = remote_state and remote_state.get('state') in ('queued','running','starting')
-                busy = bool(remote_busy)
-                if backend:
-                    st.caption('Compute · GitHub Actions')
+                cloud_busy = bool(active and jobs.status(active).get('state') in ('queued','running','starting'))
+                busy = bool(remote_busy or cloud_busy)
+
+                if cloud_compute_mode():
+                    st.caption('Compute · Streamlit Cloud · GitHub Actions fallback enabled' if backend else 'Compute · Streamlit Cloud')
                 else:
-                    st.warning('GitHub Actions compute is required but is not configured.')
-                if st.button('Run redocking' if validation else 'Run docking', type='primary', disabled=busy or not config['ligands'] or backend is None):
+                    st.caption('Compute · GitHub Actions')
+
+                if st.button('Run redocking' if validation else 'Run docking', type='primary', disabled=busy or not config['ligands']):
                     manifest()
-                    try:
-                        remote_job = backend.submit(root, config)
-                        st.session_state[prefix+'_github_job'] = remote_job
-                        st.session_state.pop(prefix+'_job', None)
-                    except compute.ComputeBackendError as exc:
-                        st.error(str(exc))
+                    if cloud_compute_mode():
+                        try:
+                            directory = jobs.launch(root, config)
+                            st.session_state[prefix+'_job'] = directory
+                            st.session_state.pop(prefix+'_github_job', None)
+                            st.rerun()
+                        except (RuntimeError, MemoryError, OSError, subprocess.SubprocessError) as exc:
+                            if backend is None:
+                                st.error(f'Streamlit Cloud compute failed and GitHub fallback is unavailable: {exc}')
+                            else:
+                                st.warning('Streamlit Cloud compute could not start. Switching to GitHub Actions…')
+                                try:
+                                    remote_job = backend.submit(root, config)
+                                    st.session_state[prefix+'_github_job'] = remote_job
+                                    st.session_state.pop(prefix+'_job', None)
+                                    st.rerun()
+                                except compute.ComputeBackendError as remote_exc:
+                                    st.error(str(remote_exc))
                     else:
-                        st.rerun()
+                        if backend is None:
+                            st.error('GitHub Actions compute is not configured.')
+                        else:
+                            try:
+                                remote_job = backend.submit(root, config)
+                                st.session_state[prefix+'_github_job'] = remote_job
+                                st.session_state.pop(prefix+'_job', None)
+                            except compute.ComputeBackendError as exc:
+                                st.error(str(exc))
+                            else:
+                                st.rerun()
                 if st.session_state.get(prefix+'_github_job'):
                     show_remote_job(st.session_state[prefix+'_github_job'], prefix+'_job', prefix+'_github_job')
                 if st.session_state.get(prefix+'_job'):
