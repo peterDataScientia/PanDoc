@@ -750,7 +750,9 @@ with workspace:
                 else:
                     upload = st.file_uploader('Candidate ligands (multi-molecule SDF)', type=['sdf'])
                     smiles_text = st.text_area('Or one SMILES per line', placeholder='CCO ethanol')
-                    chemical_review = st.checkbox('I reviewed candidate protonation, stereochemistry and tautomer states.')
+                    candidate_ph = float(st.session_state.get('preparation_record', {}).get('pH', 7.0))
+                    enumerate_states = st.checkbox(f'Enumerate candidate protonation/tautomer states at pH {candidate_ph:.1f} with Molscrub', value=True)
+                    chemical_review = st.checkbox('I will review the generated candidate microstates before docking.')
                     if st.button('Prepare candidate ligands', disabled=not chemical_review):
                         from rdkit import Chem
                         from rdkit.Chem import rdMolDescriptors
@@ -766,17 +768,33 @@ with workspace:
                                 pieces=line.split(maxsplit=1)
                                 mols.append((pieces[1] if len(pieces)>1 else f'Ligand {len(mols)+1}', core.molecule(smiles=pieces[0])))
                         if not 1<=len(mols)<=25:
-                            raise ValueError('Prepare between one and 25 candidate ligands.')
+                            raise ValueError('Prepare between one and 25 input candidate ligands.')
+                        prepared_states = []
+                        for parent_index, (name, mol) in enumerate(mols, 1):
+                            if enumerate_states:
+                                parent_smiles = Chem.MolToSmiles(Chem.RemoveHs(mol), isomericSmiles=True)
+                                states = phprep.enumerate_ligand_states(parent_smiles, candidate_ph)
+                                for state in states:
+                                    prepared_states.append((name, parent_index, state['index'], state['mol'], state['smiles']))
+                            else:
+                                state_smiles = Chem.MolToSmiles(Chem.RemoveHs(mol), isomericSmiles=True)
+                                prepared_states.append((name, parent_index, 1, mol, state_smiles))
+                        if len(prepared_states) > 25:
+                            raise ValueError(f'pH-aware enumeration generated {len(prepared_states)} states. Reduce the input set or prepare compounds in smaller batches (maximum 25 states per run).')
                         directory = root/'candidates'/uuid.uuid4().hex
                         directory.mkdir(parents=True)
                         records=[]
-                        for i,(name,mol) in enumerate(mols,1):
+                        for i,(name,parent_index,state_index,mol,state_smiles) in enumerate(prepared_states,1):
                             ident=f'ligand_{i:03d}'
                             path=directory/(ident+'.pdbqt')
                             core.write_ligand(mol,path)
-                            records.append(dict(id=ident,name=name,path=str(path),formula=rdMolDescriptors.CalcMolFormula(mol),charge=Chem.GetFormalCharge(mol)))
+                            records.append(dict(
+                                id=ident, name=name, parent=parent_index, microstate=state_index,
+                                smiles=state_smiles, pH=candidate_ph, path=str(path),
+                                formula=rdMolDescriptors.CalcMolFormula(mol),
+                                charge=Chem.GetFormalCharge(mol)))
                         st.session_state.candidate_paths=records
-                        st.success(f'{len(records)} ligands prepared.')
+                        st.success(f'{len(records)} pH-aware ligand state(s) prepared from {len(mols)} input ligand(s). Review the table before docking.')
                     candidates=st.session_state.get('candidate_paths',[])
                     if candidates:
                         st.dataframe(pd.DataFrame(candidates).drop(columns=['path']),hide_index=True)
