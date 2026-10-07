@@ -30,6 +30,7 @@ def parse_propka_summary(text: str, ph: float):
             assignment = protonated_state if protonated else deprotonated
         if residue == "HIS":
             state = "HIP" if protonated else "neutral HIS (HID/HIE review)"
+            assignment = "HIP" if protonated else None
             review = True
         elif residue == "CYS":
             state = "protonated CYS" if protonated else "thiolate; manual review"
