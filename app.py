@@ -342,7 +342,7 @@ def show_remote_job(remote, local_key, remote_key):
             except github_compute.GitHubComputeError as exc:
                 st.error(str(exc))
         elif current['state'] == 'failed':
-            st.error('GitHub Actions docking failed. Open the compute run for diagnostics.')
+            st.error(current.get('error') or 'GitHub Actions docking failed. Open the compute run for diagnostics.')
         elif current['state'] == 'cancelled':
             st.warning('Docking job cancelled.')
 
