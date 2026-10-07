@@ -42,6 +42,12 @@ class ProtonationParsingTests(unittest.TestCase):
         self.assertIn("A:164=HID", assignments)
         self.assertIn("A:34=ASP", assignments)
 
+    def test_molscrub_enumeration_available(self):
+        states = phprep.enumerate_ligand_states("CCO", 7.0, max_states=4)
+        self.assertGreaterEqual(len(states), 1)
+        self.assertTrue(states[0]["smiles"])
+        self.assertIn("formal_charge", states[0])
+
 
 if __name__ == "__main__":
     unittest.main()
