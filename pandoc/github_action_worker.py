@@ -177,23 +177,19 @@ def _run_candidate_preparation(root: Path, result_dir: Path):
 
 
 def main(job_id: str, operation: str = "dock"):
+    raw_dir = os.environ.get("PANDOC_RAW_PAYLOAD_DIR", "").strip()
     key = os.environ.get("PANDOC_JOB_KEY", "").strip()
-    if not key:
-        raise RuntimeError("PANDOC_JOB_KEY is not configured in repository Actions secrets.")
-
     payload_path = Path(".pandoc_jobs") / f"{job_id}.bin"
-    if not payload_path.is_file():
-        raise RuntimeError("Encrypted PanDoc job payload was not found.")
+    if not raw_dir:
+        if not key:
+            raise RuntimeError("PANDOC_JOB_KEY is not configured in repository Actions secrets.")
+        if not payload_path.is_file():
+            raise RuntimeError("Encrypted PanDoc job payload was not found.")
 
     result_dir = Path(".pandoc_action_runs") / job_id
     result_dir.mkdir(parents=True, exist_ok=True)
 
-    decrypted = decrypt_payload(payload_path.read_bytes(), key)
-    with tempfile.TemporaryDirectory(prefix="pandoc-action-") as tmp:
-        root = Path(tmp)
-        with zipfile.ZipFile(io.BytesIO(decrypted)) as archive:
-            _safe_extract(archive, root)
-
+    def execute(root: Path):
         if operation == "dock":
             _run_docking(root, result_dir)
         elif operation == "ligand-microstates":
@@ -202,6 +198,19 @@ def main(job_id: str, operation: str = "dock"):
             _run_candidate_preparation(root, result_dir)
         else:
             raise RuntimeError(f"Unsupported PanDoc Actions operation: {operation}")
+
+    if raw_dir:
+        root = Path(raw_dir).resolve()
+        if not root.is_dir():
+            raise RuntimeError("PANDOC_RAW_PAYLOAD_DIR does not exist.")
+        execute(root)
+    else:
+        decrypted = decrypt_payload(payload_path.read_bytes(), key)
+        with tempfile.TemporaryDirectory(prefix="pandoc-action-") as tmp:
+            root = Path(tmp)
+            with zipfile.ZipFile(io.BytesIO(decrypted)) as archive:
+                _safe_extract(archive, root)
+            execute(root)
 
     print(f"PanDoc {operation} job {job_id[:8]} completed.")
 
