@@ -11,7 +11,7 @@ import streamlit as st
 
 from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui
 
-PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.jpg'
+PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.png'
 PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
 
 st.set_page_config(page_title='PanDoc · Docking workbench', page_icon='🧬', layout='wide')
