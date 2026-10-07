@@ -53,6 +53,12 @@ class GitHubActionsCompute:
         except GitHubComputeError as exc:
             raise ComputeBackendError(str(exc)) from exc
 
+    def logs(self, handle: dict, tail: int = 80) -> str:
+        try:
+            return self.client.logs(handle, tail=tail)
+        except GitHubComputeError as exc:
+            raise ComputeBackendError(str(exc)) from exc
+
     def cancel(self, handle: dict) -> bool:
         try:
             return self.client.cancel(handle)
