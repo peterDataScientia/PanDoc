@@ -641,7 +641,32 @@ with workspace:
                             st.markdown(f"[View {component} in RCSB PDB](https://www.rcsb.org/ligand/{component})")
                             st.caption('CCD chemistry describes the deposited component. Review its protonation and tautomer state for your experiment.')
                         smiles=st.text_input('Reference ligand isomeric SMILES — editable',key=input_key)
-                        comparison=core.ligand_comparison(ref,smiles)
+                        ligand_ph = float(st.session_state.get('preparation_review', {}).get('pH_context',
+                                         st.session_state.get('preparation_record', {}).get('pH', 7.0)))
+                        state_key = 'reference_microstates_'+identity+'_'+str(ligand_ph)
+                        if st.button(f'Enumerate ligand states at pH {ligand_ph:.1f}'):
+                            try:
+                                with st.spinner('Enumerating protonation and tautomer states with Molscrub…'):
+                                    states = phprep.enumerate_ligand_states(smiles, ligand_ph)
+                                st.session_state[state_key] = [
+                                    dict(index=s['index'], smiles=s['smiles'], formal_charge=s['formal_charge'])
+                                    for s in states
+                                ]
+                            except (ValueError, RuntimeError) as exc:
+                                st.warning(str(exc))
+                        ligand_states = st.session_state.get(state_key, [])
+                        selected_smiles = smiles
+                        selected_state = None
+                        if ligand_states:
+                            st.caption(f'Molscrub generated {len(ligand_states)} unique state(s) at pH {ligand_ph:.1f}. Select the state to use while preserving crystallographic heavy-atom coordinates.')
+                            chosen_state = st.selectbox(
+                                'Reference ligand microstate',
+                                range(len(ligand_states)),
+                                format_func=lambda i: f"State {ligand_states[i]['index']} · charge {ligand_states[i]['formal_charge']:+d} · {ligand_states[i]['smiles']}",
+                                key='reference_microstate_choice_'+identity+'_'+str(ligand_ph))
+                            selected_state = ligand_states[chosen_state]
+                            selected_smiles = selected_state['smiles']
+                        comparison=core.ligand_comparison(ref,selected_smiles)
                         if 'smiles_heavy_atoms' in comparison:
                             elements=sorted(set(comparison['pdb_elements'])|set(comparison['smiles_elements']))
                             table=[dict(structure='Selected crystal ligand',heavy_atoms=comparison['pdb_heavy_atoms'],**{e:comparison['pdb_elements'].get(e,0) for e in elements}),
@@ -652,7 +677,7 @@ with workspace:
                             else:
                                 st.warning(comparison['message'])
                                 st.write('**Next:** retrieve the PDB chemistry above, edit the SMILES, or change the selected ligand. Hydrogens do not change heavy-atom counts.')
-                            mol2d=Chem.MolFromSmiles(smiles.strip())
+                            mol2d=Chem.MolFromSmiles(selected_smiles.strip())
                             st.image(Draw.MolToImage(mol2d,size=(650,300)),caption=f'Entered chemistry · {rdMolDescriptors.CalcMolFormula(mol2d)} · Formal charge {Chem.GetFormalCharge(mol2d)}')
                         else:
                             st.info(comparison['message'])
@@ -671,13 +696,13 @@ with workspace:
                         reviewed=st.checkbox('I reviewed the ligand identity, stereochemistry and chemical state.',key='reference_review_'+identity)
                         if st.button('Prepare reference ligand',disabled=not comparison['valid'] or not reviewed):
                             try:
-                                mol = core.reference_from_pdb(ref, smiles)
-                                ident = core.digest(ref, smiles.strip())
+                                mol = core.reference_from_pdb(ref, selected_smiles)
+                                ident = core.digest(ref, selected_smiles.strip(), ligand_ph)
                                 directory = root/'references'/ident
                                 directory.mkdir(parents=True, exist_ok=True)
                                 core.write_ligand(mol, directory/'reference.pdbqt')
-                                source=definition if definition and definition['smiles']==smiles.strip() else {'source':'Manual SMILES','smiles':smiles.strip()}
-                                st.session_state.update(reference_path=str(directory/'reference.sdf'), reference_pdbqt=str(directory/'reference.pdbqt'), reference_smiles=smiles.strip(), reference_id=ident,reference_chemistry_source=source)
+                                source=definition if definition and definition['smiles']==selected_smiles.strip() else {'source':'Molscrub pH-aware state' if selected_state else 'Manual SMILES','smiles':selected_smiles.strip(),'pH':ligand_ph,'formal_charge':selected_state['formal_charge'] if selected_state else Chem.GetFormalCharge(mol)}
+                                st.session_state.update(reference_path=str(directory/'reference.sdf'), reference_pdbqt=str(directory/'reference.pdbqt'), reference_smiles=selected_smiles.strip(), reference_id=ident,reference_chemistry_source=source)
                                 manifest()
                                 st.success('Reference prepared with original heavy-atom coordinates. Continue to Validate docking.')
                             except (ValueError, RuntimeError) as exc:
@@ -686,7 +711,7 @@ with workspace:
                                 with st.expander('Preparation explanation'):
                                     st.text(str(exc))
                         if st.session_state.get('reference_path'):
-                            if smiles.strip()!=st.session_state.get('reference_smiles'):
+                            if selected_smiles.strip()!=st.session_state.get('reference_smiles'):
                                 st.info('The downloaded reference below belongs to previously prepared chemistry. Prepare the edited SMILES before using it for a new validation.')
                             path = Path(st.session_state.reference_path)
                             viewer(sdf=path.read_text())
