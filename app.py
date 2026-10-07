@@ -363,6 +363,18 @@ with workspace:
         complex_loaded=bool(st.session_state.get('pdb')),
         receptor_ready=bool(st.session_state.get('preparation_id')),
         reference_ready=bool(st.session_state.get('reference_path')))
+    if stage.startswith('2'):
+        ui.glossary(st, [
+            ('pKa', 'The pH at which an ionizable group is approximately 50% protonated.'),
+            ('HID/HIE/HIP', 'Common histidine protonation/tautomer states used during receptor preparation.'),
+            ('Microstate', 'A specific protonation and tautomeric state of a ligand at the selected pH.'),
+        ])
+    elif stage.startswith('3') or stage.startswith('4'):
+        ui.glossary(st, [
+            ('RMSD', 'Heavy-atom root-mean-square deviation used here to assess redocking pose recovery.'),
+            ('Exhaustiveness', 'Vina search-effort parameter; larger values explore the search space more thoroughly.'),
+            ('Grid box', 'The three-dimensional region in which Vina searches for ligand poses.'),
+        ])
 
     try:
         if stage.startswith('1'):
