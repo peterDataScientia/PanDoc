@@ -111,12 +111,18 @@ def structure_review(pdb, checks, widget_key):
     viewer(pdb=pdb, focus=focus if show_focus else None)
 
 
+def job_path(job, value):
+    path = Path(value)
+    return path if path.is_absolute() else Path(job) / path
+
+
 def publication_figure(job, row):
     from rdkit import Chem
     config = json.loads((Path(job)/'config.json').read_text())
     if not config.get('reference'):
         return
-    reference = next(iter(Chem.SDMolSupplier(config['reference'], removeHs=False)))
+    reference_path = job_path(job, config['reference'])
+    reference = next(iter(Chem.SDMolSupplier(str(reference_path), removeHs=False)))
     poses = list(Chem.SDMolSupplier(str(Path(job)/row['sdf']), removeHs=False))
     pose = poses[row['rank']-1]
     if reference is None or pose is None:
@@ -1301,7 +1307,7 @@ with workspace:
                     if pose is None:
                         raise ValueError('Selected pose could not be read from SDF.')
                     sdf=Chem.MolToMolBlock(pose)+'\n$$$$\n'
-                    receptor=Path(config['receptor']).parent/'receptor_prepared.pdb'
+                    receptor=job_path(job, config['receptor']).parent/'receptor_prepared.pdb'
                     if config.get('reference'):
                         publication_figure(job, row)
                     else:
