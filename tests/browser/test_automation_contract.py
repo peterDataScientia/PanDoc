@@ -52,7 +52,7 @@ def main() -> int:
 
             # Upload through the user-facing accessible label. Do not depend on
             # Streamlit-generated CSS classes, framework data-testid values, or DOM position.
-            page.get_by_label("PDB or mmCIF complex", exact=True).set_input_files(str(FIXTURE))
+            page.get_by_label("PDB or mmCIF complex", exact=True).locator('input[type="file"]').set_input_files(str(FIXTURE))
             wait_marker_state(page, "pandoc-complex", "ready")
 
             # Confirm the application exposes deterministic workflow and compute state.
