@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import core, pdb_search, phprep, structure_checks
+from . import core, pdb_search, phprep, structure_checks, heme_prep
 
 
 PROFILE_PATH = Path(__file__).with_name("receptor_profiles.json")
@@ -293,12 +293,22 @@ def prepare_from_profile(target, output_dir, force_curated=False):
     receptor_pdbqt = None
     remote_exclusions = []
 
-    if mode == "curated_heme" and not force_curated:
-        status = "held_for_curated_heme_preparation"
-        (root / "CURATED_HEME_HOLD.txt").write_text(
-            "Generic Meeko preparation intentionally blocked.\n"
-            "Preserve HEM/Fe-Cys coordination and use a curated heme-aware preparation workflow.\n"
+    heme_audit = None
+    if mode == "curated_heme":
+        heme_cfg = cfg.get("heme", {})
+        receptor_pdbqt, heme_audit = heme_prep.prepare_curated_heme_receptor(
+            repaired,
+            root / "prepared_receptor_heme",
+            template_assignments=assignments,
+            heme_component=heme_cfg.get("component", "HEM"),
+            coordination_residue=heme_cfg["coordination_residue"],
+            heme_iron_atom=heme_cfg.get("iron_atom", "FE"),
+            protein_donor_atom=heme_cfg.get("protein_donor_atom", "SG"),
+            max_coordination_distance_A=float(
+                heme_cfg.get("max_coordination_distance_A", 3.0)
+            ),
         )
+        status = "prepared_curated_heme"
     else:
         receptor_pdbqt, remote_exclusions, prepared_input = _prepare_with_remote_fallback(
             repaired,
@@ -316,7 +326,7 @@ def prepare_from_profile(target, output_dir, force_curated=False):
 
     result = {
         "profile_set": meta.get("profile_set"),
-        "engine_revision": "heavy-only-repair-v3",
+        "engine_revision": "curated-heme-v4",
         "target": target,
         "pdb": cfg["pdb"],
         "chain": cfg["chain"],
@@ -330,6 +340,7 @@ def prepare_from_profile(target, output_dir, force_curated=False):
         "override_count": len(overrides),
         "issues_after_repair": len(checks_after["issues"]),
         "remote_meeko_exclusions": remote_exclusions,
+        "heme_audit": heme_audit,
         "receptor_pdbqt": str(receptor_pdbqt) if receptor_pdbqt else None,
         "source_url": source.get("url"),
         "notes": cfg.get("notes", []),
