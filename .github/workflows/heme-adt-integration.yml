@@ -1,0 +1,60 @@
+name: HEM AutoDockTools integration
+
+on:
+  pull_request:
+    paths:
+      - "pandoc/heme_prep.py"
+      - "pandoc/profile_engine.py"
+      - "tests/test_heme_prep.py"
+      - ".github/workflows/heme-adt-integration.yml"
+  workflow_dispatch:
+
+jobs:
+  heme-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install scientific dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install legacy AutoDockTools
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-name: pandoc-adt
+          create-args: >-
+            -c bioconda
+            -c conda-forge
+            mgltools=1.5.7
+          init-shell: none
+          generate-run-shell: false
+          cache-environment: true
+
+      - name: Prepare actual CYP19A1 3S79 and check every heavy atom
+        env:
+          PANDOC_ADT_ENV: pandoc-adt
+        run: |
+          micromamba run -n pandoc-adt prepare_receptor4.py -h >/dev/null
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from tempfile import TemporaryDirectory
+          from pandoc import profile_engine
+
+          with TemporaryDirectory() as tmp:
+              record = profile_engine.prepare_from_profile("CYP19A1", Path(tmp) / "CYP19A1")
+              assert record["status"] == "prepared_curated_heme", record
+              audit_path = Path(tmp) / "CYP19A1" / "prepared_receptor_heme" / "curated_heme_audit.json"
+              audit = json.loads(audit_path.read_text())
+              assert audit["pdbqt"]["all_receptor_heavy_atom_types_verified"]
+              assert audit["pdbqt"]["all_receptor_heavy_atom_positions_verified"]
+              assert audit["pdbqt"]["heme_atom_count_in_pdbqt"] == 43
+              print("PASS: 3S79 HEM/Fe and every deposited receptor heavy atom verified")
+          PY

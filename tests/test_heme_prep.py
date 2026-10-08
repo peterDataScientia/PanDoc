@@ -142,3 +142,46 @@ def test_pdbqt_validation_requires_retained_heme_and_fe_geometry(tmp_path):
     assert audit["heme_atom_count_in_pdbqt"] == 2
     assert audit["iron_autodock_type"].upper() == "FE"
     assert math.isclose(audit["coordination_distance_A"], 2.44, abs_tol=0.001)
+
+
+
+def test_adt_name_alignment_restores_arginine_and_tryptophan_heavy_atoms():
+    """Legacy ADT must not read NH1/NH2/CH2 as hydrogen names."""
+    bad = [
+        _atom("ATOM", 1, "NH1", "ARG", "A", 115, 1, 2, 3, "N"),
+        _atom("ATOM", 2, "NH2", "ARG", "A", 115, 2, 3, 4, "N"),
+        _atom("ATOM", 3, "CH2", "TRP", "A", 224, 3, 4, 5, "C"),
+    ]
+    bad = [line[:12] + name.ljust(4) + line[16:]
+           for name, line in zip(("NH1", "NH2", "CH2"), bad)]
+    heme = _atom("HETATM", 4, "FE", "HEM", "A", 600, 4, 4, 4, "FE")
+    raw = "\n".join(bad + [heme, "END"]) + "\n"
+    fixed = heme_prep._align_single_element_pdb_names(raw)
+    values = [line for line in fixed.splitlines() if line.startswith("ATOM")]
+    assert [line[12:16] for line in values] == [" NH1", " NH2", " CH2"]
+    assert [line[30:54] for line in values] == [line[30:54] for line in bad]
+    assert heme in fixed
+
+
+def test_adt_audit_rejects_heavy_atom_mistyped_as_hydrogen(tmp_path):
+    source = _atom("ATOM", 1, "NH1", "ARG", "A", 115, 1, 2, 3, "N") + "\n"
+    incorrect = _atom("ATOM", 1, "H1N", "ARG", "A", 115, 1, 2, 3, "H") + " HD\n"
+    output = tmp_path / "bad_receptor.pdbqt"
+    output.write_text(incorrect)
+    with pytest.raises(
+        heme_prep.CuratedHemePreparationError,
+        match="heavy-atom identity/type/position errors",
+    ):
+        heme_prep.validate_pdbqt_heavy_atoms(source, output)
+
+
+def test_adt_audit_accepts_preserved_element_names_and_coordinates(tmp_path):
+    source = "\n".join([
+        _atom("ATOM", 1, "NH1", "ARG", "A", 115, 1, 2, 3, "N"),
+        _atom("ATOM", 2, "CH2", "TRP", "A", 224, 3, 4, 5, "C"),
+    ]) + "\n"
+    output = tmp_path / "valid_receptor.pdbqt"
+    output.write_text(source)
+    report = heme_prep.validate_pdbqt_heavy_atoms(source, output)
+    assert report["all_receptor_heavy_atom_count"] == 2
+    assert report["all_receptor_heavy_atom_types_verified"]
