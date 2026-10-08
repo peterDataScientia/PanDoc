@@ -432,9 +432,10 @@ def show_microstate_job(task_key, result_key):
     remote = st.session_state.get(task_key)
     if not remote:
         return
-    backend = github_backend()
+    backend = backend_for_handle(remote)
     if backend is None:
-        st.warning('Computer C is required for ligand pH enumeration.')
+        node = 'Computer B' if remote.get('backend') == 'kaggle-direct' else 'Computer C'
+        st.warning(node + ' is not available for ligand pH enumeration.')
         return
 
     try:
@@ -469,7 +470,7 @@ def show_microstate_job(task_key, result_key):
             except (OSError, json.JSONDecodeError, compute.ComputeBackendError) as exc:
                 st.warning(str(exc))
         elif state.get('state') == 'failed':
-            st.error(state.get('error') or 'Ligand-state enumeration failed on Computer C.')
+            st.error(state.get('error') or 'Ligand-state enumeration failed on the selected compute node.')
         elif state.get('state') == 'cancelled':
             st.warning('Ligand-state enumeration was cancelled.')
 
@@ -480,9 +481,10 @@ def show_candidate_prep_job(task_key):
     remote = st.session_state.get(task_key)
     if not remote:
         return
-    backend = github_backend()
+    backend = backend_for_handle(remote)
     if backend is None:
-        st.warning('Computer C is required for candidate preparation.')
+        node = 'Computer B' if remote.get('backend') == 'kaggle-direct' else 'Computer C'
+        st.warning(node + ' is not available for candidate preparation.')
         return
 
     try:
@@ -505,7 +507,7 @@ def show_candidate_prep_job(task_key):
             show_compute_progress(backend, remote)
 
         if state.get('state') == 'completed':
-            target = root/'candidates'/('github_'+remote['job_id'])
+            target = root/'candidates'/('remote_'+remote['job_id'])
             try:
                 if not (target/'results.json').exists():
                     backend.materialize(remote, target)
@@ -520,7 +522,7 @@ def show_candidate_prep_job(task_key):
             except (OSError, json.JSONDecodeError, compute.ComputeBackendError) as exc:
                 st.warning(str(exc))
         elif state.get('state') == 'failed':
-            st.error(state.get('error') or 'Candidate preparation failed on Computer C.')
+            st.error(state.get('error') or 'Candidate preparation failed on the selected compute node.')
         elif state.get('state') == 'cancelled':
             st.warning('Candidate preparation was cancelled.')
 
@@ -1102,15 +1104,24 @@ with workspace:
                                         st.session_state[task_key] = backend.submit_ligand_microstates(smiles, ligand_ph, 16)
                                         st.rerun()
                             else:
-                                backend = github_backend()
+                                backend = kaggle_backend() if kaggle_compute_mode() else github_backend()
                                 if backend is None:
-                                    st.warning('Computer C is not configured.')
+                                    st.warning(('Computer B' if kaggle_compute_mode() else 'Computer C') + ' is not configured.')
                                 else:
                                     try:
                                         st.session_state[task_key] = backend.submit_ligand_microstates(smiles, ligand_ph, 16)
                                         st.rerun()
-                                    except compute.ComputeBackendError as exc:
-                                        st.warning(str(exc))
+                                    except Exception as exc:
+                                        if kaggle_compute_mode():
+                                            fallback = github_backend()
+                                            if fallback is not None:
+                                                st.warning('Computer B could not start ligand-state enumeration. Switching to Computer C…')
+                                                st.session_state[task_key] = fallback.submit_ligand_microstates(smiles, ligand_ph, 16)
+                                                st.rerun()
+                                            else:
+                                                st.warning(str(exc))
+                                        else:
+                                            st.warning(str(exc))
                         show_microstate_job(task_key, state_key)
                         ligand_states = st.session_state.get(state_key, [])
                         selected_smiles = smiles
@@ -1251,17 +1262,28 @@ with workspace:
                                     )
                                     st.rerun()
                         else:
-                            backend = github_backend()
+                            backend = kaggle_backend() if kaggle_compute_mode() else github_backend()
                             if backend is None:
-                                st.warning('Computer C is not configured.')
+                                st.warning(('Computer B' if kaggle_compute_mode() else 'Computer C') + ' is not configured.')
                             else:
                                 try:
                                     st.session_state[candidate_task_key] = backend.submit_candidate_preparation(
                                         ligand_inputs, candidate_ph, enumerate_states
                                     )
                                     st.rerun()
-                                except compute.ComputeBackendError as exc:
-                                    st.warning(str(exc))
+                                except Exception as exc:
+                                    if kaggle_compute_mode():
+                                        fallback = github_backend()
+                                        if fallback is not None:
+                                            st.warning('Computer B could not start candidate preparation. Switching to Computer C…')
+                                            st.session_state[candidate_task_key] = fallback.submit_candidate_preparation(
+                                                ligand_inputs, candidate_ph, enumerate_states
+                                            )
+                                            st.rerun()
+                                        else:
+                                            st.warning(str(exc))
+                                    else:
+                                        st.warning(str(exc))
                     show_candidate_prep_job(candidate_task_key)
                     candidates=st.session_state.get('candidate_paths',[])
                     if candidates:
