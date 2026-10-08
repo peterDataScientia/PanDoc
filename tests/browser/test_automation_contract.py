@@ -50,9 +50,9 @@ def main() -> int:
             page.get_by_role("radio", name=re.compile(r"1 .* Load complex")).check()
             page.get_by_role("radio", name="Computer A · Fast").check()
 
-            # Upload a generic structure through the public UI, not through internal Streamlit state.
-            file_input = page.locator('input[type="file"]').first
-            file_input.set_input_files(str(FIXTURE))
+            # Upload through the user-facing accessible label. Do not depend on
+            # Streamlit-generated CSS classes, framework data-testid values, or DOM position.
+            page.get_by_label("PDB or mmCIF complex", exact=True).set_input_files(str(FIXTURE))
             wait_marker_state(page, "pandoc-complex", "ready")
 
             # Confirm the application exposes deterministic workflow and compute state.
