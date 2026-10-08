@@ -105,7 +105,7 @@ class KaggleDirectCompute:
 
     def progress(self, handle: dict) -> dict:
         state = self.status(handle)
-        steps = [{"name": "Kaggle worker ready", "status": "completed", "conclusion": "success"}]
+        steps = [{"name": "Computer B ready", "status": "completed", "conclusion": "success"}]
         if state.get("state") in ("queued", "starting"):
             steps.append({"name": "Docking queued", "status": "queued", "conclusion": None})
         elif state.get("state") == "running":
