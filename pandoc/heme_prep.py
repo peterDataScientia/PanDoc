@@ -186,9 +186,38 @@ def _component_only(pdb: str, component: str) -> str:
     return "\n".join(lines) + "\nEND\n"
 
 
+def _align_single_element_pdb_names(pdb: str) -> str:
+    """Normalize ATOM-name columns for ADT's PDB element inference.
+
+    Some Meeko outputs serialize protein ARG NH1/NH2 and TRP CH2 in
+    columns 13-15 ("NH1 " and "CH2 "). Legacy AutoDockTools infers the
+    *second* character as the element and can turn these deposited N/C
+    heavy atoms into H1N/H2N/H2C with PDBQT type HD. Correct one-letter
+    element alignment to the PDB convention (" NH1", " CH2").
+    Coordinates, residue identifiers, elements and HETATM HEM are intact.
+    """
+    lines = []
+    for line in pdb.splitlines():
+        if line.startswith("ATOM  ") and len(line) >= 78:
+            name = line[12:16].strip()
+            element = line[76:78].strip().upper()
+            if not name or not element:
+                raise CuratedHemePreparationError(
+                    "Prepared protein has missing PDB atom name or element; "
+                    "cannot safely infer chemistry for AutoDockTools."
+                )
+            if len(element) == 1 and len(name) <= 3 and not name[0].isdigit():
+                line = line[:12] + (" " + name.ljust(3)) + line[16:]
+        lines.append(line)
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def _merge_prepared_protein_and_heme(prepared_protein: str, heme_pdb: str) -> str:
+    # Meeko's naming layout is not always PDB-element aligned. Normalize
+    # protein names only: HEM records retain deposited atom names/coordinates.
+    standardized = _align_single_element_pdb_names(prepared_protein)
     protein_lines = [
-        line for line in prepared_protein.splitlines()
+        line for line in standardized.splitlines()
         if line.startswith(("ATOM  ", "HETATM", "TER"))
     ]
     heme_lines = [
@@ -239,6 +268,74 @@ def _pdbqt_atom_records(path: Path):
         except Exception:
             continue
     return rows
+
+
+def validate_pdbqt_heavy_atoms(merged_pdb: str, pdbqt_path: Path):
+    """Fail if ADT misidentifies, deletes, renames or moves a heavy atom.
+
+    Verify residue+atom identity, deposited element versus Vina/ADT atom
+    type, and 3D coordinates.  A successful prepare_receptor4 exit alone is
+    insufficient (notably legacy NH1/NH2/CH2 -> HD conversion).
+    """
+    from collections import defaultdict
+
+    allowed_types = {
+        "C": {"C", "A"},
+        "N": {"N", "NA"},
+        "O": {"O", "OA"},
+        "S": {"S", "SA"},
+        "P": {"P"},
+        "F": {"F"},
+        "CL": {"CL"},
+        "BR": {"BR"},
+        "I": {"I"},
+        "FE": {"FE"},
+    }
+    actual = defaultdict(list)
+    for row in _pdbqt_atom_records(Path(pdbqt_path)):
+        key = (row["chain"] or "_", row["number"], row["res"], row["name"])
+        actual[key].append(row)
+
+    expected_atoms = [
+        a for a in core.atoms(merged_pdb)
+        if a["element"].upper() not in {"H", "D"}
+    ]
+    defects = []
+    for atom in expected_atoms:
+        elem = atom["element"].upper()
+        key = (
+            atom["chain"] or "_",
+            atom["number"] + atom["icode"],
+            atom["res"],
+            atom["name"],
+        )
+        found = actual.get(key, [])
+        if len(found) != 1:
+            defects.append(
+                f'{key}: expected one heavy atom, found {len(found)} '
+                '(possibly renamed or discarded by AutoDockTools)'
+            )
+            continue
+        row = found[0]
+        atype = row["atype"].upper()
+        permitted = allowed_types.get(elem)
+        if permitted is None or atype not in permitted:
+            defects.append(
+                f'{key}: original element {elem} has invalid PDBQT type {row["atype"]}'
+            )
+        if math.dist(atom["xyz"], row["xyz"]) > 0.02:
+            defects.append(f'{key}: heavy-atom coordinates shifted')
+    if defects:
+        raise CuratedHemePreparationError(
+            f'Curated HEM receptor is unsafe: {len(defects)} deposited heavy-atom '
+            'identity/type/position errors after AutoDockTools. Examples: '
+            + "; ".join(defects[:10])
+        )
+    return {
+        "all_receptor_heavy_atom_count": len(expected_atoms),
+        "all_receptor_heavy_atom_types_verified": True,
+        "all_receptor_heavy_atom_positions_verified": True,
+    }
 
 
 def _validate_pdbqt_heme(path: Path, before: dict):
@@ -428,6 +525,16 @@ def prepare_curated_heme_receptor(
         )
 
     pdbqt_audit = _validate_pdbqt_heme(receptor_pdbqt, before)
+    pdbqt_audit.update(validate_pdbqt_heavy_atoms(merged, receptor_pdbqt))
+    adt_log = (directory / "autodocktools_preparation.log").read_text(
+        errors="replace"
+    )
+    pdbqt_audit["iron_gasteiger_parameters_available"] = (
+        "no Gasteiger parameters available" not in adt_log
+    )
+    pdbqt_audit["iron_parameterization_review_required"] = (
+        not pdbqt_audit["iron_gasteiger_parameters_available"]
+    )
 
     audit = {
         "mode": "curated_heme_autodocktools",
