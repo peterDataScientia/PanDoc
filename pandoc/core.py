@@ -329,26 +329,111 @@ def repair_heavy_atoms(pdb):
     return repaired
 
 
-def prepare_receptor(pdb, directory, template_assignments='', add_templates=None):
+def prepare_receptor(pdb, directory, template_assignments='', add_templates=None,
+                     heme_coordination_residue=None, heme_source_pdb=None):
+    """Prepare a rigid receptor without silent cofactor deletion.
+
+    Ordinary CCD failures may retry once with a validated ideal-SDF chemical
+    template. HEM with Fe coordination is *never* reduced to an organic template:
+    the existing reviewed protein + AutoDockTools route requires a selected
+    proximal cysteine and checks that Fe and the cysteine donor are retained.
+    """
+    from . import cofactor_templates
+
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     inp = directory / 'receptor_input.pdb'
     inp.write_text(pdb)
-    args = [sys.executable, '-m', 'meeko.cli.mk_prepare_receptor', '--read_pdb', str(inp), '-o', str(directory/'receptor'), '-p', '-j', '--write_pdb', str(directory/'receptor_prepared.pdb')]
+    explicit_templates = list(add_templates or [])
+    component_groups = cofactor_templates.component_groups(pdb)
+    if 'HEM' in component_groups:
+        if not heme_coordination_residue:
+            message = (
+                'HEM contains coordinated Fe and cannot be safely prepared using '
+                'Meeko CCD auto-templates. Select and review the Fe-coordinating '
+                'cysteine in PanDoc HEM preparation, or use the existing curated '
+                'heme profile on Computer C. HEM was not discarded.'
+            )
+            (directory / 'preparation.log').write_text(message + '\n')
+            raise ValueError(message)
+        from . import heme_prep
+        try:
+            path, audit = heme_prep.prepare_curated_heme_receptor(
+                pdb, directory, template_assignments=template_assignments,
+                heme_component='HEM', coordination_residue=heme_coordination_residue,
+                heme_source_pdb=heme_source_pdb or pdb,
+            )
+            import shutil
+            shutil.copyfile(path, directory / 'receptor.pdbqt')
+            shutil.copyfile(directory / 'protein_reviewed_plus_heme.pdb',
+                            directory / 'receptor_prepared.pdb')
+            (directory / 'preparation.log').write_text(
+                'Curated HEM pathway completed; see curated_heme_audit.json.\n'
+            )
+            return directory / 'receptor.pdbqt'
+        except (ValueError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
+            message = f'Curated HEM preparation failed: {exc}'
+            (directory / 'preparation.log').write_text(message + '\n')
+            raise ValueError(message) from exc
+
+    args = [sys.executable, '-m', 'meeko.cli.mk_prepare_receptor',
+            '--read_pdb', str(inp), '-o', str(directory / 'receptor'), '-p', '-j',
+            '--write_pdb', str(directory / 'receptor_prepared.pdb')]
     if template_assignments.strip():
         args.extend(['--set_template', template_assignments.strip()])
-    for template_path in (add_templates or []):
+    for template_path in explicit_templates:
         args.extend(['--add_templates', str(template_path)])
+
     completed = subprocess.run(args, capture_output=True, text=True, timeout=180)
-    log = completed.stdout + '\n' + completed.stderr
-    (directory/'preparation.log').write_text(log)
-    if completed.returncode != 0 or not (directory/'receptor.pdbqt').exists():
-        clean = re.sub(r'\x1b\[[0-9;]*m', '', log)
-        residues = list(dict.fromkeys(re.findall(r"(?:key|residue_key)[= :]+['\"]?([A-Za-z0-9_]+:[0-9]+[A-Za-z]?)", clean)))
-        problem = 'Invalid inferred bonding or atom valence' if 'valence' in clean.lower() else 'Incomplete or unsupported residue chemistry'
-        affected = ', '.join(residues[:12]) or 'see the preparation log'
-        raise ValueError(f'{problem}. Affected residues: {affected}. Review coordinates, missing atoms and residue templates. No failed residues were removed. Full diagnostics: {directory / "preparation.log"}')
-    return directory/'receptor.pdbqt'
+    first_log = completed.stdout + '\n' + completed.stderr
+    log = first_log
+    failed = completed.returncode != 0 or not (directory / 'receptor.pdbqt').is_file()
+    if failed:
+        # Retry only the component(s) identified in a CCD-related Meeko error.
+        try:
+            fallback, report = cofactor_templates.resolve_ccd_failure(
+                pdb, directory, first_log, explicit_templates,
+            )
+        except (ValueError, OSError) as exc:
+            fallback, report = [], {'components': [], 'error': str(exc)}
+        if fallback:
+            retry_args = args[:]
+            for candidate in fallback:
+                retry_args.extend(['--add_templates', candidate])
+            retried = subprocess.run(retry_args, capture_output=True, text=True,
+                                     timeout=180)
+            log += '\n--- VALIDATED CCD TEMPLATE RETRY ---\n'
+            log += retried.stdout + '\n' + retried.stderr
+            failed = (retried.returncode != 0
+                      or not (directory / 'receptor.pdbqt').is_file())
+            report['retry_successful'] = not failed
+            (directory / 'cofactor_resolution.json').write_text(
+                json.dumps(report, indent=2)
+            )
+        if failed:
+            clean = re.sub(r'\x1b\[[0-9;]*m', '', log)
+            residues = list(dict.fromkeys(re.findall(
+                r"(?:key|residue_key)[= :]+['\"]?([A-Za-z0-9_]+:[0-9]+[A-Za-z]?)",
+                clean)))
+            problem = ('Invalid inferred bonding or atom valence'
+                       if 'valence' in clean.lower()
+                       else 'Incomplete or unsupported residue chemistry')
+            affected = ', '.join(residues[:12]) or 'see the preparation log'
+            details = []
+            for item in report.get('components', []):
+                if item.get('status') == 'failed':
+                    details.append(f"{item['component']}: {item.get('reason', 'unresolved')}")
+            if details:
+                problem += '. CCD fallback: ' + '; '.join(details)
+            (directory / 'preparation.log').write_text(log)
+            raise ValueError(
+                f'{problem}. Affected residues: {affected}. '
+                'Review coordinates, missing atoms, charges and any curated residue '
+                'templates. No failed residues were removed. '
+                f'Full diagnostics: {directory / "preparation.log"}'
+            )
+    (directory / 'preparation.log').write_text(log)
+    return directory / 'receptor.pdbqt'
 
 
 def versions():
