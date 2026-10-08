@@ -1120,6 +1120,60 @@ with workspace:
                         notes = st.text_area('Preparation rationale', placeholder='Optional notes about your preparation choices.')
                     st.session_state.preparation_review = dict(pH_context=intended_ph, templates=templates, rebuild_missing_atoms=repair, curated_input=bool(curated))
                     selected_input = curated.getvalue().decode() if curated else pdb
+                    # A retained heme must not fall through Meeko's failing CCD path.
+                    # This mode specifically requires reviewed P450-like SG--Fe coordination.
+                    heme_atoms = [a for a in core.atoms(selected_input)
+                                  if a['res'].upper() == 'HEM']
+                    heme_coordination_residue = None
+                    if heme_atoms:
+                        from math import dist
+                        irons = [a for a in heme_atoms if a['element'].upper() == 'FE']
+                        cysteine_sulfurs = [a for a in core.atoms(selected_input)
+                                             if a['res'].upper() == 'CYS'
+                                             and a['name'].upper() == 'SG']
+                        with st.expander('Retained HEM · curated heme preparation', expanded=True):
+                            st.warning(
+                                'HEM has coordinated iron. PanDoc does not use Meeko CCD '
+                                'auto-templates or silently remove HEM. The existing '
+                                'curated AutoDockTools backend is required.'
+                            )
+                            if len(irons) != 1:
+                                st.error('HEM preparation requires exactly one reviewed Fe center.')
+                            elif not cysteine_sulfurs:
+                                st.error(
+                                    'No coordinating cysteine SG was found. This curated '
+                                    'P450-like pathway is not suitable for a different heme '
+                                    'coordination type. Supply a validated receptor instead.'
+                                )
+                            else:
+                                candidates = sorted(
+                                    [(f"{a['chain'] or '_'}:{a['number']}{a['icode']}",
+                                      dist(a['xyz'], irons[0]['xyz']))
+                                     for a in cysteine_sulfurs],
+                                    key=lambda item: item[1]
+                                )
+                                labels = ['Select reviewed proximal CYS (required)'] + [
+                                    f'{ident} · SG--Fe {distance:.2f} Å'
+                                    for ident, distance in candidates
+                                ]
+                                choice = st.selectbox(
+                                    'Fe-coordinating cysteine (review crystallographic geometry)',
+                                    labels, key='heme_cysteine_'+core.digest(selected_input)
+                                )
+                                if choice != labels[0]:
+                                    index = labels.index(choice) - 1
+                                    heme_coordination_residue = candidates[index][0]
+                                    if candidates[index][1] > 3.0:
+                                        st.error(
+                                            'Selected SG--Fe distance is >3 Å; this site '
+                                            'will fail curated geometry validation.'
+                                        )
+                                        heme_coordination_residue = None
+                                st.caption(
+                                    'This path verifies Fe retention and SG deprotonation. '
+                                    'On Streamlit Cloud, use the Computer C curated-heme '
+                                    'profile if AutoDockTools is not available locally.'
+                                )
                     ph_prediction_key = core.digest(selected_input, repair, intended_ph)
                     if st.button('Analyze protonation at selected pH', key='analyze_protonation'):
                         try:
@@ -1191,7 +1245,7 @@ with workspace:
                     st.session_state.assistant_structure_checks = checks
                     if not st.session_state.get('receptor_path'):
                         structure_review(selected_input, checks, 'preparation_issue_'+core.digest(selected_input))
-                    if st.button('Prepare receptor', type='primary', disabled=not bool(reviewed_templates), key='prepare_receptor'):
+                    if st.button('Prepare receptor', type='primary', disabled=(not bool(reviewed_templates) or (bool(heme_atoms) and not heme_coordination_residue)), key='prepare_receptor'):
                         st.session_state.pop('assistant_diagnostic', None)
                         for stale in ('receptor_path', 'preparation_id', 'validation_job', 'experiment_job', 'structure_report'):
                             st.session_state.pop(stale, None)
@@ -1218,15 +1272,17 @@ with workspace:
                             st.stop()
                         repair_changes = structure_checks.changes(selected_input, final)
                         combined_templates = ','.join(x for x in (reviewed_templates, templates.strip()) if x)
-                        prep_id = core.digest(final, combined_templates, intended_ph, st.session_state.get('protonation_review'), core.versions())
+                        prep_id = core.digest(final, combined_templates, intended_ph, heme_coordination_residue, st.session_state.get('protonation_review'), core.versions())
                         directory = root/'preparations'/prep_id
                         with st.spinner('Checking chemistry and preparing receptor…'):
                             selection_path = root/'selection_report.json'
-                            report = dict(selection_report=json.loads(selection_path.read_text()) if selection_path.exists() else {}, input_checks=checks, repaired_checks=final_checks, repair_changes=repair_changes, settings=dict(pH=intended_ph, templates=combined_templates, rationale=notes, curated_input=bool(curated), protonation_review=st.session_state.get('protonation_review')), software_versions=core.versions())
+                            report = dict(selection_report=json.loads(selection_path.read_text()) if selection_path.exists() else {}, input_checks=checks, repaired_checks=final_checks, repair_changes=repair_changes, settings=dict(pH=intended_ph, templates=combined_templates, rationale=notes, curated_input=bool(curated), heme_coordination_residue=heme_coordination_residue, protonation_review=st.session_state.get('protonation_review')), software_versions=core.versions())
                             directory.mkdir(parents=True, exist_ok=True)
                             (directory/'structure_report.json').write_text(json.dumps(report, indent=2))
                             try:
-                                path = core.prepare_receptor(final, directory, combined_templates)
+                                path = core.prepare_receptor(final, directory, combined_templates,
+                                                             heme_coordination_residue=heme_coordination_residue,
+                                                             heme_source_pdb=selected_input)
                             except ValueError as exc:
                                 st.session_state.assistant_diagnostic = (directory/'preparation.log').read_text()
                                 st.error(str(exc).split(' Full diagnostics:')[0])
@@ -1237,6 +1293,10 @@ with workspace:
                                 st.download_button('Download preparation input PDB', (directory/'receptor_input.pdb').read_bytes(), 'receptor_input.pdb')
                                 show_assistant()
                                 st.stop()
+                            if (directory/'curated_heme_audit.json').exists():
+                                report['curated_heme_audit'] = json.loads((directory/'curated_heme_audit.json').read_text())
+                            if (directory/'cofactor_resolution.json').exists():
+                                report['cofactor_resolution'] = json.loads((directory/'cofactor_resolution.json').read_text())
                             prepared_output = (directory/'receptor_prepared.pdb').read_text()
                             report.update(prepared_checks=structure_checks.check(prepared_output), preparation_changes=structure_checks.changes(final, prepared_output))
                             missing_residues = {core.key(a) for a in core.atoms(final)} - {core.key(a) for a in core.atoms(prepared_output)}
@@ -1252,7 +1312,7 @@ with workspace:
                                 st.download_button('Download rejected preparation report', (directory/'structure_report.json').read_bytes(), 'structure_report.json', 'application/json')
                                 raise ValueError('Prepared receptor failed coordinate validation. Inspect the saved structure report before using it.')
                         st.session_state.update(receptor_path=str(path), prepared_pdb=(directory/'receptor_prepared.pdb').read_text(), preparation_id=prep_id,
-                            preparation_record=dict(pH=intended_ph, templates=combined_templates, protonation_review=st.session_state.get('protonation_review'), repaired_heavy_atoms=repair, curated_upload=curated.name if curated else None, rationale=notes))
+                            preparation_record=dict(pH=intended_ph, templates=combined_templates, heme_coordination_residue=heme_coordination_residue, protonation_review=st.session_state.get('protonation_review'), repaired_heavy_atoms=repair, curated_upload=curated.name if curated else None, rationale=notes))
                         manifest()
                     if st.session_state.get('receptor_path'):
                         path = Path(st.session_state.receptor_path)
