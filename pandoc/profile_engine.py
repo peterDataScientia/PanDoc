@@ -304,6 +304,7 @@ def prepare_from_profile(target, output_dir, force_curated=False):
             coordination_residue=heme_cfg["coordination_residue"],
             heme_iron_atom=heme_cfg.get("iron_atom", "FE"),
             protein_donor_atom=heme_cfg.get("protein_donor_atom", "SG"),
+            coordination_template=heme_cfg.get("coordination_template", "CYX-"),
             max_coordination_distance_A=float(
                 heme_cfg.get("max_coordination_distance_A", 3.0)
             ),
@@ -326,7 +327,7 @@ def prepare_from_profile(target, output_dir, force_curated=False):
 
     result = {
         "profile_set": meta.get("profile_set"),
-        "engine_revision": "curated-heme-template-v5",
+        "engine_revision": "curated-heme-static-template-v6",
         "target": target,
         "pdb": cfg["pdb"],
         "chain": cfg["chain"],
