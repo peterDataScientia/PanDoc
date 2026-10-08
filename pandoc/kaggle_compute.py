@@ -100,22 +100,46 @@ class KaggleDirectCompute:
         ).json()
         return {"backend": self.name, **response}
 
+    def submit_ligand_microstates(self, smiles: str, ph: float, max_states: int = 16) -> dict:
+        payload = {"smiles": str(smiles), "ph": float(ph), "max_states": int(max_states)}
+        response = self._request(
+            "POST", "/api/v1/jobs/ligand-microstates", json=payload, timeout=(10, 120)
+        ).json()
+        return {"backend": self.name, **response}
+
+    def submit_candidate_preparation(self, ligands: list[dict], ph: float, enumerate_states: bool = True) -> dict:
+        payload = {
+            "ligands": ligands,
+            "ph": float(ph),
+            "enumerate_states": bool(enumerate_states),
+        }
+        response = self._request(
+            "POST", "/api/v1/jobs/prepare-candidates", json=payload, timeout=(10, 120)
+        ).json()
+        return {"backend": self.name, **response}
+
     def status(self, handle: dict) -> dict:
         return self._request("GET", f"/api/v1/jobs/{handle['job_id']}").json()
 
     def progress(self, handle: dict) -> dict:
         state = self.status(handle)
+        operation = handle.get("operation", "dock")
+        label = {
+            "ligand-microstates": "Ligand-state enumeration",
+            "prepare-candidates": "Candidate preparation",
+            "dock": "Docking",
+        }.get(operation, "Calculation")
         steps = [{"name": "Computer B ready", "status": "completed", "conclusion": "success"}]
         if state.get("state") in ("queued", "starting"):
-            steps.append({"name": "Docking queued", "status": "queued", "conclusion": None})
+            steps.append({"name": label + " queued", "status": "queued", "conclusion": None})
         elif state.get("state") == "running":
-            name = state.get("current") or "Docking"
+            name = state.get("current") or label
             steps.append({"name": name, "status": "in_progress", "conclusion": None})
         elif state.get("state") == "completed":
-            steps.append({"name": "Docking completed", "status": "completed", "conclusion": "success"})
+            steps.append({"name": label + " completed", "status": "completed", "conclusion": "success"})
         elif state.get("state") in ("failed", "cancelled"):
             steps.append({
-                "name": "Docking " + state["state"],
+                "name": label + " " + state["state"],
                 "status": "completed",
                 "conclusion": "failure" if state["state"] == "failed" else "cancelled",
             })
