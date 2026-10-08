@@ -1279,6 +1279,7 @@ with workspace:
                                     'On Streamlit Cloud, use the Computer C curated-heme '
                                     'profile if AutoDockTools is not available locally.'
                                 )
+                    show_heme_prep_job()
                     ph_prediction_key = core.digest(selected_input, repair, intended_ph)
                     if st.button('Analyze protonation at selected pH', key='analyze_protonation'):
                         try:
@@ -1350,7 +1351,7 @@ with workspace:
                     st.session_state.assistant_structure_checks = checks
                     if not st.session_state.get('receptor_path'):
                         structure_review(selected_input, checks, 'preparation_issue_'+core.digest(selected_input))
-                    if st.button('Prepare receptor', type='primary', disabled=(not bool(reviewed_templates) or (bool(heme_atoms) and not heme_coordination_residue)), key='prepare_receptor'):
+                    if st.button('Prepare receptor', type='primary', disabled=(not bool(reviewed_templates) or bool(st.session_state.get('heme_prepare_job')) or (bool(heme_atoms) and not heme_coordination_residue)), key='prepare_receptor'):
                         st.session_state.pop('assistant_diagnostic', None)
                         for stale in ('receptor_path', 'preparation_id', 'validation_job', 'experiment_job', 'structure_report'):
                             st.session_state.pop(stale, None)
@@ -1359,6 +1360,14 @@ with workspace:
                         if repair:
                             with st.spinner('Rebuilding and checking missing atoms…'):
                                 final = core.repair_heavy_atoms(final)
+                        if heme_atoms:
+                            # PDBFixer may modify/remove HEM. Restore exactly the
+                            # deposited HEM coordinates before preparing on Computer C.
+                            from pandoc import heme_prep
+                            final = heme_prep._merge_prepared_protein_and_heme(
+                                heme_prep._protein_without_component(final, 'HEM'),
+                                heme_prep._component_only(selected_input, 'HEM')
+                            )
                         final_checks = structure_checks.check(final)
                         blocking = [issue for issue in final_checks['issues'] if issue['severity']=='Error']
                         if blocking:
@@ -1385,10 +1394,34 @@ with workspace:
                             directory.mkdir(parents=True, exist_ok=True)
                             (directory/'structure_report.json').write_text(json.dumps(report, indent=2))
                             try:
-                                path = core.prepare_receptor(final, directory, combined_templates,
-                                                             heme_coordination_residue=heme_coordination_residue,
-                                                             heme_source_pdb=selected_input)
-                            except ValueError as exc:
+                                backend = github_backend() if heme_coordination_residue else None
+                                if backend is not None:
+                                    (directory/'receptor_input.pdb').write_text(final)
+                                    handle = backend.submit_heme_preparation(
+                                        final, selected_input, combined_templates,
+                                        heme_coordination_residue,
+                                    )
+                                    st.session_state.heme_prepare_job = {
+                                        'handle': handle,
+                                        'directory': str(directory),
+                                        'preparation_id': prep_id,
+                                        'preparation_record': dict(
+                                            pH=intended_ph, templates=combined_templates,
+                                            heme_coordination_residue=heme_coordination_residue,
+                                            protonation_review=st.session_state.get('protonation_review'),
+                                            repaired_heavy_atoms=repair,
+                                            curated_upload=curated.name if curated else None,
+                                            rationale=notes,
+                                        ),
+                                    }
+                                    st.rerun()
+                                path = core.prepare_receptor(
+                                    final, directory, combined_templates,
+                                    heme_coordination_residue=heme_coordination_residue,
+                                    heme_source_pdb=selected_input)
+                            except (ValueError, compute.ComputeBackendError) as exc:
+                                if not (directory/'preparation.log').exists():
+                                    (directory/'preparation.log').write_text(str(exc))
                                 st.session_state.assistant_diagnostic = (directory/'preparation.log').read_text()
                                 st.error(str(exc).split(' Full diagnostics:')[0])
                                 st.info('Open Advanced preparation to supply reviewed template assignments or a corrected receptor, then retry.')
