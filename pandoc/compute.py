@@ -48,6 +48,13 @@ class GitHubActionsCompute:
             raise ComputeBackendError(str(exc)) from exc
         return {"backend": self.name, **remote}
 
+    def submit_profile_preparation(self, target: str) -> dict:
+        try:
+            remote = self.client.submit_profile_preparation(target)
+        except GitHubComputeError as exc:
+            raise ComputeBackendError(str(exc)) from exc
+        return {"backend": self.name, **remote}
+
     def status(self, handle: dict) -> dict:
         try:
             return self.client.status(handle)
