@@ -326,7 +326,7 @@ def prepare_from_profile(target, output_dir, force_curated=False):
 
     result = {
         "profile_set": meta.get("profile_set"),
-        "engine_revision": "curated-heme-v4",
+        "engine_revision": "curated-heme-template-v5",
         "target": target,
         "pdb": cfg["pdb"],
         "chain": cfg["chain"],
