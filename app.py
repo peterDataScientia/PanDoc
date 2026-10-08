@@ -307,6 +307,29 @@ def github_backend():
         return None
 
 
+def kaggle_backend():
+    try:
+        base_url = st.secrets.get('PANDOC_KAGGLE_URL', os.environ.get('PANDOC_KAGGLE_URL', ''))
+        api_key = st.secrets.get('PANDOC_KAGGLE_API_KEY', os.environ.get('PANDOC_KAGGLE_API_KEY', ''))
+    except Exception:
+        base_url = os.environ.get('PANDOC_KAGGLE_URL', '')
+        api_key = os.environ.get('PANDOC_KAGGLE_API_KEY', '')
+    if not base_url or not api_key:
+        return None
+    try:
+        backend = compute.kaggle_from_credentials(base_url, api_key)
+        backend.health()
+        return backend
+    except Exception:
+        return None
+
+
+def backend_for_handle(handle):
+    if handle and handle.get('backend') == 'kaggle-direct':
+        return kaggle_backend()
+    return github_backend()
+
+
 def prepare_candidates_on_streamlit(ligands, ph, enumerate_states):
     from rdkit import Chem
     from rdkit.Chem import rdMolDescriptors
@@ -348,6 +371,10 @@ def prepare_candidates_on_streamlit(ligands, ph, enumerate_states):
 
 def cloud_compute_mode():
     return st.session_state.get('compute_mode', 'Streamlit Cloud · fast').startswith('Streamlit Cloud')
+
+
+def kaggle_compute_mode():
+    return st.session_state.get('compute_mode', '').startswith('Kaggle')
 
 
 def show_compute_progress(backend, remote):
@@ -482,9 +509,10 @@ def show_candidate_prep_job(task_key):
 
 
 def show_remote_job(remote, local_key, remote_key):
-    backend = github_backend()
+    backend = backend_for_handle(remote)
     if backend is None:
-        st.error('GitHub Actions compute is not configured. Add GITHUB_TOKEN and PANDOC_JOB_KEY to Streamlit secrets.')
+        label = 'Kaggle direct backend' if remote.get('backend') == 'kaggle-direct' else 'GitHub Actions compute'
+        st.error(label + ' is not configured or reachable.')
         return {'state': 'failed'}
     try:
         state = backend.status(remote)
@@ -502,11 +530,15 @@ def show_remote_job(remote, local_key, remote_key):
         except compute.ComputeBackendError as exc:
             st.error(str(exc))
             return
-        st.info(f"GitHub Actions job: {current['state']} · {remote['job_id'][:8]}")
+        backend_label = 'Kaggle direct' if remote.get('backend') == 'kaggle-direct' else 'GitHub Actions'
+        st.info(f"{backend_label} job: {current['state']} · {remote['job_id'][:8]}")
         with st.expander('Compute progress', expanded=True):
             show_compute_progress(backend, remote)
         if current['state'] in active_states:
-            st.caption('Runs on a free GitHub-hosted runner. Status refreshes every 5 seconds.')
+            if remote.get('backend') == 'kaggle-direct':
+                st.caption('Runs directly on the warm Kaggle session. Status refreshes every 5 seconds.')
+            else:
+                st.caption('Runs on a free GitHub-hosted runner. Status refreshes every 5 seconds.')
             if st.button('Cancel job', key=remote['job_id']+'cancel'):
                 backend.cancel(remote)
                 st.info('Cancellation requested.')
@@ -576,9 +608,9 @@ with st.sidebar:
     stage = st.radio('Workflow', ['1 · Load complex', '2 · Prepare structures', '3 · Validate docking', '4 · Run experiment', '5 · Explore results'], key='workflow_stage')
     st.radio(
         'Compute',
-        ['Streamlit Cloud · fast', 'GitHub Actions · fallback'],
+        ['Streamlit Cloud · fast', 'Kaggle · direct warm backend', 'GitHub Actions · fallback'],
         key='compute_mode',
-        help='Streamlit Cloud is the default fast path. GitHub Actions is the fallback when cloud resources are constrained.',
+        help='Streamlit Cloud is the fast local path. Kaggle sends docking directly to a running warm Kaggle session. GitHub Actions remains the durable fallback.',
     )
     st.divider()
     st.caption('✓ Complex loaded' if st.session_state.get('pdb') else '○ Load a complex')
@@ -1205,18 +1237,22 @@ with workspace:
                 remote = st.session_state.get(prefix+'_github_job')
                 active = st.session_state.get(prefix+'_job')
                 remote_state = None
-                backend = github_backend()
+                github = github_backend()
+                kaggle = kaggle_backend() if kaggle_compute_mode() or (remote and remote.get('backend') == 'kaggle-direct') else None
+                backend = backend_for_handle(remote) if remote else (kaggle if kaggle_compute_mode() else github)
                 if remote and backend:
                     try:
                         remote_state = backend.status(remote)
-                    except compute.ComputeBackendError:
+                    except Exception:
                         remote_state = {'state': 'failed'}
                 remote_busy = remote_state and remote_state.get('state') in ('queued','running','starting')
                 cloud_busy = bool(active and jobs.status(active).get('state') in ('queued','running','starting'))
                 busy = bool(remote_busy or cloud_busy)
 
                 if cloud_compute_mode():
-                    st.caption('Compute · Streamlit Cloud · GitHub Actions fallback enabled' if backend else 'Compute · Streamlit Cloud')
+                    st.caption('Compute · Streamlit Cloud · GitHub Actions fallback enabled' if github else 'Compute · Streamlit Cloud')
+                elif kaggle_compute_mode():
+                    st.caption('Compute · Kaggle direct warm backend · GitHub Actions fallback' if github else 'Compute · Kaggle direct warm backend')
                 else:
                     st.caption('Compute · GitHub Actions')
 
@@ -1229,23 +1265,54 @@ with workspace:
                             st.session_state.pop(prefix+'_github_job', None)
                             st.rerun()
                         except (RuntimeError, MemoryError, OSError, subprocess.SubprocessError) as exc:
-                            if backend is None:
+                            if github is None:
                                 st.error(f'Streamlit Cloud compute failed and GitHub fallback is unavailable: {exc}')
                             else:
                                 st.warning('Streamlit Cloud compute could not start. Switching to GitHub Actions…')
                                 try:
-                                    remote_job = backend.submit(root, config)
+                                    remote_job = github.submit(root, config)
                                     st.session_state[prefix+'_github_job'] = remote_job
                                     st.session_state.pop(prefix+'_job', None)
                                     st.rerun()
                                 except compute.ComputeBackendError as remote_exc:
                                     st.error(str(remote_exc))
+                    elif kaggle_compute_mode():
+                        if kaggle is None:
+                            if github is None:
+                                st.error('Kaggle direct backend is offline and GitHub Actions fallback is not configured.')
+                            else:
+                                st.warning('Kaggle direct backend is offline. Switching to GitHub Actions…')
+                                try:
+                                    remote_job = github.submit(root, config)
+                                    st.session_state[prefix+'_github_job'] = remote_job
+                                    st.session_state.pop(prefix+'_job', None)
+                                    st.rerun()
+                                except compute.ComputeBackendError as exc:
+                                    st.error(str(exc))
+                        else:
+                            try:
+                                remote_job = kaggle.submit(root, config)
+                                st.session_state[prefix+'_github_job'] = remote_job
+                                st.session_state.pop(prefix+'_job', None)
+                                st.rerun()
+                            except Exception as exc:
+                                if github is None:
+                                    st.error(f'Kaggle direct compute failed and GitHub fallback is unavailable: {exc}')
+                                else:
+                                    st.warning('Kaggle direct compute failed. Switching to GitHub Actions…')
+                                    try:
+                                        remote_job = github.submit(root, config)
+                                        st.session_state[prefix+'_github_job'] = remote_job
+                                        st.session_state.pop(prefix+'_job', None)
+                                        st.rerun()
+                                    except compute.ComputeBackendError as remote_exc:
+                                        st.error(str(remote_exc))
                     else:
-                        if backend is None:
+                        if github is None:
                             st.error('GitHub Actions compute is not configured.')
                         else:
                             try:
-                                remote_job = backend.submit(root, config)
+                                remote_job = github.submit(root, config)
                                 st.session_state[prefix+'_github_job'] = remote_job
                                 st.session_state.pop(prefix+'_job', None)
                             except compute.ComputeBackendError as exc:
