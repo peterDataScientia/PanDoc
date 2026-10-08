@@ -69,12 +69,14 @@ def test_packaged_heme_template_has_expected_chemistry():
     mol = Chem.MolFromSmiles(template["smiles"], ps)
 
     assert mol is not None
-    assert mol.GetNumAtoms() == 75
+    assert mol.GetNumAtoms() == 73
     assert sum(a.GetAtomicNum() != 1 for a in mol.GetAtoms()) == 43
-    assert rdMolDescriptors.CalcMolFormula(mol) == "C34H32FeN4O4"
-    assert Chem.GetFormalCharge(mol) == 0
-    assert len(template["atom_name"]) == 75
+    assert rdMolDescriptors.CalcMolFormula(mol) == "C34H30FeN4O4-2"
+    assert Chem.GetFormalCharge(mol) == -2
+    assert len(template["atom_name"]) == 73
     assert all(a.GetNumImplicitHs() == 0 for a in mol.GetAtoms())
+    assert "H2A" not in template["atom_name"]
+    assert "H2D" not in template["atom_name"]
 
 
 def test_packaged_heme_template_loads_into_meeko():
