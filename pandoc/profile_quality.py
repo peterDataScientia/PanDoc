@@ -133,6 +133,16 @@ def assess(*, target, preparation_mode, receptor_pdbqt, structure_issues=(),
     }
 
 
+def snapshot_profile_jobs(jobs):
+    """Stable ordered items while completed and failed jobs leave the queue.
+
+    A Streamlit polling callback removes terminal jobs from its mutable
+    dict. Returning an immutable snapshot avoids RuntimeError:
+    dictionary changed size during iteration.
+    """
+    return tuple((jobs or {}).items())
+
+
 def manifest(requested_targets, results, errors, pending_targets=()):
     """Explicitly account for every requested target in even a partial ZIP."""
     requested = list(dict.fromkeys(requested_targets))

@@ -143,3 +143,27 @@ def test_manifest_exposes_pending_cyp19a1_in_partial_download(tmp_path):
     )
     assert complete["complete"] is True
     assert complete["pending_targets"] == []
+
+
+
+def test_terminal_profile_jobs_can_be_removed_during_snapshot_iteration():
+    """Completed and failed Computer C jobs must not crash Streamlit polling."""
+    jobs = {
+        "CYP19A1": {"job_id": "heme"},
+        "PGR": {"job_id": "pgr"},
+        "FYN": {"job_id": "fyn"},
+    }
+    processed = []
+    for target, _remote in profile_quality.snapshot_profile_jobs(jobs):
+        processed.append(target)
+        jobs.pop(target)
+    assert processed == ["CYP19A1", "PGR", "FYN"]
+    assert jobs == {}
+
+
+def test_profile_job_snapshot_is_independent_of_new_submissions():
+    jobs = {"CYP19A1": {"job_id": "heme"}}
+    snapshot = profile_quality.snapshot_profile_jobs(jobs)
+    jobs["PGR"] = {"job_id": "pgr"}
+    assert [target for target, _remote in snapshot] == ["CYP19A1"]
+    assert profile_quality.snapshot_profile_jobs(None) == ()
