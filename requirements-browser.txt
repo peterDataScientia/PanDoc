@@ -1,0 +1,3 @@
+# Test-only browser automation dependencies.
+# Do not merge this into requirements.txt: PanDoc runtime remains Playwright-independent.
+playwright>=1.52,<2
