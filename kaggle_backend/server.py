@@ -76,7 +76,6 @@ def runtime_config(directory: Path, portable: dict) -> dict:
     # frontend CPU cap and let AutoDock Vina use every CPU actually assigned
     # to this Kaggle session.
     runtime["cpu"] = available_cpu_count()
-    runtime["parallel_searches"] = True
 
     validate_config(runtime)
     return runtime
