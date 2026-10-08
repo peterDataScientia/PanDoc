@@ -329,7 +329,7 @@ def repair_heavy_atoms(pdb):
     return repaired
 
 
-def prepare_receptor(pdb, directory, template_assignments=''):
+def prepare_receptor(pdb, directory, template_assignments='', add_templates=None):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     inp = directory / 'receptor_input.pdb'
@@ -337,6 +337,8 @@ def prepare_receptor(pdb, directory, template_assignments=''):
     args = [sys.executable, '-m', 'meeko.cli.mk_prepare_receptor', '--read_pdb', str(inp), '-o', str(directory/'receptor'), '-p', '-j', '--write_pdb', str(directory/'receptor_prepared.pdb')]
     if template_assignments.strip():
         args.extend(['--set_template', template_assignments.strip()])
+    for template_path in (add_templates or []):
+        args.extend(['--add_templates', str(template_path)])
     completed = subprocess.run(args, capture_output=True, text=True, timeout=180)
     log = completed.stdout + '\n' + completed.stderr
     (directory/'preparation.log').write_text(log)
