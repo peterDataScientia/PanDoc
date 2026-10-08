@@ -672,6 +672,111 @@ def show_profile_prep_jobs():
     live_profile_prep_jobs()
 
 
+def show_heme_prep_job():
+    """Retrieve a generic curated HEM job without trusting incomplete outputs."""
+    task = st.session_state.get('heme_prepare_job')
+    if not task:
+        return
+    handle = task['handle']
+    backend = backend_for_handle(handle)
+    if backend is None:
+        st.error('Computer C is not configured for retained-HEM preparation.')
+        return
+    try:
+        first = backend.status(handle)
+    except compute.ComputeBackendError as exc:
+        st.error(str(exc))
+        return
+    active = first.get('state') in ('queued', 'running', 'starting')
+
+    @st.fragment(run_every=5 if active else None)
+    def live_heme_preparation():
+        try:
+            state = backend.status(handle)
+        except compute.ComputeBackendError as exc:
+            st.warning(str(exc))
+            return
+        status = state.get('state', 'queued')
+        ui.automation_marker(st, 'heme-preparation-job', state=status,
+                             value=handle['job_id'])
+        st.info(f'Retained HEM preparation · Computer C · {status} · {handle["job_id"][:8]}')
+        with st.expander('HEM preparation progress', expanded=True):
+            show_compute_progress(backend, handle)
+            st.code(backend.logs(handle, tail=80), language=None)
+        if status == 'completed':
+            materialized = root/'remote_heme_tasks'/handle['job_id']
+            directory = Path(task['directory'])
+            try:
+                if not (materialized/'results.json').is_file():
+                    backend.materialize(handle, materialized)
+                payload = json.loads((materialized/'results.json').read_text())
+                if payload.get('mode') != 'curated_heme':
+                    raise ValueError('Remote job returned the wrong preparation mode.')
+                source = materialized/'prepared'
+                if not all((source/name).is_file() for name in
+                           ('receptor.pdbqt', 'receptor_prepared.pdb', 'curated_heme_audit.json')):
+                    raise ValueError('Remote curated HEM outputs or scientific audit are missing.')
+                audit = json.loads((source/'curated_heme_audit.json').read_text())
+                if audit.get('status') != 'prepared_curated_heme' or not audit.get('pdbqt', {}).get('heme_atom_count_in_pdbqt'):
+                    raise ValueError('Remote HEM preparation lacks verified iron retention.')
+                shutil.copytree(source, directory, dirs_exist_ok=True)
+                prepared_pdb = (directory/'receptor_prepared.pdb').read_text()
+                initial = (directory/'receptor_input.pdb').read_text()
+                report_path = directory/'structure_report.json'
+                report = json.loads(report_path.read_text())
+                report['curated_heme_audit'] = audit
+                report['prepared_checks'] = structure_checks.check(prepared_pdb)
+                report['preparation_changes'] = structure_checks.changes(initial, prepared_pdb)
+                lost = {core.key(a) for a in core.atoms(initial)} - {
+                    core.key(a) for a in core.atoms(prepared_pdb)
+                }
+                for residue in sorted(lost):
+                    report['prepared_checks']['issues'].append(dict(
+                        severity='Error', residue=residue,
+                        problem='Residue absent from curated prepared receptor',
+                        action='Review retained components; removed residues cannot be accepted.'))
+                for change in report['preparation_changes']:
+                    if change['change'] == 'Removed or renamed heavy atom':
+                        report['prepared_checks']['issues'].append(dict(
+                            severity='Error', residue=change['residue'],
+                            problem='Input heavy atom absent or renamed: '+change['atom'],
+                            action='Review the curated preparation before redocking.'))
+                report_path.write_text(json.dumps(report, indent=2))
+                if any(i['severity'] == 'Error' for i in report['prepared_checks']['issues']):
+                    raise ValueError('Prepared heme receptor failed structure validation; download the report.')
+                st.session_state.structure_report = report
+                st.session_state.assistant_structure_checks = report['prepared_checks']
+                st.session_state.update(
+                    receptor_path=str(directory/'receptor.pdbqt'),
+                    prepared_pdb=prepared_pdb,
+                    preparation_id=task['preparation_id'],
+                    preparation_record=task['preparation_record'],
+                )
+                backend.cleanup(handle)
+                st.session_state.pop('heme_prepare_job', None)
+                manifest()
+                st.rerun()
+            except (OSError, ValueError, json.JSONDecodeError, compute.ComputeBackendError) as exc:
+                st.error('HEM result retrieval or validation failed: '+str(exc))
+                if (directory/'structure_report.json').is_file():
+                    st.download_button(
+                        'Download HEM preparation report',
+                        (directory/'structure_report.json').read_bytes(),
+                        'heme_preparation_report.json', 'application/json',
+                        key='failed_heme_report')
+        elif status == 'failed':
+            st.error(state.get('error') or 'Curated HEM preparation failed on Computer C.')
+        elif status == 'cancelled':
+            st.warning('Curated HEM preparation was cancelled.')
+        if status in ('queued', 'running', 'starting'):
+            if st.button('Cancel HEM preparation', key='cancel_remote_heme'):
+                if backend.cancel(handle):
+                    st.session_state.pop('heme_prepare_job', None)
+                    st.rerun()
+
+    live_heme_preparation()
+
+
 def show_remote_job(remote, local_key, remote_key):
     backend = backend_for_handle(remote)
     if backend is None:
