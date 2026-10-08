@@ -97,6 +97,23 @@ def make_portable(directory: Path) -> None:
     marker.touch()
 
 
+def launch_task(operation: str, request_payload: dict) -> dict:
+    job_id = uuid.uuid4().hex
+    directory = ROOT / job_id
+    directory.mkdir(parents=True)
+    (directory / "request.json").write_text(json.dumps(request_payload, indent=2))
+    (directory / "status.json").write_text(json.dumps({"state": "queued", "completed": 0, "total": 1}))
+    log = (directory / "worker.log").open("w")
+    process = subprocess.Popen(
+        [sys.executable, "-u", "-m", "pandoc.kaggle_task_worker", str(directory), operation],
+        stdout=log,
+        stderr=log,
+        start_new_session=True,
+    )
+    (directory / "worker.pid").write_text(str(process.pid))
+    return {"job_id": job_id, "operation": operation}
+
+
 @app.get("/api/v1/health")
 def health(x_api_key: str | None = Header(default=None)):
     auth(x_api_key)
@@ -106,6 +123,24 @@ def health(x_api_key: str | None = Header(default=None)):
         "cpu_count": available_cpu_count(),
         "root": str(ROOT),
     }
+
+
+@app.post("/api/v1/jobs/ligand-microstates")
+async def submit_ligand_microstates(request: Request, x_api_key: str | None = Header(default=None)):
+    auth(x_api_key)
+    payload = await request.json()
+    if not str(payload.get("smiles", "")).strip():
+        raise HTTPException(400, "SMILES is required.")
+    return launch_task("ligand-microstates", payload)
+
+
+@app.post("/api/v1/jobs/prepare-candidates")
+async def submit_candidate_preparation(request: Request, x_api_key: str | None = Header(default=None)):
+    auth(x_api_key)
+    payload = await request.json()
+    if not payload.get("ligands"):
+        raise HTTPException(400, "Candidate ligands are required.")
+    return launch_task("prepare-candidates", payload)
 
 
 @app.post("/api/v1/jobs/dock")
@@ -145,7 +180,7 @@ def status(job_id: str, x_api_key: str | None = Header(default=None)):
     if not directory.exists():
         raise HTTPException(404, "Unknown job.")
     payload = status_payload(directory)
-    if payload.get("state") == "completed":
+    if payload.get("state") == "completed" and (directory / "config.portable.json").exists():
         make_portable(directory)
     return payload
 
@@ -180,7 +215,8 @@ def bundle(job_id: str, x_api_key: str | None = Header(default=None)):
     state = status_payload(directory)
     if state.get("state") != "completed":
         raise HTTPException(409, f"Job is {state.get('state', 'not complete')}.")
-    make_portable(directory)
+    if (directory / "config.portable.json").exists():
+        make_portable(directory)
     bundle_path = ROOT / f"{job_id}.zip"
     with zipfile.ZipFile(bundle_path, "w", zipfile.ZIP_DEFLATED) as archive:
         for path in directory.rglob("*"):
