@@ -36,9 +36,11 @@ def run(directory):
                     return
                 update('running', total=total, current=f"{ligand['name']} / seed {seed}")
                 print(f"Starting docking: {ligand['name']} / seed {seed}", flush=True)
-                vina = Vina(sf_name='vina', cpu=config.get('cpu', 2), seed=int(seed))
+                vina = Vina(sf_name='vina', cpu=config.get('cpu', 2), seed=int(seed), verbosity=2)
                 vina.set_receptor(config['receptor'])
                 vina.set_ligand_from_file(ligand['path'])
+                print('\n=== AutoDock Vina live output ===', flush=True)
+                print(vina, flush=True)
                 vina.compute_vina_maps(center=config['center'], box_size=config['size'])
                 vina.dock(exhaustiveness=config['exhaustiveness'], n_poses=config['poses'])
                 stem = directory/f"{ligand['id']}_seed{seed}"
