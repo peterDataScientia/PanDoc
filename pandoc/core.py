@@ -343,8 +343,24 @@ def prepare_receptor(pdb, directory, template_assignments='', add_templates=None
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     inp = directory / 'receptor_input.pdb'
-    inp.write_text(pdb)
     explicit_templates = list(add_templates or [])
+    # If heavy-atom repair lost or altered the retained HEM, preserve the
+    # crystallographic source. This also protects the programmatic API path.
+    original = heme_source_pdb or pdb
+    original_groups = cofactor_templates.component_groups(original)
+    if 'HEM' in original_groups:
+        from . import heme_prep
+        pdb = heme_prep._merge_prepared_protein_and_heme(
+            heme_prep._protein_without_component(pdb, 'HEM'),
+            heme_prep._component_only(original, 'HEM'),
+        )
+        (directory / 'heme_input_provenance.json').write_text(json.dumps({
+            'source': 'original crystallographic heme coordinates',
+            'component': 'HEM',
+            'source_residues': sorted(original_groups['HEM']),
+            'reconstructed_from_ccd': False,
+        }, indent=2))
+    inp.write_text(pdb)
     component_groups = cofactor_templates.component_groups(pdb)
     if 'HEM' in component_groups:
         if not heme_coordination_residue:
