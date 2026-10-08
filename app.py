@@ -995,6 +995,8 @@ with workspace:
                 for item in profile_result['errors']:
                     st.markdown(f"**{item.get('target', 'Unknown target')} failed**")
                     st.code(str(item.get('error', 'No diagnostic message returned.')), language=None)
+            elif st.session_state.get('profile_remote_jobs'):
+                st.info('Curated receptor preparation is still running on Computer C.')
             else:
                 st.success('All selected reviewed receptor profiles prepared successfully.')
             st.caption(
