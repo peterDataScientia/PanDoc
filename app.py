@@ -214,7 +214,7 @@ def pdb_discovery():
         except (ValueError, RuntimeError) as exc:
             st.warning(str(exc))
     selected = st.selectbox('Structure to review', result['ids'])
-    if st.button('View structure details'):
+    if st.button('View structure details', key='view_structure_details'):
         try:
             with st.spinner('Reading structure metadata…'):
                 detail = pdb_details(selected)
@@ -250,7 +250,7 @@ def pdb_discovery():
             st.markdown(f"[Review {component['ID']} ligand quality at RCSB](https://www.rcsb.org/ligand-validation/{selected}/{component['ID']})")
     st.caption('Inspect ligand quality and the intended binding site. Resolution alone does not establish suitability; unavailable validation is not a pass.')
     rationale = st.text_area('Why choose this structure?', key='pdb_structure_rationale')
-    if st.button('Load this structure', type='primary'):
+    if st.button('Load this structure', type='primary', key='load_selected_structure'):
         try:
             with st.spinner('Downloading and checking mmCIF…'):
                 text, source = pdb_search.download(selected)
@@ -453,6 +453,7 @@ def show_microstate_job(task_key, result_key):
             st.warning(str(exc))
             return
 
+        ui.automation_marker(st, 'ligand-state-job', state=state['state'], value=remote['job_id'])
         st.info(f"Ligand-state enumeration · {state['state']} · {remote['job_id'][:8]}")
         with st.expander('Compute progress', expanded=True):
             show_compute_progress(backend, remote)
@@ -502,6 +503,7 @@ def show_candidate_prep_job(task_key):
             st.warning(str(exc))
             return
 
+        ui.automation_marker(st, 'candidate-preparation-job', state=state['state'], value=remote['job_id'])
         st.info(f"Candidate preparation · {state['state']} · {remote['job_id'][:8]}")
         with st.expander('Compute progress', expanded=True):
             show_compute_progress(backend, remote)
@@ -552,6 +554,13 @@ def show_remote_job(remote, local_key, remote_key):
             st.error(str(exc))
             return
         backend_label = 'Computer B' if remote.get('backend') == 'kaggle-direct' else 'Computer C'
+        ui.automation_marker(
+            st,
+            'job-status',
+            state=current['state'],
+            value=remote['job_id'],
+            text=f"{backend_label} {current['state']}",
+        )
         st.info(f"{backend_label} job: {current['state']} · {remote['job_id'][:8]}")
         with st.expander('Compute progress', expanded=True):
             show_compute_progress(backend, remote)
@@ -616,6 +625,13 @@ def show_job(directory):
         # Refresh the surrounding results and run controls once the job finishes.
         if polling and state['state'] not in active_states:
             st.rerun()
+        ui.automation_marker(
+            st,
+            'job-status',
+            state=state['state'],
+            value=Path(directory).name,
+            text=f"Computer A {state['state']}",
+        )
         st.info(f"Job: {state['state']} · {Path(directory).name[:8]}")
         if state.get('error'):
             st.error(state['error'])
@@ -678,7 +694,7 @@ with st.sidebar:
     st.caption('✓ Reference prepared' if st.session_state.get('reference_path') else '○ Prepare reference')
     st.markdown('<div class="pd-section-label">Scientific units</div>', unsafe_allow_html=True)
     st.caption('Coordinates in Å · Vina scores in kcal/mol')
-    if st.button('Start a new experiment'):
+    if st.button('Start a new experiment', key='start_new_experiment'):
         st.session_state.clear()
         st.rerun()
 
@@ -733,6 +749,15 @@ with st.sidebar:
             'application/zip',
             key='profile_bundle_download_sidebar',
         )
+
+ui.automation_snapshot(
+    st,
+    stage=stage,
+    compute_node=st.session_state.get('compute_mode', 'Computer A · Fast'),
+    complex_loaded=bool(st.session_state.get('pdb')),
+    receptor_ready=bool(st.session_state.get('preparation_id')),
+    reference_ready=bool(st.session_state.get('reference_path')),
+)
 
 from pandoc import assistant
 
@@ -794,9 +819,9 @@ with workspace:
     try:
         if stage.startswith('1'):
             st.write('Upload a complex, inspect its components and select the receptor and crystallographic reference ligand.')
-            source_mode = st.radio('Structure source', ['Upload file', 'Search PDB'], horizontal=True)
+            source_mode = st.radio('Structure source', ['Upload file', 'Search PDB'], horizontal=True, key='structure_source_mode')
             if source_mode == 'Upload file':
-                upload = st.file_uploader('PDB or mmCIF complex', type=['pdb', 'cif', 'mmcif'])
+                upload = st.file_uploader('PDB or mmCIF complex', type=['pdb', 'cif', 'mmcif'], key='complex_upload')
                 if upload:
                     load_complex(upload.getvalue().decode('utf-8'), Path(upload.name).suffix,
                                  dict(type='Uploaded file', filename=upload.name))
@@ -880,7 +905,7 @@ with workspace:
                     st.session_state.preparation_review = dict(pH_context=intended_ph, templates=templates, rebuild_missing_atoms=repair, curated_input=bool(curated))
                     selected_input = curated.getvalue().decode() if curated else pdb
                     ph_prediction_key = core.digest(selected_input, repair, intended_ph)
-                    if st.button('Analyze protonation at selected pH'):
+                    if st.button('Analyze protonation at selected pH', key='analyze_protonation'):
                         try:
                             ph_input = selected_input
                             if repair:
@@ -950,7 +975,7 @@ with workspace:
                     st.session_state.assistant_structure_checks = checks
                     if not st.session_state.get('receptor_path'):
                         structure_review(selected_input, checks, 'preparation_issue_'+core.digest(selected_input))
-                    if st.button('Prepare receptor', type='primary', disabled=not bool(reviewed_templates)):
+                    if st.button('Prepare receptor', type='primary', disabled=not bool(reviewed_templates), key='prepare_receptor'):
                         st.session_state.pop('assistant_diagnostic', None)
                         for stale in ('receptor_path', 'preparation_id', 'validation_job', 'experiment_job', 'structure_report'):
                             st.session_state.pop(stale, None)
@@ -1163,7 +1188,7 @@ with workspace:
                         with st.expander('Inspect selected crystal ligand'):
                             viewer(pdb=ref)
                         reviewed=st.checkbox('I reviewed the ligand identity, stereochemistry and chemical state.',key='reference_review_'+identity)
-                        if st.button('Prepare reference ligand',disabled=not comparison['valid'] or not reviewed):
+                        if st.button('Prepare reference ligand',disabled=not comparison['valid'] or not reviewed, key='prepare_reference_ligand'):
                             try:
                                 mol = core.reference_from_pdb(ref, selected_smiles)
                                 ident = core.digest(ref, selected_smiles.strip(), ligand_ph)
@@ -1173,6 +1198,7 @@ with workspace:
                                 source=definition if definition and definition['smiles']==selected_smiles.strip() else {'source':'Molscrub pH-aware state' if selected_state else 'Manual SMILES','smiles':selected_smiles.strip(),'pH':ligand_ph,'formal_charge':selected_state['formal_charge'] if selected_state else Chem.GetFormalCharge(mol)}
                                 st.session_state.update(reference_path=str(directory/'reference.sdf'), reference_pdbqt=str(directory/'reference.pdbqt'), reference_smiles=selected_smiles.strip(), reference_id=ident,reference_chemistry_source=source)
                                 manifest()
+                                ui.automation_marker(st, 'reference-prepared', state='completed', value=ident)
                                 st.success('Reference prepared with original heavy-atom coordinates. Continue to Validate docking.')
                             except (ValueError, RuntimeError) as exc:
                                 st.error('The ligand could not be prepared from this chemical definition. Counts alone do not establish a matching structure.')
@@ -1224,7 +1250,7 @@ with workspace:
                     chemical_review = st.checkbox('I will review the generated candidate microstates before docking.')
                     candidate_task_key = 'candidate_preparation_job'
                     candidate_busy = bool(st.session_state.get(candidate_task_key))
-                    if st.button('Prepare candidate ligands', disabled=not chemical_review or candidate_busy):
+                    if st.button('Prepare candidate ligands', disabled=not chemical_review or candidate_busy, key='prepare_candidate_ligands'):
                         from rdkit import Chem
                         ligand_inputs = []
                         if upload:
@@ -1318,7 +1344,7 @@ with workspace:
                 else:
                     st.caption('Compute · Computer C')
 
-                if st.button('Run redocking' if validation else 'Run docking', type='primary', disabled=busy or not config['ligands']):
+                if st.button('Run redocking' if validation else 'Run docking', type='primary', disabled=busy or not config['ligands'], key=prefix+'_run_calculation'):
                     manifest()
                     if cloud_compute_mode():
                         try:
@@ -1447,7 +1473,8 @@ with workspace:
                 with st.expander('Saved docking settings'):
                     st.json(config)
             manifest()
-            st.download_button('Download complete experiment',core.bundle(root),'pandoc_experiment.zip','application/zip', on_click='ignore')
+            ui.automation_marker(st, 'experiment-bundle', state='ready', value='pandoc_experiment.zip')
+            st.download_button('Download complete experiment',core.bundle(root),'pandoc_experiment.zip','application/zip', on_click='ignore', key='download_complete_experiment')
 
     except Exception as exc:
         st.session_state.assistant_diagnostic = str(exc)
