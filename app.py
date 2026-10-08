@@ -387,11 +387,13 @@ def prepare_candidates_on_streamlit(ligands, ph, enumerate_states):
 
 
 def cloud_compute_mode():
-    return st.session_state.get('compute_mode', 'Streamlit Cloud · fast').startswith('Streamlit Cloud')
+    mode = st.session_state.get('compute_mode', 'Computer A · Fast')
+    return mode.startswith('Computer A') or mode.startswith('Streamlit Cloud')
 
 
 def kaggle_compute_mode():
-    return st.session_state.get('compute_mode', '').startswith('Kaggle')
+    mode = st.session_state.get('compute_mode', '')
+    return mode.startswith('Computer B') or mode.startswith('Kaggle')
 
 
 def show_compute_progress(backend, remote):
@@ -432,7 +434,7 @@ def show_microstate_job(task_key, result_key):
         return
     backend = github_backend()
     if backend is None:
-        st.warning('GitHub Actions compute is required for ligand pH enumeration.')
+        st.warning('Computer C is required for ligand pH enumeration.')
         return
 
     try:
@@ -467,7 +469,7 @@ def show_microstate_job(task_key, result_key):
             except (OSError, json.JSONDecodeError, compute.ComputeBackendError) as exc:
                 st.warning(str(exc))
         elif state.get('state') == 'failed':
-            st.error(state.get('error') or 'Ligand-state enumeration failed on GitHub Actions.')
+            st.error(state.get('error') or 'Ligand-state enumeration failed on Computer C.')
         elif state.get('state') == 'cancelled':
             st.warning('Ligand-state enumeration was cancelled.')
 
@@ -480,7 +482,7 @@ def show_candidate_prep_job(task_key):
         return
     backend = github_backend()
     if backend is None:
-        st.warning('GitHub Actions compute is required for candidate preparation.')
+        st.warning('Computer C is required for candidate preparation.')
         return
 
     try:
@@ -518,7 +520,7 @@ def show_candidate_prep_job(task_key):
             except (OSError, json.JSONDecodeError, compute.ComputeBackendError) as exc:
                 st.warning(str(exc))
         elif state.get('state') == 'failed':
-            st.error(state.get('error') or 'Candidate preparation failed on GitHub Actions.')
+            st.error(state.get('error') or 'Candidate preparation failed on Computer C.')
         elif state.get('state') == 'cancelled':
             st.warning('Candidate preparation was cancelled.')
 
@@ -528,7 +530,7 @@ def show_candidate_prep_job(task_key):
 def show_remote_job(remote, local_key, remote_key):
     backend = backend_for_handle(remote)
     if backend is None:
-        label = 'Kaggle direct backend' if remote.get('backend') == 'kaggle-direct' else 'GitHub Actions compute'
+        label = 'Computer B' if remote.get('backend') == 'kaggle-direct' else 'Computer C'
         st.error(label + ' is not configured or reachable.')
         return {'state': 'failed'}
     try:
@@ -547,7 +549,7 @@ def show_remote_job(remote, local_key, remote_key):
         except compute.ComputeBackendError as exc:
             st.error(str(exc))
             return
-        backend_label = 'Kaggle direct' if remote.get('backend') == 'kaggle-direct' else 'GitHub Actions'
+        backend_label = 'Computer B' if remote.get('backend') == 'kaggle-direct' else 'Computer C'
         st.info(f"{backend_label} job: {current['state']} · {remote['job_id'][:8]}")
         with st.expander('Compute progress', expanded=True):
             show_compute_progress(backend, remote)
@@ -563,9 +565,9 @@ def show_remote_job(remote, local_key, remote_key):
 
         if current['state'] in active_states:
             if remote.get('backend') == 'kaggle-direct':
-                st.caption('Runs directly on the warm Kaggle session. Status and log refresh every 2 seconds.')
+                st.caption('Running on Computer B. Status and log refresh every 2 seconds.')
             else:
-                st.caption('Runs on a free GitHub-hosted runner. Status and log refresh every 2 seconds.')
+                st.caption('Running on Computer C. Status and log refresh every 2 seconds.')
             if st.button('Cancel job', key=remote['job_id']+'cancel'):
                 backend.cancel(remote)
                 st.info('Cancellation requested.')
@@ -582,7 +584,7 @@ def show_remote_job(remote, local_key, remote_key):
             except compute.ComputeBackendError as exc:
                 st.error(str(exc))
         elif current['state'] == 'failed':
-            st.error(current.get('error') or 'GitHub Actions docking failed.')
+            st.error(current.get('error') or 'Docking failed on the selected compute node.')
         elif current['state'] == 'cancelled':
             st.warning('Docking job cancelled.')
 
@@ -635,16 +637,16 @@ with st.sidebar:
     stage = st.radio('Workflow', ['1 · Load complex', '2 · Prepare structures', '3 · Validate docking', '4 · Run experiment', '5 · Explore results'], key='workflow_stage')
     st.radio(
         'Compute',
-        ['Streamlit Cloud · fast', 'Kaggle · direct warm backend', 'GitHub Actions · fallback'],
+        ['Computer A · Fast', 'Computer B · High capacity', 'Computer C · Backup'],
         key='compute_mode',
-        help='Streamlit Cloud is the fast local path. Kaggle sends docking directly to a running warm Kaggle session. GitHub Actions remains the durable fallback.',
+        help='Choose the compute node for this calculation. Computer A is the fast default, Computer B is the high-capacity node, and Computer C is the backup node.',
     )
-    if st.session_state.get('compute_mode', '').startswith('Kaggle'):
+    if kaggle_compute_mode():
         _k_url, _k_key = kaggle_config()
         if _k_url and _k_key:
-            st.caption('Kaggle config ✓ URL + API key loaded by Streamlit')
+            st.caption('Computer B · Connected ✓')
         else:
-            st.warning(kaggle_config_problem())
+            st.warning('Computer B is not configured for this session.')
     st.divider()
     st.caption('✓ Complex loaded' if st.session_state.get('pdb') else '○ Load a complex')
     st.caption('✓ Receptor prepared' if st.session_state.get('preparation_id') else '○ Prepare receptor')
@@ -1089,15 +1091,15 @@ with workspace:
                                 except (RuntimeError, MemoryError, OSError) as exc:
                                     backend = github_backend()
                                     if backend is None:
-                                        st.warning(f'Streamlit Cloud compute failed and GitHub fallback is unavailable: {exc}')
+                                        st.warning(f'Computer A failed and Computer C fallback is unavailable: {exc}')
                                     else:
-                                        st.warning('Streamlit Cloud compute was unavailable. Switching to GitHub Actions…')
+                                        st.warning('Streamlit Cloud compute was unavailable. Switching to Computer C…')
                                         st.session_state[task_key] = backend.submit_ligand_microstates(smiles, ligand_ph, 16)
                                         st.rerun()
                             else:
                                 backend = github_backend()
                                 if backend is None:
-                                    st.warning('GitHub Actions compute is not configured.')
+                                    st.warning('Computer C is not configured.')
                                 else:
                                     try:
                                         st.session_state[task_key] = backend.submit_ligand_microstates(smiles, ligand_ph, 16)
@@ -1246,7 +1248,7 @@ with workspace:
                         else:
                             backend = github_backend()
                             if backend is None:
-                                st.warning('GitHub Actions compute is not configured.')
+                                st.warning('Computer C is not configured.')
                             else:
                                 try:
                                     st.session_state[candidate_task_key] = backend.submit_candidate_preparation(
@@ -1283,11 +1285,11 @@ with workspace:
                 busy = bool(remote_busy or cloud_busy)
 
                 if cloud_compute_mode():
-                    st.caption('Compute · Streamlit Cloud · GitHub Actions fallback enabled' if github else 'Compute · Streamlit Cloud')
+                    st.caption('Compute · Computer A · Computer C fallback enabled' if github else 'Compute · Computer A')
                 elif kaggle_compute_mode():
-                    st.caption('Compute · Kaggle direct warm backend · GitHub Actions fallback' if github else 'Compute · Kaggle direct warm backend')
+                    st.caption('Compute · Computer B · Computer C fallback enabled' if github else 'Compute · Computer B')
                 else:
-                    st.caption('Compute · GitHub Actions')
+                    st.caption('Compute · Computer C')
 
                 if st.button('Run redocking' if validation else 'Run docking', type='primary', disabled=busy or not config['ligands']):
                     manifest()
@@ -1299,9 +1301,9 @@ with workspace:
                             st.rerun()
                         except (RuntimeError, MemoryError, OSError, subprocess.SubprocessError) as exc:
                             if github is None:
-                                st.error(f'Streamlit Cloud compute failed and GitHub fallback is unavailable: {exc}')
+                                st.error(f'Computer A failed and Computer C fallback is unavailable: {exc}')
                             else:
-                                st.warning('Streamlit Cloud compute could not start. Switching to GitHub Actions…')
+                                st.warning('Computer A could not start. Switching to Computer C…')
                                 try:
                                     remote_job = github.submit(root, config)
                                     st.session_state[prefix+'_github_job'] = remote_job
@@ -1311,11 +1313,11 @@ with workspace:
                                     st.error(str(remote_exc))
                     elif kaggle_compute_mode():
                         if kaggle is None:
-                            problem = kaggle_config_problem() or 'Kaggle backend configuration could not be created.'
+                            problem = kaggle_config_problem() or 'Computer B could not be configured.'
                             if github is None:
-                                st.error(problem + ' GitHub Actions fallback is not configured.')
+                                st.error(problem + ' Computer C fallback is not configured.')
                             else:
-                                st.warning(problem + ' Switching to GitHub Actions…')
+                                st.warning(problem + ' Switching to Computer C…')
                                 try:
                                     remote_job = github.submit(root, config)
                                     st.session_state[prefix+'_github_job'] = remote_job
@@ -1331,9 +1333,9 @@ with workspace:
                                 st.rerun()
                             except Exception as exc:
                                 if github is None:
-                                    st.error(f'Kaggle direct compute failed and GitHub fallback is unavailable: {exc}')
+                                    st.error(f'Computer B failed and Computer C fallback is unavailable: {exc}')
                                 else:
-                                    st.warning('Kaggle direct compute failed. Switching to GitHub Actions…')
+                                    st.warning('Kaggle direct compute failed. Switching to Computer C…')
                                     try:
                                         remote_job = github.submit(root, config)
                                         st.session_state[prefix+'_github_job'] = remote_job
@@ -1343,7 +1345,7 @@ with workspace:
                                         st.error(str(remote_exc))
                     else:
                         if github is None:
-                            st.error('GitHub Actions compute is not configured.')
+                            st.error('Computer C is not configured.')
                         else:
                             try:
                                 remote_job = github.submit(root, config)
