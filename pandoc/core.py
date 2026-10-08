@@ -403,7 +403,8 @@ def prepare_receptor(pdb, directory, template_assignments='', add_templates=None
     completed = subprocess.run(args, capture_output=True, text=True, timeout=180)
     first_log = completed.stdout + '\n' + completed.stderr
     log = first_log
-    failed = completed.returncode != 0 or not (directory / 'receptor.pdbqt').is_file()
+    failed = (completed.returncode != 0 or not (directory / 'receptor.pdbqt').is_file()
+              or not (directory / 'receptor_prepared.pdb').is_file())
     if failed:
         # Retry only the component(s) identified in a CCD-related Meeko error.
         try:
@@ -421,7 +422,8 @@ def prepare_receptor(pdb, directory, template_assignments='', add_templates=None
             log += '\n--- VALIDATED CCD TEMPLATE RETRY ---\n'
             log += retried.stdout + '\n' + retried.stderr
             failed = (retried.returncode != 0
-                      or not (directory / 'receptor.pdbqt').is_file())
+                      or not (directory / 'receptor.pdbqt').is_file()
+                      or not (directory / 'receptor_prepared.pdb').is_file())
             report['retry_successful'] = not failed
             (directory / 'cofactor_resolution.json').write_text(
                 json.dumps(report, indent=2)
@@ -448,6 +450,30 @@ def prepare_receptor(pdb, directory, template_assignments='', add_templates=None
                 'templates. No failed residues were removed. '
                 f'Full diagnostics: {directory / "preparation.log"}'
             )
+    # A successful exit code must never disguise dropped receptor/cofactor
+    # heavy atoms. Check original atom identities independent of protonation
+    # residue-name changes (HIS/HID/HIE, CYS/CYX).
+    from collections import Counter
+    before_heavy = Counter(
+        (a['chain'], a['number'], a['icode'], a['name'], a['element'])
+        for a in atoms(pdb) if a['element'] not in ('H', 'D')
+    )
+    after_heavy = Counter(
+        (a['chain'], a['number'], a['icode'], a['name'], a['element'])
+        for a in atoms((directory / 'receptor_prepared.pdb').read_text())
+        if a['element'] not in ('H', 'D')
+    )
+    missing_heavy = before_heavy - after_heavy
+    if missing_heavy:
+        missing = [f'{chain or "_"}:{num}{icode}:{name}'
+                   for (chain, num, icode, name, _element) in missing_heavy]
+        log += '\nUNSAFE: deposited receptor heavy atoms absent after preparation: '
+        log += ', '.join(missing[:20]) + '\n'
+        (directory / 'preparation.log').write_text(log)
+        raise ValueError(
+            'Prepared receptor lost deposited heavy atoms; no output accepted. '
+            'Check preparation.log and repair the chemistry before redocking.'
+        )
     (directory / 'preparation.log').write_text(log)
     return directory / 'receptor.pdbqt'
 
