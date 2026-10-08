@@ -1,7 +1,6 @@
-import json
+import math
 
-from rdkit import Chem
-from rdkit.Chem import rdMolDescriptors
+import pytest
 
 from pandoc import heme_prep
 
@@ -13,32 +12,44 @@ def _atom(record, serial, name, res, chain, number, x, y, z, element):
     )
 
 
-def test_curated_heme_site_accepts_expected_fe_s_geometry():
-    pdb = "\n".join([
-        _atom("ATOM", 1, "SG", "CYS", "A", 437, 0.0, 0.0, 0.0, "S"),
-        _atom("HETATM", 2, "FE", "HEM", "A", 600, 0.0, 0.0, 2.44, "FE"),
-        _atom("HETATM", 3, "NA", "HEM", "A", 600, 1.0, 0.0, 2.44, "N"),
+def _minimal_heme_complex(include_s_h=False, heme_shift=0.0):
+    lines = [
+        _atom("ATOM", 1, "N", "CYS", "A", 437, -1.2, 0.0, 0.0, "N"),
+        _atom("ATOM", 2, "CA", "CYS", "A", 437, 0.0, 0.0, 0.0, "C"),
+        _atom("ATOM", 3, "CB", "CYS", "A", 437, 0.8, 0.0, 0.0, "C"),
+        _atom("ATOM", 4, "SG", "CYS", "A", 437, 1.8, 0.0, 0.0, "S"),
+    ]
+    if include_s_h:
+        lines.append(_atom("ATOM", 5, "HG", "CYS", "A", 437, 2.95, 0.0, 0.0, "H"))
+        serial = 6
+    else:
+        serial = 5
+    lines.extend([
+        _atom("HETATM", serial, "FE", "HEM", "A", 600, 4.24 + heme_shift, 0.0, 0.0, "FE"),
+        _atom("HETATM", serial + 1, "NA", "HEM", "A", 600, 4.24 + heme_shift, 1.9, 0.0, "N"),
         "END",
     ])
+    return "\n".join(lines) + "\n"
+
+
+def test_curated_heme_site_accepts_expected_fe_s_geometry():
+    pdb = _minimal_heme_complex()
     audit = heme_prep.validate_heme_site(
         pdb,
         coordination_residue="A:437",
         max_coordination_distance_A=3.0,
     )
     assert audit["heme_residue"] == "A:600:HEM"
-    assert audit["coordination_distance_A"] == 2.44
+    assert math.isclose(audit["coordination_distance_A"], 2.44, abs_tol=0.001)
     assert audit["heme_atom_count"] == 2
 
 
 def test_curated_heme_site_rejects_lost_coordination():
-    import pytest
-
-    pdb = "\n".join([
-        _atom("ATOM", 1, "SG", "CYS", "A", 437, 0.0, 0.0, 0.0, "S"),
-        _atom("HETATM", 2, "FE", "HEM", "A", 600, 0.0, 0.0, 4.5, "FE"),
-        "END",
-    ])
-    with pytest.raises(heme_prep.CuratedHemePreparationError, match="coordination check failed"):
+    pdb = _minimal_heme_complex(heme_shift=2.0)
+    with pytest.raises(
+        heme_prep.CuratedHemePreparationError,
+        match="coordination check failed",
+    ):
         heme_prep.validate_heme_site(
             pdb,
             coordination_residue="A:437",
@@ -47,83 +58,87 @@ def test_curated_heme_site_rejects_lost_coordination():
 
 
 def test_curated_heme_site_requires_expected_cysteine_donor():
-    import pytest
-
-    pdb = "\n".join([
-        _atom("ATOM", 1, "SG", "CYS", "A", 436, 0.0, 0.0, 0.0, "S"),
-        _atom("HETATM", 2, "FE", "HEM", "A", 600, 0.0, 0.0, 2.44, "FE"),
-        "END",
-    ])
-    with pytest.raises(heme_prep.CuratedHemePreparationError, match="Expected donor atom A:437:SG"):
+    pdb = _minimal_heme_complex().replace("CYS A 437", "CYS A 436")
+    with pytest.raises(
+        heme_prep.CuratedHemePreparationError,
+        match="Expected donor atom A:437:SG",
+    ):
         heme_prep.validate_heme_site(
             pdb,
             coordination_residue="A:437",
         )
 
 
-def test_packaged_heme_template_has_expected_chemistry():
-    payload = json.loads(heme_prep.PACKAGED_HEM_TEMPLATE.read_text())
-    template = payload["residue_templates"][heme_prep.HEME_TEMPLATE_KEY]
-    ps = Chem.SmilesParserParams()
-    ps.removeHs = False
-    mol = Chem.MolFromSmiles(template["smiles"], ps)
-
-    assert mol is not None
-    assert mol.GetNumAtoms() == 73
-    assert sum(a.GetAtomicNum() != 1 for a in mol.GetAtoms()) == 43
-    assert rdMolDescriptors.CalcMolFormula(mol) == "C34H30FeN4O4-2"
-    assert Chem.GetFormalCharge(mol) == -2
-    assert len(template["atom_name"]) == 73
-    assert all(a.GetNumImplicitHs() == 0 for a in mol.GetAtoms())
-    assert "H2A" not in template["atom_name"]
-    assert "H2D" not in template["atom_name"]
-
-
-def test_packaged_heme_template_loads_into_meeko():
-    from meeko.polymer import ResidueChemTemplates
-
-    templates = ResidueChemTemplates.create_from_defaults()
-    templates.add_json_file(str(heme_prep.PACKAGED_HEM_TEMPLATE))
-
-    assert heme_prep.HEME_TEMPLATE_KEY in templates.residue_templates
-    assert heme_prep.HEME_TEMPLATE_KEY in templates.ambiguous["HEM"]
-
-
-def test_heme_assignments_force_static_template_and_proximal_thiolate():
+def test_reviewed_assignment_forces_proximal_cysteine_thiolate():
     assignments = "A:62=HIE,A:437=CYS,A:475=HIP"
-    assignments = heme_prep._set_assignment(assignments, "A:437", "CYX-")
-    assignments = heme_prep._set_assignment(assignments, "A:600:HEM", "HEM_PANDOC")
-
-    assert assignments.split(",") == [
+    result = heme_prep._set_assignment(assignments, "A:437", "CYX-")
+    assert result.split(",") == [
         "A:62=HIE",
         "A:437=CYX-",
         "A:475=HIP",
-        "A:600=HEM_PANDOC",
     ]
 
 
-def test_only_fe_s_coordination_connectivity_is_omitted():
-    link = "LINK         SG  CYS A 437                FE   HEM A 600     1555   1555  2.44"
-    pdb = "\n".join([
-        link,
-        _atom("ATOM", 1, "SG", "CYS", "A", 437, 0.0, 0.0, 0.0, "S"),
-        _atom("HETATM", 2, "FE", "HEM", "A", 600, 0.0, 0.0, 2.44, "FE"),
-        _atom("HETATM", 3, "NA", "HEM", "A", 600, 1.0, 0.0, 2.44, "N"),
-        "CONECT    1    2",
-        "CONECT    2    1    3",
-        "CONECT    3    2",
-        "END",
-    ])
+def test_thiolate_check_rejects_sulfur_bound_hydrogen():
+    with pytest.raises(
+        heme_prep.CuratedHemePreparationError,
+        match="still protonated",
+    ):
+        heme_prep._validate_thiolate_donor(
+            _minimal_heme_complex(include_s_h=True),
+            coordination_residue="A:437",
+        )
 
-    cleaned, omitted = heme_prep._strip_coordination_connectivity(
+
+def test_thiolate_check_accepts_deprotonated_sulfur():
+    audit = heme_prep._validate_thiolate_donor(
+        _minimal_heme_complex(include_s_h=False),
+        coordination_residue="A:437",
+    )
+    assert audit["thiolate_verified"] is True
+    assert audit["sulfur_bound_hydrogen_count"] == 0
+
+
+def test_heme_component_is_kept_separate_from_protein():
+    pdb = _minimal_heme_complex()
+    protein = heme_prep._protein_without_component(pdb, "HEM")
+    heme = heme_prep._component_only(pdb, "HEM")
+
+    assert " HEM " not in protein
+    assert " CYS " in protein
+    assert " HEM " in heme
+    assert " CYS " not in heme
+    assert " FE " in heme
+
+
+def test_merge_retains_crystallographic_heme_coordinates_exactly():
+    source = _minimal_heme_complex()
+    heme = heme_prep._component_only(source, "HEM")
+    protein = heme_prep._protein_without_component(source, "HEM")
+    merged = heme_prep._merge_prepared_protein_and_heme(protein, heme)
+
+    source_heme_lines = [
+        line for line in heme.splitlines()
+        if line.startswith(("ATOM  ", "HETATM"))
+    ]
+    merged_heme_lines = [
+        line for line in merged.splitlines()
+        if line.startswith(("ATOM  ", "HETATM"))
+        and line[17:20].strip() == "HEM"
+    ]
+    assert merged_heme_lines == source_heme_lines
+
+
+def test_pdbqt_validation_requires_retained_heme_and_fe_geometry(tmp_path):
+    pdb = _minimal_heme_complex()
+    before = heme_prep.validate_heme_site(
         pdb,
         coordination_residue="A:437",
-        heme_residue="A:600:HEM",
     )
+    path = tmp_path / "receptor.pdbqt"
+    path.write_text(pdb)
 
-    assert link not in cleaned
-    assert "CONECT    1    2" not in cleaned
-    assert "CONECT    2    1    3" not in cleaned
-    assert "CONECT    2    3" in cleaned
-    assert "CONECT    3    2" in cleaned
-    assert len(omitted) == 3
+    audit = heme_prep._validate_pdbqt_heme(path, before)
+    assert audit["heme_atom_count_in_pdbqt"] == 2
+    assert audit["iron_autodock_type"].upper() == "FE"
+    assert math.isclose(audit["coordination_distance_A"], 2.44, abs_tol=0.001)
