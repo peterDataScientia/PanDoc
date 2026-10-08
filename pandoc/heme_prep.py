@@ -10,6 +10,35 @@ from . import core
 class CuratedHemePreparationError(ValueError):
     pass
 
+def build_ccd_template(component: str, output_json: Path):
+    """Build and cache an explicit noncovalent Meeko template from the PDB CCD.
+
+    Heme is not left to the receptor parser's runtime guessing. The template is
+    generated with Meeko's own chemtempgen pipeline and saved with the experiment
+    for provenance and reuse.
+    """
+    component = str(component or "").strip().upper()
+    if not component:
+        raise CuratedHemePreparationError("A heme component ID is required.")
+    output_json = Path(output_json)
+    output_json.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        from meeko.chemtempgen import build_noncovalent_CC, export_chem_templates_to_json
+        cc = build_noncovalent_CC(component)
+        if cc is None:
+            raise RuntimeError("Meeko returned no chemical component.")
+        export_chem_templates_to_json([cc], json_fname=str(output_json))
+    except Exception as exc:
+        raise CuratedHemePreparationError(
+            f"Could not build an explicit Meeko template for {component} from the PDB CCD: {exc}"
+        ) from exc
+    if not output_json.is_file() or output_json.stat().st_size == 0:
+        raise CuratedHemePreparationError(
+            f"Meeko did not create a usable template file for {component}."
+        )
+    return output_json
+
+
 
 def _atom_id(atom):
     chain = atom["chain"] or "_"
@@ -140,11 +169,17 @@ def prepare_curated_heme_receptor(
         json.dumps(before, indent=2)
     )
 
+    template_path = build_ccd_template(
+        heme_component,
+        directory / f"{heme_component.upper()}_meeko_template.json",
+    )
+
     try:
         receptor_pdbqt = core.prepare_receptor(
             pdb,
             directory / "meeko",
             template_assignments=template_assignments,
+            add_templates=[template_path],
         )
     except ValueError as exc:
         raise CuratedHemePreparationError(
@@ -180,6 +215,8 @@ def prepare_curated_heme_receptor(
         "after": after,
         "heme_retained_in_pdbqt": True,
         "remote_residue_exclusion": False,
+        "template_source": "PDB Chemical Component Dictionary via Meeko chemtempgen",
+        "template_file": str(template_path),
         "validation_required": True,
         "validation_note": (
             "Successful receptor conversion does not establish docking validity. "
