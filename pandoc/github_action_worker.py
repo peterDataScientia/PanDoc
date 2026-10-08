@@ -191,6 +191,36 @@ def _run_profile_preparation(root: Path, result_dir: Path):
     )
 
 
+def _run_heme_preparation(root: Path, result_dir: Path):
+    """Prepare uploaded P450-like heme on the ADT-equipped curated runner."""
+    from . import core
+    request = json.loads((root / "request.json").read_text())
+    donor = str(request.get("coordination_residue") or "").strip()
+    if not donor:
+        raise ValueError("Generic curated HEM preparation requires a reviewed Fe donor.")
+    prepared_dir = result_dir / "prepared"
+    prepared_dir.mkdir(parents=True, exist_ok=True)
+    pdb = (root / "receptor.pdb").read_text()
+    original = (root / "heme_source.pdb").read_text()
+    path = core.prepare_receptor(
+        pdb, prepared_dir,
+        template_assignments=str(request.get("template_assignments") or ""),
+        heme_coordination_residue=donor,
+        heme_source_pdb=original,
+    )
+    if not path.is_file() or not (prepared_dir / "curated_heme_audit.json").is_file():
+        raise RuntimeError("Curated HEM preparation did not produce validated output.")
+    (result_dir / "results.json").write_text(json.dumps({
+        "mode": "curated_heme",
+        "pdbqt": "prepared/receptor.pdbqt",
+        "prepared_pdb": "prepared/receptor_prepared.pdb",
+        "audit": "prepared/curated_heme_audit.json",
+    }, indent=2))
+    (result_dir / "status.json").write_text(
+        json.dumps({"state": "completed", "completed": 1, "total": 1}, indent=2)
+    )
+
+
 def main(job_id: str, operation: str = "dock"):
     raw_dir = os.environ.get("PANDOC_RAW_PAYLOAD_DIR", "").strip()
     key = os.environ.get("PANDOC_JOB_KEY", "").strip()
@@ -213,6 +243,8 @@ def main(job_id: str, operation: str = "dock"):
             _run_candidate_preparation(root, result_dir)
         elif operation == "prepare-profile":
             _run_profile_preparation(root, result_dir)
+        elif operation == "prepare-heme":
+            _run_heme_preparation(root, result_dir)
         else:
             raise RuntimeError(f"Unsupported PanDoc Actions operation: {operation}")
 

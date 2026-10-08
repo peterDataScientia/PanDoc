@@ -672,6 +672,122 @@ def show_profile_prep_jobs():
     live_profile_prep_jobs()
 
 
+def show_heme_prep_job():
+    """Retrieve a generic curated HEM job without trusting incomplete outputs."""
+    task = st.session_state.get('heme_prepare_job')
+    if not task:
+        return
+    handle = task['handle']
+    backend = backend_for_handle(handle)
+    if task.get('selection_id') != st.session_state.get('selection_id'):
+        st.error('The HEM job belongs to a different receptor selection. Its results will not be used.')
+        if st.button('Discard stale HEM job', key='discard_stale_heme'):
+            if backend is not None:
+                try:
+                    backend.cancel(handle)
+                except compute.ComputeBackendError:
+                    pass
+            st.session_state.pop('heme_prepare_job', None)
+            st.rerun()
+        return
+    if backend is None:
+        st.error('Computer C is not configured for retained-HEM preparation.')
+        return
+    try:
+        first = backend.status(handle)
+    except compute.ComputeBackendError as exc:
+        st.error(str(exc))
+        return
+    active = first.get('state') in ('queued', 'running', 'starting')
+
+    @st.fragment(run_every=5 if active else None)
+    def live_heme_preparation():
+        try:
+            state = backend.status(handle)
+        except compute.ComputeBackendError as exc:
+            st.warning(str(exc))
+            return
+        status = state.get('state', 'queued')
+        ui.automation_marker(st, 'heme-preparation-job', state=status,
+                             value=handle['job_id'])
+        st.info(f'Retained HEM preparation · Computer C · {status} · {handle["job_id"][:8]}')
+        with st.expander('HEM preparation progress', expanded=True):
+            show_compute_progress(backend, handle)
+            st.code(backend.logs(handle, tail=80), language=None)
+        if status == 'completed':
+            materialized = root/'remote_heme_tasks'/handle['job_id']
+            directory = Path(task['directory'])
+            try:
+                if not (materialized/'results.json').is_file():
+                    backend.materialize(handle, materialized)
+                payload = json.loads((materialized/'results.json').read_text())
+                if payload.get('mode') != 'curated_heme':
+                    raise ValueError('Remote job returned the wrong preparation mode.')
+                source = materialized/'prepared'
+                if not all((source/name).is_file() for name in
+                           ('receptor.pdbqt', 'receptor_prepared.pdb', 'curated_heme_audit.json')):
+                    raise ValueError('Remote curated HEM outputs or scientific audit are missing.')
+                audit = json.loads((source/'curated_heme_audit.json').read_text())
+                if audit.get('status') != 'prepared_curated_heme' or not audit.get('pdbqt', {}).get('heme_atom_count_in_pdbqt'):
+                    raise ValueError('Remote HEM preparation lacks verified iron retention.')
+                shutil.copytree(source, directory, dirs_exist_ok=True)
+                prepared_pdb = (directory/'receptor_prepared.pdb').read_text()
+                initial = (directory/'receptor_input.pdb').read_text()
+                report_path = directory/'structure_report.json'
+                report = json.loads(report_path.read_text())
+                report['curated_heme_audit'] = audit
+                report['prepared_checks'] = structure_checks.check(prepared_pdb)
+                report['preparation_changes'] = structure_checks.changes(initial, prepared_pdb)
+                lost = {core.key(a) for a in core.atoms(initial)} - {
+                    core.key(a) for a in core.atoms(prepared_pdb)
+                }
+                for residue in sorted(lost):
+                    report['prepared_checks']['issues'].append(dict(
+                        severity='Error', residue=residue,
+                        problem='Residue absent from curated prepared receptor',
+                        action='Review retained components; removed residues cannot be accepted.'))
+                for change in report['preparation_changes']:
+                    if change['change'] == 'Removed or renamed heavy atom':
+                        report['prepared_checks']['issues'].append(dict(
+                            severity='Error', residue=change['residue'],
+                            problem='Input heavy atom absent or renamed: '+change['atom'],
+                            action='Review the curated preparation before redocking.'))
+                report_path.write_text(json.dumps(report, indent=2))
+                if any(i['severity'] == 'Error' for i in report['prepared_checks']['issues']):
+                    raise ValueError('Prepared heme receptor failed structure validation; download the report.')
+                st.session_state.structure_report = report
+                st.session_state.assistant_structure_checks = report['prepared_checks']
+                st.session_state.update(
+                    receptor_path=str(directory/'receptor.pdbqt'),
+                    prepared_pdb=prepared_pdb,
+                    preparation_id=task['preparation_id'],
+                    preparation_record=task['preparation_record'],
+                )
+                backend.cleanup(handle)
+                st.session_state.pop('heme_prepare_job', None)
+                manifest()
+                st.rerun()
+            except (OSError, ValueError, json.JSONDecodeError, compute.ComputeBackendError) as exc:
+                st.error('HEM result retrieval or validation failed: '+str(exc))
+                if (directory/'structure_report.json').is_file():
+                    st.download_button(
+                        'Download HEM preparation report',
+                        (directory/'structure_report.json').read_bytes(),
+                        'heme_preparation_report.json', 'application/json',
+                        key='failed_heme_report')
+        elif status == 'failed':
+            st.error(state.get('error') or 'Curated HEM preparation failed on Computer C.')
+        elif status == 'cancelled':
+            st.warning('Curated HEM preparation was cancelled.')
+        if status in ('queued', 'running', 'starting'):
+            if st.button('Cancel HEM preparation', key='cancel_remote_heme'):
+                if backend.cancel(handle):
+                    st.session_state.pop('heme_prepare_job', None)
+                    st.rerun()
+
+    live_heme_preparation()
+
+
 def show_remote_job(remote, local_key, remote_key):
     backend = backend_for_handle(remote)
     if backend is None:
@@ -1120,6 +1236,61 @@ with workspace:
                         notes = st.text_area('Preparation rationale', placeholder='Optional notes about your preparation choices.')
                     st.session_state.preparation_review = dict(pH_context=intended_ph, templates=templates, rebuild_missing_atoms=repair, curated_input=bool(curated))
                     selected_input = curated.getvalue().decode() if curated else pdb
+                    # A retained heme must not fall through Meeko's failing CCD path.
+                    # This mode specifically requires reviewed P450-like SG--Fe coordination.
+                    heme_atoms = [a for a in core.atoms(selected_input)
+                                  if a['res'].upper() == 'HEM']
+                    heme_coordination_residue = None
+                    if heme_atoms:
+                        from math import dist
+                        irons = [a for a in heme_atoms if a['element'].upper() == 'FE']
+                        cysteine_sulfurs = [a for a in core.atoms(selected_input)
+                                             if a['res'].upper() == 'CYS'
+                                             and a['name'].upper() == 'SG']
+                        with st.expander('Retained HEM · curated heme preparation', expanded=True):
+                            st.warning(
+                                'HEM has coordinated iron. PanDoc does not use Meeko CCD '
+                                'auto-templates or silently remove HEM. The existing '
+                                'curated AutoDockTools backend is required.'
+                            )
+                            if len(irons) != 1:
+                                st.error('HEM preparation requires exactly one reviewed Fe center.')
+                            elif not cysteine_sulfurs:
+                                st.error(
+                                    'No coordinating cysteine SG was found. This curated '
+                                    'P450-like pathway is not suitable for a different heme '
+                                    'coordination type. Supply a validated receptor instead.'
+                                )
+                            else:
+                                candidates = sorted(
+                                    [(f"{a['chain'] or '_'}:{a['number']}{a['icode']}",
+                                      dist(a['xyz'], irons[0]['xyz']))
+                                     for a in cysteine_sulfurs],
+                                    key=lambda item: item[1]
+                                )
+                                labels = ['Select reviewed proximal CYS (required)'] + [
+                                    f'{ident} · SG--Fe {distance:.2f} Å'
+                                    for ident, distance in candidates
+                                ]
+                                choice = st.selectbox(
+                                    'Fe-coordinating cysteine (review crystallographic geometry)',
+                                    labels, key='heme_cysteine_'+core.digest(selected_input)
+                                )
+                                if choice != labels[0]:
+                                    index = labels.index(choice) - 1
+                                    heme_coordination_residue = candidates[index][0]
+                                    if candidates[index][1] > 3.0:
+                                        st.error(
+                                            'Selected SG--Fe distance is >3 Å; this site '
+                                            'will fail curated geometry validation.'
+                                        )
+                                        heme_coordination_residue = None
+                                st.caption(
+                                    'This path verifies Fe retention and SG deprotonation. '
+                                    'On Streamlit Cloud, use the Computer C curated-heme '
+                                    'profile if AutoDockTools is not available locally.'
+                                )
+                    show_heme_prep_job()
                     ph_prediction_key = core.digest(selected_input, repair, intended_ph)
                     if st.button('Analyze protonation at selected pH', key='analyze_protonation'):
                         try:
@@ -1191,7 +1362,7 @@ with workspace:
                     st.session_state.assistant_structure_checks = checks
                     if not st.session_state.get('receptor_path'):
                         structure_review(selected_input, checks, 'preparation_issue_'+core.digest(selected_input))
-                    if st.button('Prepare receptor', type='primary', disabled=not bool(reviewed_templates), key='prepare_receptor'):
+                    if st.button('Prepare receptor', type='primary', disabled=(not bool(reviewed_templates) or bool(st.session_state.get('heme_prepare_job')) or (bool(heme_atoms) and not heme_coordination_residue)), key='prepare_receptor'):
                         st.session_state.pop('assistant_diagnostic', None)
                         for stale in ('receptor_path', 'preparation_id', 'validation_job', 'experiment_job', 'structure_report'):
                             st.session_state.pop(stale, None)
@@ -1200,6 +1371,14 @@ with workspace:
                         if repair:
                             with st.spinner('Rebuilding and checking missing atoms…'):
                                 final = core.repair_heavy_atoms(final)
+                        if heme_atoms:
+                            # PDBFixer may modify/remove HEM. Restore exactly the
+                            # deposited HEM coordinates before preparing on Computer C.
+                            from pandoc import heme_prep
+                            final = heme_prep._merge_prepared_protein_and_heme(
+                                heme_prep._protein_without_component(final, 'HEM'),
+                                heme_prep._component_only(selected_input, 'HEM')
+                            )
                         final_checks = structure_checks.check(final)
                         blocking = [issue for issue in final_checks['issues'] if issue['severity']=='Error']
                         if blocking:
@@ -1218,16 +1397,43 @@ with workspace:
                             st.stop()
                         repair_changes = structure_checks.changes(selected_input, final)
                         combined_templates = ','.join(x for x in (reviewed_templates, templates.strip()) if x)
-                        prep_id = core.digest(final, combined_templates, intended_ph, st.session_state.get('protonation_review'), core.versions())
+                        prep_id = core.digest(final, combined_templates, intended_ph, heme_coordination_residue, st.session_state.get('protonation_review'), core.versions())
                         directory = root/'preparations'/prep_id
                         with st.spinner('Checking chemistry and preparing receptor…'):
                             selection_path = root/'selection_report.json'
-                            report = dict(selection_report=json.loads(selection_path.read_text()) if selection_path.exists() else {}, input_checks=checks, repaired_checks=final_checks, repair_changes=repair_changes, settings=dict(pH=intended_ph, templates=combined_templates, rationale=notes, curated_input=bool(curated), protonation_review=st.session_state.get('protonation_review')), software_versions=core.versions())
+                            report = dict(selection_report=json.loads(selection_path.read_text()) if selection_path.exists() else {}, input_checks=checks, repaired_checks=final_checks, repair_changes=repair_changes, settings=dict(pH=intended_ph, templates=combined_templates, rationale=notes, curated_input=bool(curated), heme_coordination_residue=heme_coordination_residue, protonation_review=st.session_state.get('protonation_review')), software_versions=core.versions())
                             directory.mkdir(parents=True, exist_ok=True)
                             (directory/'structure_report.json').write_text(json.dumps(report, indent=2))
                             try:
-                                path = core.prepare_receptor(final, directory, combined_templates)
-                            except ValueError as exc:
+                                backend = github_backend() if heme_coordination_residue else None
+                                if backend is not None:
+                                    (directory/'receptor_input.pdb').write_text(final)
+                                    handle = backend.submit_heme_preparation(
+                                        final, selected_input, combined_templates,
+                                        heme_coordination_residue,
+                                    )
+                                    st.session_state.heme_prepare_job = {
+                                        'handle': handle,
+                                        'selection_id': st.session_state.get('selection_id'),
+                                        'directory': str(directory),
+                                        'preparation_id': prep_id,
+                                        'preparation_record': dict(
+                                            pH=intended_ph, templates=combined_templates,
+                                            heme_coordination_residue=heme_coordination_residue,
+                                            protonation_review=st.session_state.get('protonation_review'),
+                                            repaired_heavy_atoms=repair,
+                                            curated_upload=curated.name if curated else None,
+                                            rationale=notes,
+                                        ),
+                                    }
+                                    st.rerun()
+                                path = core.prepare_receptor(
+                                    final, directory, combined_templates,
+                                    heme_coordination_residue=heme_coordination_residue,
+                                    heme_source_pdb=selected_input)
+                            except (ValueError, compute.ComputeBackendError) as exc:
+                                if not (directory/'preparation.log').exists():
+                                    (directory/'preparation.log').write_text(str(exc))
                                 st.session_state.assistant_diagnostic = (directory/'preparation.log').read_text()
                                 st.error(str(exc).split(' Full diagnostics:')[0])
                                 st.info('Open Advanced preparation to supply reviewed template assignments or a corrected receptor, then retry.')
@@ -1237,6 +1443,10 @@ with workspace:
                                 st.download_button('Download preparation input PDB', (directory/'receptor_input.pdb').read_bytes(), 'receptor_input.pdb')
                                 show_assistant()
                                 st.stop()
+                            if (directory/'curated_heme_audit.json').exists():
+                                report['curated_heme_audit'] = json.loads((directory/'curated_heme_audit.json').read_text())
+                            if (directory/'cofactor_resolution.json').exists():
+                                report['cofactor_resolution'] = json.loads((directory/'cofactor_resolution.json').read_text())
                             prepared_output = (directory/'receptor_prepared.pdb').read_text()
                             report.update(prepared_checks=structure_checks.check(prepared_output), preparation_changes=structure_checks.changes(final, prepared_output))
                             missing_residues = {core.key(a) for a in core.atoms(final)} - {core.key(a) for a in core.atoms(prepared_output)}
@@ -1252,7 +1462,7 @@ with workspace:
                                 st.download_button('Download rejected preparation report', (directory/'structure_report.json').read_bytes(), 'structure_report.json', 'application/json')
                                 raise ValueError('Prepared receptor failed coordinate validation. Inspect the saved structure report before using it.')
                         st.session_state.update(receptor_path=str(path), prepared_pdb=(directory/'receptor_prepared.pdb').read_text(), preparation_id=prep_id,
-                            preparation_record=dict(pH=intended_ph, templates=combined_templates, protonation_review=st.session_state.get('protonation_review'), repaired_heavy_atoms=repair, curated_upload=curated.name if curated else None, rationale=notes))
+                            preparation_record=dict(pH=intended_ph, templates=combined_templates, heme_coordination_residue=heme_coordination_residue, protonation_review=st.session_state.get('protonation_review'), repaired_heavy_atoms=repair, curated_upload=curated.name if curated else None, rationale=notes))
                         manifest()
                     if st.session_state.get('receptor_path'):
                         path = Path(st.session_state.receptor_path)

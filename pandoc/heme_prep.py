@@ -156,6 +156,8 @@ def validate_heme_site(
         "coordination_distance_A": round(distance, 3),
         "maximum_coordination_distance_A": float(max_coordination_distance_A),
         "heme_atom_count": len(heme_atoms),
+        "heme_heavy_atom_xyz": {a["name"]: a["xyz"] for a in heme_atoms
+                                if a["element"].upper() not in ("H", "D")},
     }
 
 
@@ -250,6 +252,30 @@ def _validate_pdbqt_heme(path: Path, before: dict):
     if len(iron) != 1:
         raise CuratedHemePreparationError(
             "Prepared receptor PDBQT does not contain exactly one retained heme Fe atom."
+        )
+
+    # AutoDockTools may remove hydrogens, but must never drop or move a
+    # crystallographic heme heavy atom. Check by deposited atom name and position.
+    original_xyz = before.get("heme_heavy_atom_xyz") or {}
+    prepared_by_name = {}
+    for atom in heme:
+        prepared_by_name.setdefault(atom["name"], []).append(atom)
+    missing = sorted(name for name in original_xyz
+                     if len(prepared_by_name.get(name, [])) != 1)
+    if missing:
+        raise CuratedHemePreparationError(
+            "Prepared HEM is missing or duplicates deposited heavy atoms: "
+            + ", ".join(missing)
+        )
+    moved = []
+    for name, xyz in original_xyz.items():
+        separation = math.dist(prepared_by_name[name][0]["xyz"], xyz)
+        if separation > 0.02:
+            moved.append(f"{name} ({separation:.3f} Å)")
+    if moved:
+        raise CuratedHemePreparationError(
+            "Crystallographic HEM heavy-atom coordinates changed in PDBQT: "
+            + ", ".join(moved[:12])
         )
 
     chain, number = before["coordination_residue"].split(":", 1)
@@ -416,7 +442,7 @@ def prepare_curated_heme_receptor(
         "heme_source": "crystallographic source prior to PDBFixer heme handling",
         "heme_propionate_context": (
             "No H2A/H2D propionate hydrogens are added by PanDoc; "
-            "3S79 is prepared at pH 7.4."
+            "review HEM chemical/protonation state for this receptor and pH."
         ),
         "autodocktools_cleanup": "nphs_lps_waters (nonstdres intentionally omitted to retain HEM)",
         "autodocktools_backend": backend,

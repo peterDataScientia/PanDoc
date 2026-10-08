@@ -27,7 +27,7 @@ def wait_marker_state(page, testid: str, state: str, timeout: int = 60_000):
             const el = document.querySelector(selector);
             return !!el && el.getAttribute('data-state') === expected;
         }""",
-        [f'[data-testid="{testid}"]', state],
+        arg=[f'[data-testid="{testid}"]', state],
         timeout=timeout,
     )
     return loc
@@ -52,7 +52,7 @@ def main() -> int:
 
             # Upload through the user-facing accessible label. Do not depend on
             # Streamlit-generated CSS classes, framework data-testid values, or DOM position.
-            page.get_by_label("PDB or mmCIF complex", exact=True).set_input_files(str(FIXTURE))
+            page.get_by_label("PDB or mmCIF complex", exact=True).locator('input[type="file"]').set_input_files(str(FIXTURE))
             wait_marker_state(page, "pandoc-complex", "ready")
 
             # Confirm the application exposes deterministic workflow and compute state.

@@ -55,6 +55,17 @@ class GitHubActionsCompute:
             raise ComputeBackendError(str(exc)) from exc
         return {"backend": self.name, **remote}
 
+    def submit_heme_preparation(self, pdb: str, heme_source_pdb: str,
+                                template_assignments: str,
+                                coordination_residue: str) -> dict:
+        try:
+            remote = self.client.submit_heme_preparation(
+                pdb, heme_source_pdb, template_assignments, coordination_residue
+            )
+        except GitHubComputeError as exc:
+            raise ComputeBackendError(str(exc)) from exc
+        return {"backend": self.name, **remote}
+
     def status(self, handle: dict) -> dict:
         try:
             return self.client.status(handle)

@@ -194,6 +194,25 @@ class GitHubCompute:
         )
         return self._queue(payload, "prepare-profile")
 
+    def submit_heme_preparation(self, pdb: str, heme_source_pdb: str,
+                                template_assignments: str,
+                                coordination_residue: str) -> dict:
+        """Run reviewed arbitrary P450-like HEM preparation on Computer C."""
+        if not coordination_residue or not re.fullmatch(
+            r"[A-Za-z0-9_]:[0-9]+[A-Za-z]?", coordination_residue
+        ):
+            raise GitHubComputeError("A valid reviewed proximal cysteine (e.g. A:437) is required.")
+        request = {
+            "coordination_residue": coordination_residue,
+            "template_assignments": str(template_assignments or ""),
+        }
+        payload = _encrypt_archive({
+            "request.json": json.dumps(request, indent=2).encode(),
+            "receptor.pdb": pdb.encode(),
+            "heme_source.pdb": heme_source_pdb.encode(),
+        }, self.job_key)
+        return self._queue(payload, "prepare-heme")
+
     def _run(self, job: dict):
         params = {
             "branch": job["branch"],
