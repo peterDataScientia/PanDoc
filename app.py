@@ -679,6 +679,17 @@ def show_heme_prep_job():
         return
     handle = task['handle']
     backend = backend_for_handle(handle)
+    if task.get('selection_id') != st.session_state.get('selection_id'):
+        st.error('The HEM job belongs to a different receptor selection. Its results will not be used.')
+        if st.button('Discard stale HEM job', key='discard_stale_heme'):
+            if backend is not None:
+                try:
+                    backend.cancel(handle)
+                except compute.ComputeBackendError:
+                    pass
+            st.session_state.pop('heme_prepare_job', None)
+            st.rerun()
+        return
     if backend is None:
         st.error('Computer C is not configured for retained-HEM preparation.')
         return
@@ -1403,6 +1414,7 @@ with workspace:
                                     )
                                     st.session_state.heme_prepare_job = {
                                         'handle': handle,
+                                        'selection_id': st.session_state.get('selection_id'),
                                         'directory': str(directory),
                                         'preparation_id': prep_id,
                                         'preparation_record': dict(
