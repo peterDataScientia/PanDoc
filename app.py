@@ -727,7 +727,7 @@ with st.sidebar:
         default=profile_targets,
         key='reviewed_profile_targets',
     )
-    st.caption('Applies the reviewed pH 7.4 residue states automatically. CYP19A1 is held before generic Meeko preparation because its heme/Fe–Cys chemistry requires the curated branch.')
+    st.caption('Applies the reviewed pH 7.4 residue states automatically. Standard targets use the standard receptor path; CYP19A1 uses the dedicated curated heme/Fe–Cys preparation branch.')
     if st.button('Prepare reviewed profiles', type='primary', disabled=not selected_profiles):
         try:
             with st.spinner('Applying reviewed receptor states and preparing supported receptors…'):
@@ -735,7 +735,15 @@ with st.sidebar:
                     selected_profiles,
                     root/'reviewed_profile_preparation',
                 )
-            st.success('Reviewed-profile preparation finished.')
+            _profile_result = st.session_state.profile_prepare_result
+            if _profile_result.get('errors'):
+                st.warning(
+                    f"Reviewed-profile preparation finished with "
+                    f"{len(_profile_result['errors'])} failed target(s). "
+                    "Open the result panel below for the exact target and error."
+                )
+            else:
+                st.success('Reviewed-profile preparation finished for all selected targets.')
         except Exception as exc:
             st.session_state.pop('profile_prepare_result', None)
             st.error('Reviewed-profile preparation failed: '+str(exc))
@@ -787,7 +795,16 @@ with workspace:
             if profile_result['errors']:
                 st.error('One or more reviewed profiles failed.')
                 st.dataframe(pd.DataFrame(profile_result['errors']), hide_index=True, width='stretch')
-            st.caption('Standard receptors are prepared with reviewed residue states. CYP19A1 remains explicitly held for curated heme-aware preparation.')
+                for item in profile_result['errors']:
+                    st.markdown(f"**{item.get('target', 'Unknown target')} failed**")
+                    st.code(str(item.get('error', 'No diagnostic message returned.')), language=None)
+            else:
+                st.success('All selected reviewed receptor profiles prepared successfully.')
+            st.caption(
+                'Standard receptors use reviewed residue states. CYP19A1 is now routed through '
+                'the dedicated curated heme branch, which retains HEM and verifies Fe–Cys437 '
+                'coordination before accepting the receptor.'
+            )
             st.download_button(
                 'Download reviewed-profile bundle',
                 profile_result['bundle'],
