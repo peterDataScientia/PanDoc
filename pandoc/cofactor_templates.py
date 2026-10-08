@@ -151,7 +151,7 @@ def resolve_ccd_failure(pdb, directory, first_log, existing_templates=()):
             found.append(template)
             record.update(status="candidate", provenance=source,
                           template_sha256=hashlib.sha256(
-                              Path(template.split(":", 1)[-1]).read_bytes()
+                              Path(template[len(name) + 1:] if template.startswith(name + ":") else template).read_bytes()
                           ).hexdigest())
         except Exception as exc:
             # Never obscure the original Meeko error; preserve this reason in the audit.
