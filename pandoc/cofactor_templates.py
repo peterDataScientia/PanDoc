@@ -106,9 +106,10 @@ def _template_for_component(name, group, pdb, directory):
             validate_sdf(sdf_template.read_bytes(), group)
             return f"{name}:{sdf_template}", "curated-sdf"
 
-    from rdkit import Chem  # local optional chemistry dependency
-    del Chem
-    cache = Path(directory) / "ccd_templates"
+    cache = Path(
+        os.environ.get("PANDOC_COF_CACHE_DIR") or
+        (Path(directory).parent / "_ccd_template_cache")
+    ).expanduser()
     cache.mkdir(parents=True, exist_ok=True)
     path = cache / f"{name}_ideal.sdf"
     if path.is_file():
