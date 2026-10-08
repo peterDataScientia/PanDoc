@@ -19,6 +19,77 @@ def _atom_id(atom):
     return f"{chain}:{atom['number']}{atom['icode']}"
 
 
+def _meeko_selector(residue_id: str) -> str:
+    parts = str(residue_id).split(":")
+    if len(parts) < 2:
+        raise CuratedHemePreparationError(f"Invalid residue identifier: {residue_id}")
+    chain, number = parts[0], parts[1]
+    chain = "" if chain == "_" else chain
+    return f"{chain}:{number}"
+
+
+def _set_assignment(assignments: str, residue: str, template: str) -> str:
+    """Add or replace one Meeko residue-template assignment."""
+    selector = _meeko_selector(residue)
+    tokens = []
+    replaced = False
+    for raw in (assignments or "").split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        lhs = raw.split("=", 1)[0].strip()
+        if lhs == selector:
+            if not replaced:
+                tokens.append(f"{selector}={template}")
+                replaced = True
+            continue
+        tokens.append(raw)
+    if not replaced:
+        tokens.append(f"{selector}={template}")
+    return ",".join(tokens)
+
+
+def _validate_thiolate_donor(
+    pdb: str,
+    *,
+    coordination_residue: str,
+    protein_donor_atom: str = "SG",
+    max_s_h_distance_A: float = 1.55,
+):
+    """Require the reviewed proximal sulfur to be deprotonated after Meeko prep."""
+    atoms = core.atoms(pdb)
+    donor = [
+        a for a in atoms
+        if _atom_id(a) == coordination_residue
+        and a["name"].upper() == protein_donor_atom.upper()
+    ]
+    if len(donor) != 1:
+        raise CuratedHemePreparationError(
+            f"Expected one donor atom {coordination_residue}:{protein_donor_atom} "
+            f"after protein preparation; found {len(donor)}."
+        )
+    hydrogens = [
+        a for a in atoms
+        if _atom_id(a) == coordination_residue
+        and a["element"].upper() in {"H", "D"}
+    ]
+    close = [
+        a for a in hydrogens
+        if math.dist(donor[0]["xyz"], a["xyz"]) <= float(max_s_h_distance_A)
+    ]
+    if close:
+        raise CuratedHemePreparationError(
+            f"{coordination_residue}:{protein_donor_atom} is still protonated after "
+            "reviewed preparation; the CYP450 proximal cysteine must be thiolate."
+        )
+    return {
+        "coordination_residue": coordination_residue,
+        "protein_donor_atom": protein_donor_atom,
+        "thiolate_verified": True,
+        "sulfur_bound_hydrogen_count": 0,
+    }
+
+
 def _find_heme_atoms(pdb: str, component: str):
     component = str(component or "HEM").upper()
     return [a for a in core.atoms(pdb) if a["res"].upper() == component]
@@ -214,7 +285,9 @@ def prepare_curated_heme_receptor(
     coordination_residue: str,
     heme_iron_atom: str = "FE",
     protein_donor_atom: str = "SG",
+    coordination_template: str = "CYX-",
     max_coordination_distance_A: float = 3.0,
+    heme_source_pdb: str | None = None,
 ):
     """Prepare a rigid P450-like heme receptor without Meeko HEM inference.
 
@@ -228,8 +301,13 @@ def prepare_curated_heme_receptor(
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
 
+    # Repair/protonation may operate on a rebuilt protein, but the heme itself
+    # must come from the crystallographic source rather than from PDBFixer output.
+    heme_pdb = _component_only(heme_source_pdb or pdb, heme_component)
+    protein_only = _protein_without_component(pdb, heme_component)
+    preconversion_complex = _merge_prepared_protein_and_heme(protein_only, heme_pdb)
     before = validate_heme_site(
-        pdb,
+        preconversion_complex,
         heme_component=heme_component,
         coordination_residue=coordination_residue,
         heme_iron_atom=heme_iron_atom,
@@ -239,15 +317,25 @@ def prepare_curated_heme_receptor(
     (directory / "heme_site_before_preparation.json").write_text(
         json.dumps(before, indent=2)
     )
-
-    protein_only = _protein_without_component(pdb, heme_component)
+    (directory / "heme_crystallographic.pdb").write_text(heme_pdb)
     (directory / "protein_only_for_reviewed_prep.pdb").write_text(protein_only)
+
+    # Force the proximal P450 cysteine into Meeko's concrete thiolate template.
+    # This prevents a neutral SG-H cysteine from being merged next to the heme Fe.
+    reviewed_assignments = _set_assignment(
+        template_assignments,
+        coordination_residue,
+        coordination_template,
+    )
+    (directory / "protein_meeko_template_assignments.txt").write_text(
+        reviewed_assignments + "\n"
+    )
 
     # Meeko is used only for standard protein residue chemistry/protonation.
     protein_pdbqt = core.prepare_receptor(
         protein_only,
         directory / "protein_meeko",
-        template_assignments=template_assignments,
+        template_assignments=reviewed_assignments,
     )
     del protein_pdbqt
     prepared_protein_path = directory / "protein_meeko" / "receptor_prepared.pdb"
@@ -256,10 +344,18 @@ def prepare_curated_heme_receptor(
             "Reviewed protein-only preparation did not produce receptor_prepared.pdb."
         )
 
-    heme_pdb = _component_only(pdb, heme_component)
-    (directory / "heme_crystallographic.pdb").write_text(heme_pdb)
+    prepared_protein = prepared_protein_path.read_text()
+    thiolate_audit = _validate_thiolate_donor(
+        prepared_protein,
+        coordination_residue=coordination_residue,
+        protein_donor_atom=protein_donor_atom,
+    )
+    (directory / "proximal_cysteine_thiolate.json").write_text(
+        json.dumps(thiolate_audit, indent=2)
+    )
+
     merged = _merge_prepared_protein_and_heme(
-        prepared_protein_path.read_text(),
+        prepared_protein,
         heme_pdb,
     )
     merged_path = directory / "protein_reviewed_plus_heme.pdb"
@@ -311,7 +407,18 @@ def prepare_curated_heme_receptor(
         "mode": "curated_heme_autodocktools",
         "status": "prepared_curated_heme",
         "protein_preparation": "Meeko reviewed standard-residue states",
-        "heme_preparation": "crystallographic HEM retained; AutoDockTools receptor conversion",
+        "proximal_cysteine_template": coordination_template,
+        "proximal_cysteine_thiolate": thiolate_audit,
+        "heme_preparation": (
+            "crystallographic HEM heavy-atom coordinates retained; "
+            "AutoDockTools receptor conversion"
+        ),
+        "heme_source": "crystallographic source prior to PDBFixer heme handling",
+        "heme_propionate_context": (
+            "No H2A/H2D propionate hydrogens are added by PanDoc; "
+            "3S79 is prepared at pH 7.4."
+        ),
+        "autodocktools_cleanup": "nphs_lps_waters (nonstdres intentionally omitted to retain HEM)",
         "autodocktools_backend": backend,
         "before": before,
         "after_protein_heme_merge": merge_audit,
