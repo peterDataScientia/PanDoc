@@ -22,6 +22,14 @@ API_KEY = os.environ.get("PANDOC_KAGGLE_API_KEY", "").strip()
 app = FastAPI(title="PanDoc Kaggle Direct Backend", version="0.1.0")
 
 
+def available_cpu_count() -> int:
+    """Return CPUs actually available to this Kaggle process/cgroup."""
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        return max(1, int(os.cpu_count() or 1))
+
+
 def auth(x_api_key: str | None) -> None:
     if not API_KEY:
         raise HTTPException(503, "PANDOC_KAGGLE_API_KEY is not configured on the Kaggle worker.")
@@ -63,6 +71,12 @@ def runtime_config(directory: Path, portable: dict) -> dict:
     ]
     if portable.get("reference"):
         runtime["reference"] = str((directory / portable["reference"]).resolve())
+
+    # Computer B is a warm dedicated compute node. Ignore the conservative
+    # frontend CPU cap and let AutoDock Vina use every CPU actually assigned
+    # to this Kaggle session.
+    runtime["cpu"] = available_cpu_count()
+
     validate_config(runtime)
     return runtime
 
@@ -89,7 +103,7 @@ def health(x_api_key: str | None = Header(default=None)):
     return {
         "ok": True,
         "backend": "kaggle-direct",
-        "cpu_count": os.cpu_count(),
+        "cpu_count": available_cpu_count(),
         "root": str(ROOT),
     }
 
