@@ -2,6 +2,15 @@ name: Browser automation contract
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "app.py"
+      - "pandoc/ui.py"
+      - "assets/**"
+      - "tests/browser/**"
+      - "requirements-browser.txt"
+      - ".github/workflows/browser-contract.yml"
   pull_request:
     paths:
       - "app.py"
