@@ -307,22 +307,38 @@ def github_backend():
         return None
 
 
-def kaggle_backend():
+def kaggle_config():
     try:
         base_url = st.secrets.get('PANDOC_KAGGLE_URL', os.environ.get('PANDOC_KAGGLE_URL', ''))
         api_key = st.secrets.get('PANDOC_KAGGLE_API_KEY', os.environ.get('PANDOC_KAGGLE_API_KEY', ''))
     except Exception:
         base_url = os.environ.get('PANDOC_KAGGLE_URL', '')
         api_key = os.environ.get('PANDOC_KAGGLE_API_KEY', '')
+    return (base_url or '').strip(), (api_key or '').strip()
+
+
+def kaggle_backend():
+    base_url, api_key = kaggle_config()
     if not base_url or not api_key:
         return None
     try:
-        # Do not reject the backend during a Streamlit rerun because a Quick
-        # Tunnel health probe was transiently slow. Let the actual submit/status
-        # request report the precise error and trigger GitHub fallback if needed.
         return compute.kaggle_from_credentials(base_url, api_key)
     except Exception:
         return None
+
+
+def kaggle_config_problem():
+    base_url, api_key = kaggle_config()
+    missing = []
+    if not base_url:
+        missing.append('PANDOC_KAGGLE_URL')
+    if not api_key:
+        missing.append('PANDOC_KAGGLE_API_KEY')
+    if missing:
+        return 'Streamlit cannot see: ' + ', '.join(missing)
+    if not base_url.startswith(('https://', 'http://')):
+        return 'PANDOC_KAGGLE_URL is not a valid http(s) URL.'
+    return ''
 
 
 def backend_for_handle(handle):
@@ -613,6 +629,12 @@ with st.sidebar:
         key='compute_mode',
         help='Streamlit Cloud is the fast local path. Kaggle sends docking directly to a running warm Kaggle session. GitHub Actions remains the durable fallback.',
     )
+    if st.session_state.get('compute_mode', '').startswith('Kaggle'):
+        _k_url, _k_key = kaggle_config()
+        if _k_url and _k_key:
+            st.caption('Kaggle config ✓ URL + API key loaded by Streamlit')
+        else:
+            st.warning(kaggle_config_problem())
     st.divider()
     st.caption('✓ Complex loaded' if st.session_state.get('pdb') else '○ Load a complex')
     st.caption('✓ Receptor prepared' if st.session_state.get('preparation_id') else '○ Prepare receptor')
@@ -1279,10 +1301,11 @@ with workspace:
                                     st.error(str(remote_exc))
                     elif kaggle_compute_mode():
                         if kaggle is None:
+                            problem = kaggle_config_problem() or 'Kaggle backend configuration could not be created.'
                             if github is None:
-                                st.error('Kaggle direct backend is offline and GitHub Actions fallback is not configured.')
+                                st.error(problem + ' GitHub Actions fallback is not configured.')
                             else:
-                                st.warning('Kaggle direct backend is offline. Switching to GitHub Actions…')
+                                st.warning(problem + ' Switching to GitHub Actions…')
                                 try:
                                     remote_job = github.submit(root, config)
                                     st.session_state[prefix+'_github_job'] = remote_job
