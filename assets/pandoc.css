@@ -589,3 +589,18 @@ div[data-testid="stMetric"]{
 ::-webkit-scrollbar-track{background:#eef3f7;}
 ::-webkit-scrollbar-thumb{background:#c7d3de;border-radius:999px;border:2px solid #eef3f7;}
 ::-webkit-scrollbar-thumb:hover{background:#aebdcc;}
+
+
+/* Stable machine-readable application state for Playwright/browser automation.
+   Kept in the DOM without taking visible layout space. */
+.pd-automation-marker{
+  position:absolute!important;
+  width:1px!important;
+  height:1px!important;
+  padding:0!important;
+  margin:-1px!important;
+  overflow:hidden!important;
+  clip:rect(0,0,0,0)!important;
+  white-space:nowrap!important;
+  border:0!important;
+}
