@@ -10,7 +10,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from . import core, phprep
+from . import core, phprep, profile_engine
 from .github_compute import decrypt_payload
 from .worker import run as run_worker
 
@@ -176,6 +176,21 @@ def _run_candidate_preparation(root: Path, result_dir: Path):
     )
 
 
+
+def _run_profile_preparation(root: Path, result_dir: Path):
+    request = json.loads((root / "request.json").read_text())
+    target = str(request.get("target") or "").strip()
+    if not target:
+        raise ValueError("Profile preparation requires a target name.")
+
+    out = result_dir / target
+    result = profile_engine.prepare_from_profile(target, out)
+    (result_dir / "results.json").write_text(json.dumps({"result": result}, indent=2))
+    (result_dir / "status.json").write_text(
+        json.dumps({"state": "completed", "completed": 1, "total": 1}, indent=2)
+    )
+
+
 def main(job_id: str, operation: str = "dock"):
     raw_dir = os.environ.get("PANDOC_RAW_PAYLOAD_DIR", "").strip()
     key = os.environ.get("PANDOC_JOB_KEY", "").strip()
@@ -196,6 +211,8 @@ def main(job_id: str, operation: str = "dock"):
             _run_ligand_microstates(root, result_dir)
         elif operation == "prepare-candidates":
             _run_candidate_preparation(root, result_dir)
+        elif operation == "prepare-profile":
+            _run_profile_preparation(root, result_dir)
         else:
             raise RuntimeError(f"Unsupported PanDoc Actions operation: {operation}")
 
