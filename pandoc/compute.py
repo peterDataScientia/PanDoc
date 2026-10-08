@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from .github_compute import DEFAULT_REPOSITORY, GitHubCompute, GitHubComputeError
+from .kaggle_compute import KaggleDirectCompute, KaggleComputeError
 
 
 class ComputeBackendError(RuntimeError):
