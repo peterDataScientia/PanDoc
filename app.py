@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import tempfile
+import shutil
 import uuid
 from pathlib import Path
 
@@ -531,6 +532,146 @@ def show_candidate_prep_job(task_key):
     live_candidate_job()
 
 
+
+def _merge_remote_profile_result(target_name, materialized_root, result):
+    profile_root = root/'reviewed_profile_preparation'
+    profile_root.mkdir(parents=True, exist_ok=True)
+
+    source_dir = Path(materialized_root)/target_name
+    if not source_dir.is_dir():
+        raise OSError(f'Remote profile artifact is missing the {target_name} output directory.')
+
+    destination = profile_root/target_name
+    if destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(source_dir, destination)
+
+    # Replace runner-local paths with the materialized PanDoc-session path.
+    receptor_candidates = list(destination.rglob('receptor_curated_heme.pdbqt'))
+    if receptor_candidates:
+        result = dict(result)
+        result['receptor_pdbqt'] = str(receptor_candidates[0].resolve())
+
+    current = st.session_state.get('profile_prepare_result') or {
+        'results': [], 'errors': [], 'bundle': b''
+    }
+    results = [
+        item for item in current.get('results', [])
+        if item.get('target') != target_name
+    ]
+    errors = [
+        item for item in current.get('errors', [])
+        if item.get('target') != target_name
+    ]
+    results.append(result)
+    st.session_state.profile_prepare_result = {
+        'results': results,
+        'errors': errors,
+        'bundle': core.bundle(profile_root),
+    }
+
+
+def show_profile_prep_jobs():
+    remotes = st.session_state.get('profile_remote_jobs') or {}
+    if not remotes:
+        return
+
+    active_states = ('queued', 'running', 'starting')
+    states = {}
+    for target_name, remote in remotes.items():
+        backend = backend_for_handle(remote)
+        if backend is None:
+            states[target_name] = {'state': 'failed', 'error': 'Computer C is not configured.'}
+            continue
+        try:
+            states[target_name] = backend.status(remote)
+        except compute.ComputeBackendError as exc:
+            states[target_name] = {'state': 'failed', 'error': str(exc)}
+
+    polling = any(item.get('state') in active_states for item in states.values())
+
+    @st.fragment(run_every=5 if polling else None)
+    def live_profile_prep_jobs():
+        current_jobs = dict(st.session_state.get('profile_remote_jobs') or {})
+        changed = False
+
+        for target_name, remote in current_jobs.items():
+            backend = backend_for_handle(remote)
+            if backend is None:
+                st.error(f'{target_name} · Computer C is not configured.')
+                continue
+
+            try:
+                state = backend.status(remote)
+            except compute.ComputeBackendError as exc:
+                st.error(f'{target_name} · {exc}')
+                continue
+
+            ui.automation_marker(
+                st,
+                'profile-preparation-job',
+                state=state.get('state', 'starting'),
+                value=remote['job_id'],
+                text=f"{target_name} profile preparation {state.get('state', 'starting')}",
+            )
+            st.info(
+                f"{target_name} curated receptor preparation · "
+                f"{state.get('state', 'starting')} · {remote['job_id'][:8]}"
+            )
+            with st.expander(f'{target_name} compute progress', expanded=True):
+                show_compute_progress(backend, remote)
+                try:
+                    st.code(backend.logs(remote, tail=120) or 'Waiting for compute output.', language=None)
+                except Exception:
+                    pass
+
+            if state.get('state') == 'completed':
+                materialized = root/'remote_profile_tasks'/remote['job_id']
+                try:
+                    if not (materialized/'results.json').exists():
+                        backend.materialize(remote, materialized)
+                    payload = json.loads((materialized/'results.json').read_text())
+                    result = payload.get('result')
+                    if not isinstance(result, dict):
+                        raise ValueError('Remote profile preparation returned no result record.')
+                    _merge_remote_profile_result(target_name, materialized, result)
+                    backend.cleanup(remote)
+                    current_jobs.pop(target_name, None)
+                    st.session_state.profile_remote_jobs = current_jobs
+                    changed = True
+                except (OSError, ValueError, json.JSONDecodeError, compute.ComputeBackendError) as exc:
+                    st.error(f'{target_name} result retrieval failed: {exc}')
+
+            elif state.get('state') in ('failed', 'cancelled'):
+                message = state.get('error') or (
+                    'Curated receptor preparation was cancelled.'
+                    if state.get('state') == 'cancelled'
+                    else 'Curated receptor preparation failed on Computer C.'
+                )
+                current = st.session_state.get('profile_prepare_result') or {
+                    'results': [], 'errors': [], 'bundle': b''
+                }
+                errors = [
+                    item for item in current.get('errors', [])
+                    if item.get('target') != target_name
+                ]
+                errors.append({'target': target_name, 'error': message})
+                current['errors'] = errors
+                st.session_state.profile_prepare_result = current
+                current_jobs.pop(target_name, None)
+                st.session_state.profile_remote_jobs = current_jobs
+                changed = True
+
+        if changed:
+            profile_root = root/'reviewed_profile_preparation'
+            current = st.session_state.get('profile_prepare_result')
+            if current is not None and profile_root.exists():
+                current['bundle'] = core.bundle(profile_root)
+            st.rerun()
+
+    live_profile_prep_jobs()
+
+
 def show_remote_job(remote, local_key, remote_key):
     backend = backend_for_handle(remote)
     if backend is None:
@@ -727,26 +868,82 @@ with st.sidebar:
         default=profile_targets,
         key='reviewed_profile_targets',
     )
-    st.caption('Applies the reviewed pH 7.4 residue states automatically. Standard targets use the standard receptor path; CYP19A1 uses the dedicated curated heme/Fe–Cys preparation branch.')
-    if st.button('Prepare reviewed profiles', type='primary', disabled=not selected_profiles):
+    st.caption(
+        'Applies reviewed pH 7.4 residue states. Standard profiles prepare in the '
+        'Streamlit session; curated heme profiles are sent to Computer C, where '
+        'AutoDockTools 1.5.7 is available specifically for heme-preserving receptor preparation.'
+    )
+    profile_jobs_active = bool(st.session_state.get('profile_remote_jobs'))
+    if st.button(
+        'Prepare reviewed profiles',
+        type='primary',
+        disabled=not selected_profiles or profile_jobs_active,
+    ):
         try:
-            with st.spinner('Applying reviewed receptor states and preparing supported receptors…'):
-                st.session_state.profile_prepare_result = profile_engine.prepare_many(
-                    selected_profiles,
-                    root/'reviewed_profile_preparation',
-                )
+            targets_cfg, _profile_meta = profile_engine.load_profiles()
+            standard_profiles = [
+                name for name in selected_profiles
+                if targets_cfg[name].get('preparation_mode', 'standard') != 'curated_heme'
+            ]
+            curated_profiles = [
+                name for name in selected_profiles
+                if targets_cfg[name].get('preparation_mode', 'standard') == 'curated_heme'
+            ]
+
+            profile_root = root/'reviewed_profile_preparation'
+            if profile_root.exists():
+                shutil.rmtree(profile_root)
+            profile_root.mkdir(parents=True, exist_ok=True)
+
+            if standard_profiles:
+                with st.spinner('Preparing standard reviewed receptor profiles…'):
+                    local_result = profile_engine.prepare_many(
+                        standard_profiles,
+                        profile_root,
+                    )
+            else:
+                local_result = {'results': [], 'errors': [], 'bundle': core.bundle(profile_root)}
+
+            st.session_state.profile_prepare_result = local_result
+            st.session_state.pop('profile_remote_jobs', None)
+
+            if curated_profiles:
+                github = github_backend()
+                if github is None:
+                    errors = list(local_result.get('errors', []))
+                    for target_name in curated_profiles:
+                        errors.append({
+                            'target': target_name,
+                            'error': (
+                                'Curated heme preparation requires Computer C. '
+                                'Configure GITHUB_TOKEN and PANDOC_JOB_KEY.'
+                            ),
+                        })
+                    local_result['errors'] = errors
+                    st.session_state.profile_prepare_result = local_result
+                else:
+                    remote_jobs = {}
+                    for target_name in curated_profiles:
+                        remote_jobs[target_name] = github.submit_profile_preparation(target_name)
+                    st.session_state.profile_remote_jobs = remote_jobs
+                    st.info(
+                        'Curated heme profile preparation submitted to Computer C. '
+                        'PanDoc will retrieve and merge the completed receptor automatically.'
+                    )
+
             _profile_result = st.session_state.profile_prepare_result
             if _profile_result.get('errors'):
                 st.warning(
-                    f"Reviewed-profile preparation finished with "
-                    f"{len(_profile_result['errors'])} failed target(s). "
-                    "Open the result panel below for the exact target and error."
+                    f"Reviewed-profile preparation currently has "
+                    f"{len(_profile_result['errors'])} failed target(s)."
                 )
-            else:
+            elif not curated_profiles:
                 st.success('Reviewed-profile preparation finished for all selected targets.')
         except Exception as exc:
-            st.session_state.pop('profile_prepare_result', None)
+            st.session_state.pop('profile_remote_jobs', None)
             st.error('Reviewed-profile preparation failed: '+str(exc))
+
+    show_profile_prep_jobs()
 
     profile_result = st.session_state.get('profile_prepare_result')
     if profile_result:
