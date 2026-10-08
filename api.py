@@ -257,6 +257,7 @@ async def prepare_receptor(
     file: UploadFile = File(...),
     template_assignments: str = Form(""),
     repair_missing_heavy_atoms: bool = Form(True),
+    heme_coordination_residue: str = Form(""),
 ):
     data = await read_upload(file)
     text = decode_text(data)
@@ -264,10 +265,15 @@ async def prepare_receptor(
     prep_id = uuid.uuid4().hex
     directory = API_ROOT / "preparations" / prep_id
     try:
-        pdb = core.normalize_structure(text, suffix)
+        original_pdb = core.normalize_structure(text, suffix)
+        pdb = original_pdb
         if repair_missing_heavy_atoms:
             pdb = core.repair_heavy_atoms(pdb)
-        path = core.prepare_receptor(pdb, directory, template_assignments)
+        path = core.prepare_receptor(
+            pdb, directory, template_assignments,
+            heme_coordination_residue=heme_coordination_residue.strip() or None,
+            heme_source_pdb=original_pdb,
+        )
     except (ValueError, RuntimeError) as exc:
         domain_error(exc)
     manifest = {
