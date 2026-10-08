@@ -81,9 +81,17 @@
       },
       "notes": [
         "HEM must be retained.",
-        "Fe-HEM-Cys437 coordination must be preserved.",
-        "Generic Meeko receptor preparation is intentionally blocked."
-      ]
+        "Fe-HEM-Cys437 coordination must be preserved and audited before docking.",
+        "Curated heme preparation must not delete HEM or Cys437 to force receptor conversion.",
+        "ASD redocking is mandatory before production docking."
+      ],
+      "heme": {
+        "component": "HEM",
+        "coordination_residue": "A:437",
+        "iron_atom": "FE",
+        "protein_donor_atom": "SG",
+        "max_coordination_distance_A": 3
+      }
     },
     "PGR": {
       "pdb": "1A28",
