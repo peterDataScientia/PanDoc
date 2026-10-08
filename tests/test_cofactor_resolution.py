@@ -121,3 +121,19 @@ def test_unrelated_valence_failure_does_not_trigger_ccd_fetch():
         "Invalid inferred bonding and valence", {"EOH": {}}) == []
     assert cofactor_templates.failing_components(
         "Failed building template from CCD for resname='EOH'", {"EOH": {}}) == ["EOH"]
+
+
+def test_meeko_success_that_drops_deposited_atom_is_rejected():
+    with TemporaryDirectory() as temp:
+        directory = Path(temp)
+        pdb = het(1, "C1", "EOH", "C") + het(2, "O1", "EOH", "O")
+
+        def simulate(args, **kwargs):
+            (directory / "receptor.pdbqt").write_text("prepared")
+            (directory / "receptor_prepared.pdb").write_text(het(1, "C1", "EOH", "C"))
+            return SimpleNamespace(returncode=0, stdout="success", stderr="")
+
+        with patch("pandoc.core.subprocess.run", side_effect=simulate):
+            with pytest.raises(ValueError, match="lost deposited heavy atoms"):
+                core.prepare_receptor(pdb, directory)
+        assert "O1" in (directory / "preparation.log").read_text()
