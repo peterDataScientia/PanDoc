@@ -106,3 +106,17 @@ def from_environment():
         os.environ.get("PANDOC_JOB_KEY", ""),
         os.environ.get("PANDOC_GITHUB_REPOSITORY", DEFAULT_REPOSITORY),
     )
+
+
+def kaggle_from_credentials(base_url: str = "", api_key: str = ""):
+    try:
+        return KaggleDirectCompute(base_url, api_key)
+    except KaggleComputeError as exc:
+        raise ComputeBackendError(str(exc)) from exc
+
+
+def kaggle_from_environment():
+    return kaggle_from_credentials(
+        os.environ.get("PANDOC_KAGGLE_URL", ""),
+        os.environ.get("PANDOC_KAGGLE_API_KEY", ""),
+    )
