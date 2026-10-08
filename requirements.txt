@@ -30,3 +30,4 @@ python-multipart>=0.0.9,<1
 
 # Encrypted GitHub Actions compute payloads
 cryptography>=42,<47
+\n# HTTP clients for remote compute backends\nrequests>=2.31,<3\n
