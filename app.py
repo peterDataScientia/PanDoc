@@ -615,7 +615,9 @@ def show_profile_prep_jobs():
         current_jobs = dict(st.session_state.get('profile_remote_jobs') or {})
         changed = False
 
-        for target_name, remote in current_jobs.items():
+        # Snapshot the entries: completed/failed jobs are popped inside this loop.
+        # Iterating the live dict raises RuntimeError when a job finishes.
+        for target_name, remote in profile_quality.snapshot_profile_jobs(current_jobs):
             backend = backend_for_handle(remote)
             if backend is None:
                 st.error(f'{target_name} · Computer C is not configured.')
