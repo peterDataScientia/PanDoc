@@ -217,7 +217,7 @@ class GitHubCompute:
             return {
                 "state": "queued",
                 "completed": 0,
-                "message": "Waiting for GitHub Actions to register the job.",
+                "message": "Waiting for Computer C to register the job.",
             }
         gh_status = run.get("status")
         conclusion = run.get("conclusion")
@@ -256,18 +256,18 @@ class GitHubCompute:
                         _repo_url(self.repository, f"/actions/jobs/{failed_job['id']}/logs"),
                     ).text
                     if "PANDOC_JOB_KEY repository secret is not configured." in log:
-                        result["error"] = "GitHub Actions is missing the PANDOC_JOB_KEY repository secret."
+                        result["error"] = "Computer C is not configured correctly."
                     else:
                         lines = [line.strip() for line in log.splitlines() if line.strip()]
-                        result["error"] = lines[-1][-500:] if lines else "GitHub Actions compute failed."
+                        result["error"] = lines[-1][-500:] if lines else "Computer C compute failed."
             except Exception:
-                result["error"] = "GitHub Actions compute failed."
+                result["error"] = "Computer C compute failed."
         return result
 
     def progress(self, job: dict) -> dict:
         run = self._run(job)
         if run is None:
-            return {"state": "queued", "steps": [{"name": "Waiting for GitHub Actions", "status": "queued"}]}
+            return {"state": "queued", "steps": [{"name": "Waiting for Computer C", "status": "queued"}]}
         try:
             jobs_data = _request(
                 self.token,
@@ -294,7 +294,7 @@ class GitHubCompute:
     def logs(self, job: dict, tail: int = 80) -> str:
         run = self._run(job)
         if run is None:
-            return "Waiting for GitHub Actions to register the job."
+            return "Waiting for Computer C to register the job."
         try:
             jobs_data = _request(
                 self.token,
