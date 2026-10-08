@@ -59,6 +59,44 @@ Official guidance: https://docs.streamlit.io/deploy/streamlit-community-cloud/ma
 - 3D visualization loads the 3Dmol JavaScript viewer; the browser needs access to its CDN.
 - PDB chemistry lookup uses the RCSB Data API and optionally the CCD CIF download for atom-name checks. It is cached for one day per component. Service failures are shown with retry/manual-entry guidance. CCD chemistry is not a pH prediction, and matching atom counts alone do not establish matching connectivity. Lookup provenance is saved with the experiment.
 
+
+## HEM and non-standard residue preparation
+
+A retained \`HEM\` cofactor is **not** sent to Meeko's automatic CCD-template
+builder: its iron coordination cannot be reliably reconstructed from an
+ordinary ligand template. In **Prepare structures → Receptor**, explicitly
+review the Fe-coordinating cysteine SG (including its Fe--SG distance) to use
+the existing curated P450-like preparation. PanDoc prepares the protein using
+the reviewed protonation states, restores the **original crystallographic HEM
+coordinates**, converts using **AutoDockTools prepare_receptor4.py** and checks
+the proximal thiolate and Fe retention. This requires an AutoDockTools-equipped
+backend, such as the configured Computer C environment. Arbitrary His/other
+heme coordination environments are **not** represented as P450 thiolates;
+those receptors require a separately validated curated route.
+
+The API accepts an optional \`heme_coordination_residue\` form field (for
+example \`A:437\`) for the same reviewed route. Without an explicit donor,
+the preparation **fails safely**, preserves HEM and explains what review is
+required. PanDoc never automatically deletes cofactors to make Meeko pass.
+
+For other **non-metal, noncovalent CCD components**, an explicit Meeko
+CCD-template failure triggers at most **one** controlled retry, using an
+RCSB \`<CCD>_ideal.sdf\` chemistry definition only when RDKit parses it as a
+single chemical graph and its heavy-element inventory exactly matches the
+deposited residue. The SDF does not replace deposited coordinates. The
+original error, retry transcript and \`cofactor_resolution.json\` are saved
+for review; the fallback does **not** establish charge accuracy, metal
+coordination, or docking validity. RCSB discontinued \`_model.sdf\` in 2024,
+so PanDoc uses the still-supported \`_ideal.sdf\`.
+
+To supply reviewed local residue templates, configure
+\`PANDOC_COF_TEMPLATE_DIR\` pointing to a directory containing files such as
+\`ABC.json\` (curated Meeko JSON) or \`ABC.sdf\` (validated CCD component SDF).
+The resolver never silently substitutes metal-containing or linked cofactors
+with generic organic chemistry. Failed downloads and chemistry mismatches
+remain visible, and downstream redocking validation is still required.
+
+
 ## Free GitHub Actions compute
 
 PanDoc can offload docking calculations from Streamlit Community Cloud to GitHub-hosted Actions runners without a paid API server.
