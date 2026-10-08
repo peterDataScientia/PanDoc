@@ -308,6 +308,7 @@ def prepare_from_profile(target, output_dir, force_curated=False):
             max_coordination_distance_A=float(
                 heme_cfg.get("max_coordination_distance_A", 3.0)
             ),
+            heme_source_pdb=selected,
         )
         status = "prepared_curated_heme"
     else:
@@ -327,7 +328,7 @@ def prepare_from_profile(target, output_dir, force_curated=False):
 
     result = {
         "profile_set": meta.get("profile_set"),
-        "engine_revision": "curated-heme-static-template-v6",
+        "engine_revision": "curated-heme-autodocktools-v8",
         "target": target,
         "pdb": cfg["pdb"],
         "chain": cfg["chain"],
