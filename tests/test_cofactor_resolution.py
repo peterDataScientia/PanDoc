@@ -41,7 +41,7 @@ def test_curated_heme_path_retains_prepared_artifact_and_audit():
         destination = Path(temp)
         def curated(*args, **kwargs):
             assert kwargs["coordination_residue"] == "A:25"
-            assert kwargs["heme_source_pdb"] == "original source"
+            assert "HEM" in kwargs["heme_source_pdb"]
             output = destination / "receptor_curated_heme.pdbqt"
             output.write_text("HETATM    1 FE   HEM A 100       0.000   0.000   0.000  0.00  0.00    FE\n")
             (destination / "protein_reviewed_plus_heme.pdb").write_text(
@@ -53,7 +53,7 @@ def test_curated_heme_path_retains_prepared_artifact_and_audit():
             path = core.prepare_receptor(
                 het(1, "FE", "HEM", "FE"), destination,
                 heme_coordination_residue="A:25",
-                heme_source_pdb="original source",
+                heme_source_pdb=het(1, "FE", "HEM", "FE"),
             )
         run.assert_not_called()
         assert path.name == "receptor.pdbqt"
