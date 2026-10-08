@@ -90,7 +90,8 @@
         "coordination_residue": "A:437",
         "iron_atom": "FE",
         "protein_donor_atom": "SG",
-        "max_coordination_distance_A": 3
+        "max_coordination_distance_A": 3,
+        "coordination_template": "CYX-"
       }
     },
     "PGR": {
