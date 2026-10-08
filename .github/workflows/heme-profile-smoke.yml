@@ -1,0 +1,83 @@
+name: CYP19A1 Curated Heme Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/heme-profile-smoke.yml"
+      - "pandoc/heme_prep.py"
+      - "pandoc/profile_engine.py"
+      - "pandoc/receptor_profiles.json"
+      - "pandoc/core.py"
+      - "requirements.txt"
+
+jobs:
+  cyp19a1-heme:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out PanDoc
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install PanDoc dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install AutoDockTools 1.5.7
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-name: pandoc-adt
+          create-args: >-
+            -c bioconda
+            -c conda-forge
+            mgltools=1.5.7
+          init-shell: none
+          generate-run-shell: false
+          cache-environment: true
+
+      - name: Verify AutoDockTools
+        run: |
+          micromamba run -n pandoc-adt prepare_receptor4.py -h >/dev/null
+
+      - name: Prepare CYP19A1 curated heme receptor
+        env:
+          PANDOC_ADT_ENV: pandoc-adt
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from pandoc import profile_engine
+
+          out = Path("heme-smoke-output/CYP19A1")
+          result = profile_engine.prepare_from_profile("CYP19A1", out)
+          print(json.dumps(result, indent=2))
+
+          assert result["status"] == "prepared_curated_heme", result
+          receptor = Path(result["receptor_pdbqt"])
+          assert receptor.is_file() and receptor.stat().st_size > 0
+
+          audit_path = out / "prepared_receptor_heme" / "curated_heme_audit.json"
+          audit = json.loads(audit_path.read_text())
+          assert audit["pdbqt"]["heme_atom_count_in_pdbqt"] > 1
+          assert audit["pdbqt"]["iron_autodock_type"].upper() == "FE"
+          assert audit["pdbqt"]["coordination_distance_A"] <= 3.0
+          print("CYP19A1 CURATED HEME PREPARATION PASS")
+          PY
+
+      - name: Upload curated-heme evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyp19a1-curated-heme-smoke
+          path: heme-smoke-output/
+          if-no-files-found: warn
+          retention-days: 14
