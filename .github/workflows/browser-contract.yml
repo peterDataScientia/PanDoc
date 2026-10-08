@@ -11,6 +11,8 @@ on:
       - "tests/browser/**"
       - "requirements-browser.txt"
       - ".github/workflows/browser-contract.yml"
+      - "README.md"
+      - "README.md"
   pull_request:
     paths:
       - "app.py"
