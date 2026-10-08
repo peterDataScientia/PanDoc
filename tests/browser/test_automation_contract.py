@@ -27,7 +27,7 @@ def wait_marker_state(page, testid: str, state: str, timeout: int = 60_000):
             const el = document.querySelector(selector);
             return !!el && el.getAttribute('data-state') === expected;
         }""",
-        [f'[data-testid="{testid}"]', state],
+        arg=[f'[data-testid="{testid}"]', state],
         timeout=timeout,
     )
     return loc
