@@ -94,3 +94,34 @@ def glossary(st, items):
         + '</div></div>',
         unsafe_allow_html=True,
     )
+
+
+def automation_marker(st, name, *, state=None, value=None, text=None):
+    """Expose a stable, framework-independent DOM marker for browser automation.
+
+    External clients should prefer these data-testid markers for application
+    state, and accessible role/name selectors for Streamlit controls.
+    """
+    attrs = [f'data-testid="pandoc-{html.escape(str(name), quote=True)}"']
+    if state is not None:
+        attrs.append(f'data-state="{html.escape(str(state), quote=True)}"')
+    if value is not None:
+        attrs.append(f'data-value="{html.escape(str(value), quote=True)}"')
+    label = text if text is not None else (state if state is not None else value)
+    aria = html.escape(str(label or name), quote=True)
+    st.markdown(
+        '<div class="pd-automation-marker" role="status" aria-live="polite" '
+        + ' '.join(attrs)
+        + f' aria-label="{aria}"></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def automation_snapshot(st, *, stage, compute_node, complex_loaded, receptor_ready, reference_ready):
+    """Emit deterministic workflow-state markers used by Playwright-style clients."""
+    automation_marker(st, 'app-ready', state='ready')
+    automation_marker(st, 'workflow-stage', state=str(stage))
+    automation_marker(st, 'compute-node', state=str(compute_node))
+    automation_marker(st, 'complex', state='ready' if complex_loaded else 'pending')
+    automation_marker(st, 'receptor', state='ready' if receptor_ready else 'pending')
+    automation_marker(st, 'reference', state='ready' if reference_ready else 'pending')
