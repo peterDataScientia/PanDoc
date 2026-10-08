@@ -43,6 +43,29 @@ Official guidance: https://docs.streamlit.io/deploy/streamlit-community-cloud/ma
 4. Define a box, redock across seeds and inspect reference RMSD. RMSD uses RDKit CalcRMS, heavy atoms and symmetry handling in the fixed receptor coordinate frame. No independent ligand alignment is performed.
 5. Prepare candidate ligands from multi-record SDF or SMILES. By default, PanDoc can enumerate pH-dependent protonation/tautomer microstates with Molscrub at the receptor preparation pH; review the generated states before docking. A maximum of 25 prepared ligand states is accepted per run. Run Vina jobs in a separate process, inspect poses and scores, and export the complete experiment.
 
+## Practical receptor quality gates
+
+Reviewed profiles now distinguish **critical preparation errors** from
+**documented limitations**. A valid receptor with only warnings is
+`ready_with_warnings`, not an automatic failure. For example, the distant
+AR 2AMA chain discontinuity and an audited PGR 1A28 A:932 Meeko fallback
+remain visible as limitations, while severe overlaps, near-site deletions,
+missing PDBQT, nonfinite charges or missing HEM/Fe atom-preservation audits
+block preparation. CYP19A1 iron parameterization/metal-scoring uncertainty is
+disclosed as a review warning, **not** silently certified.
+
+A successful preparation is only **ready to attempt redocking**, never
+automatically publication-validated. Redock each reference ligand (FYN H8H,
+AR DHT, PGR STR, CYP19A1 ASD), inspect symmetry-aware RMSD and poses, then
+decide whether the protocol is suitable for production docking.
+
+Every reviewed-profile ZIP now includes `PROFILE_MANIFEST.json`, which
+explicitly names requested, completed, failed and pending targets. If CYP19A1
+is still running on Computer C, PanDoc labels the ZIP **partial** rather than
+implying that the missing target was prepared. Each prepared profile also
+includes `15_quality_assessment.json` with its blockers, warnings and
+required next validation step.
+
 ## Scientific behavior and limits
 
 - pH is an active preparation parameter. PanDoc runs PROPKA on the receptor to obtain structure-dependent residue pKa predictions and proposes residue states for review. Predictions do not silently override expert judgment: residues near their pKa are flagged, neutral histidines require explicit HID/HIE review, and manual/curated assignments remain available. For ligands, PanDoc can use Molscrub to enumerate protonation and tautomer microstates at the selected pH; users review/select the states used for docking.

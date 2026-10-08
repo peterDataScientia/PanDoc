@@ -1,0 +1,51 @@
+name: Reviewed profile end-to-end QC
+
+on:
+  pull_request:
+    paths:
+      - "pandoc/profile_engine.py"
+      - "pandoc/profile_quality.py"
+      - "pandoc/receptor_profiles.json"
+      - ".github/workflows/reviewed-profile-qc.yml"
+  workflow_dispatch:
+
+jobs:
+  prepare-profiles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install scientific dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Prepare real AR, FYN and PGR reviewed profiles
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from tempfile import TemporaryDirectory
+          from pandoc import profile_engine
+
+          with TemporaryDirectory() as directory:
+              out = Path(directory)
+              response = profile_engine.prepare_many(("FYN", "AR", "PGR"), out)
+              assert not response["errors"], response["errors"]
+              by_target = {item["target"]: item for item in response["results"]}
+              assert set(by_target) == {"FYN", "AR", "PGR"}
+              for target in by_target:
+                  report = by_target[target]
+                  assert report["ready_for_redocking"] is True, report
+                  assert report["production_validated"] is False, report
+                  assessment = json.loads((out / target / "15_quality_assessment.json").read_text())
+                  assert assessment["readiness"] != "blocked", assessment
+              assert by_target["PGR"]["quality_status"] == "ready_with_warnings"
+              assert by_target["PGR"]["remote_meeko_exclusions"]
+              assert by_target["AR"]["quality_status"] == "ready_with_warnings"
+              manifest = json.loads((out / "PROFILE_MANIFEST.json").read_text())
+              assert manifest["complete"] and not manifest["pending_targets"]
+              print("PASS: FYN, AR and PGR real structures ready for redocking; warnings documented.")
+          PY

@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review, profile_engine, compute
+from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review, profile_engine, profile_quality, compute
 
 PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.png'
 PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
@@ -533,6 +533,25 @@ def show_candidate_prep_job(task_key):
 
 
 
+def _refresh_profile_manifest():
+    """ZIP manifest accounts for pending curated jobs, not just local results."""
+    current = st.session_state.get('profile_prepare_result')
+    selected = st.session_state.get('reviewed_profile_requested') or []
+    if current is None or not selected:
+        return
+    directory = root/'reviewed_profile_preparation'
+    report = profile_quality.write_manifest(
+        directory,
+        selected,
+        current.get('results', []),
+        current.get('errors', []),
+        pending_targets=list(st.session_state.get('profile_remote_jobs') or {}),
+    )
+    current['manifest'] = report
+    current['bundle'] = core.bundle(directory)
+    st.session_state.profile_prepare_result = current
+
+
 def _merge_remote_profile_result(target_name, materialized_root, result):
     profile_root = root/'reviewed_profile_preparation'
     profile_root.mkdir(parents=True, exist_ok=True)
@@ -569,6 +588,7 @@ def _merge_remote_profile_result(target_name, materialized_root, result):
         'errors': errors,
         'bundle': core.bundle(profile_root),
     }
+    _refresh_profile_manifest()
 
 
 def show_profile_prep_jobs():
@@ -666,7 +686,7 @@ def show_profile_prep_jobs():
             profile_root = root/'reviewed_profile_preparation'
             current = st.session_state.get('profile_prepare_result')
             if current is not None and profile_root.exists():
-                current['bundle'] = core.bundle(profile_root)
+                _refresh_profile_manifest()
             st.rerun()
 
     live_profile_prep_jobs()
@@ -996,6 +1016,7 @@ with st.sidebar:
         disabled=not selected_profiles or profile_jobs_active,
     ):
         try:
+            st.session_state.reviewed_profile_requested = list(selected_profiles)
             targets_cfg, _profile_meta = profile_engine.load_profiles()
             standard_profiles = [
                 name for name in selected_profiles
@@ -1047,6 +1068,7 @@ with st.sidebar:
                         'PanDoc will retrieve and merge the completed receptor automatically.'
                     )
 
+            _refresh_profile_manifest()
             _profile_result = st.session_state.profile_prepare_result
             if _profile_result.get('errors'):
                 st.warning(
@@ -1063,8 +1085,15 @@ with st.sidebar:
 
     profile_result = st.session_state.get('profile_prepare_result')
     if profile_result:
+        manifest = profile_result.get('manifest') or {}
+        pending = manifest.get('pending_targets', [])
+        if pending:
+            st.warning(
+                'Partial profile ZIP: still waiting for ' + ', '.join(pending)
+                + '. It does not contain those receptor outputs.'
+            )
         st.download_button(
-            'Download prepared-profile bundle',
+            'Download partial profile ZIP' if pending else 'Download prepared-profile bundle',
             profile_result['bundle'],
             'PanDoc_Reviewed_Profile_Preparation.zip',
             'application/zip',
@@ -1104,7 +1133,37 @@ with workspace:
     if profile_result:
         with st.expander('Reviewed receptor profile preparation', expanded=True):
             if profile_result['results']:
-                st.dataframe(pd.DataFrame(profile_result['results']), hide_index=True, width='stretch')
+                overview = [
+                    {
+                        'target': record.get('target'),
+                        'PDB': record.get('pdb'),
+                        'preparation': record.get('status'),
+                        'QC': record.get('quality_status', 'not_assessed'),
+                        'warnings': record.get('quality_warning_count', '—'),
+                        'ready_for_redocking': record.get('ready_for_redocking', False),
+                        'production_validated': record.get('production_validated', False),
+                    }
+                    for record in profile_result['results']
+                ]
+                st.dataframe(pd.DataFrame(overview), hide_index=True, width='stretch')
+                with st.expander('Full profile results and documented limitations'):
+                    st.dataframe(pd.DataFrame(profile_result['results']),
+                                 hide_index=True, width='stretch')
+                    for record in profile_result['results']:
+                        if record.get('quality_status') == 'ready_with_warnings':
+                            st.warning(
+                                f"{record['target']}: prepared and ready for redocking, "
+                                f"with {record.get('quality_warning_count', 0)} documented "
+                                "warning(s). These are not automatic failures."
+                            )
+            quality_manifest = profile_result.get('manifest') or {}
+            pending_targets = quality_manifest.get('pending_targets', [])
+            if pending_targets:
+                st.warning(
+                    'This bundle is PARTIAL. Pending receptors: '
+                    + ', '.join(pending_targets)
+                    + '. Results cannot be called complete until their jobs finish.'
+                )
             if profile_result['errors']:
                 st.error('One or more reviewed profiles failed.')
                 st.dataframe(pd.DataFrame(profile_result['errors']), hide_index=True, width='stretch')
@@ -1120,8 +1179,13 @@ with workspace:
                 'the dedicated curated heme branch, which retains HEM and verifies Fe–Cys437 '
                 'coordination before accepting the receptor.'
             )
+            st.caption(
+                'Passing preparation QC means ready to attempt crystallographic-ligand '
+                'redocking, not confirmed RMSD recovery or publication readiness.'
+            )
             st.download_button(
-                'Download reviewed-profile bundle',
+                'Download partial reviewed-profile bundle'
+                if pending_targets else 'Download reviewed-profile bundle',
                 profile_result['bundle'],
                 'PanDoc_Reviewed_Profile_Preparation.zip',
                 'application/zip',

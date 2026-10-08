@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import core, pdb_search, phprep, structure_checks, heme_prep
+from . import core, pdb_search, phprep, structure_checks, heme_prep, profile_quality
 
 
 PROFILE_PATH = Path(__file__).with_name("receptor_profiles.json")
@@ -326,6 +326,19 @@ def prepare_from_profile(target, output_dir, force_curated=False):
         else:
             status = "prepared"
 
+    quality = profile_quality.assess(
+        target=target,
+        preparation_mode=mode,
+        receptor_pdbqt=receptor_pdbqt,
+        structure_issues=checks_after["issues"],
+        remote_exclusions=remote_exclusions,
+        heme_audit=heme_audit,
+    )
+    (root / "15_quality_assessment.json").write_text(json.dumps(quality, indent=2))
+    if not quality["ready_for_redocking"]:
+        first = quality["blockers"][0]["message"]
+        raise ValueError(f"{target} failed critical preparation QC: {first}")
+
     result = {
         "profile_set": meta.get("profile_set"),
         "engine_revision": "curated-heme-autodocktools-v8",
@@ -337,6 +350,11 @@ def prepare_from_profile(target, output_dir, force_curated=False):
         "pH": cfg["pH"],
         "preparation_mode": mode,
         "status": status,
+        "quality_status": quality["readiness"],
+        "quality_warning_count": quality["warning_count"],
+        "ready_for_redocking": quality["ready_for_redocking"],
+        "production_validated": quality["production_validated"],
+        "next_step": quality["next_step"],
         "retained_residues": retained,
         "validation_water_candidates": cfg.get("validation_water_candidates", []),
         "override_count": len(overrides),
@@ -369,7 +387,9 @@ def prepare_many(targets, output_root, force_curated=False):
             errors.append({"target": target, "error": str(exc)})
     _write_csv(results, out / "ALL_PROFILE_RESULTS.csv")
     _write_csv(errors, out / "ERRORS.csv")
+    quality_manifest = profile_quality.write_manifest(out, targets, results, errors)
     return {
+        "manifest": quality_manifest,
         "results": results,
         "errors": errors,
         "bundle": core.bundle(out),
