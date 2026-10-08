@@ -669,6 +669,7 @@ with st.sidebar:
             st.caption('Computer B · Connected ✓')
         else:
             st.warning('Computer B is not configured for this session.')
+    st.toggle('Assistant', key='assistant_open', value=False)
     st.divider()
     st.caption('✓ Complex loaded' if st.session_state.get('pdb') else '○ Load a complex')
     st.caption('✓ Receptor prepared' if st.session_state.get('preparation_id') else '○ Prepare receptor')
@@ -733,10 +734,7 @@ with st.sidebar:
 
 from pandoc import assistant
 
-heading, assistant_control = st.columns([7, 3])
-with assistant_control:
-    st.toggle('Assistant', key='assistant_open', value=False)
-if st.session_state.assistant_open:
+if st.session_state.get('assistant_open', False):
     workspace, assistant_panel = st.columns([3, 2], gap='large')
 else:
     workspace = st.container()
@@ -752,8 +750,6 @@ if stage.startswith('3') or stage.startswith('4'):
     if active:
         st.session_state.assistant_active_job = str(active)
 with workspace:
-    stage_title = stage.split(' · ')[1]
-    ui.shell_header(st, stage_title, '')
     ui.workflow_stepper(st, stage)
 
     profile_result = st.session_state.get('profile_prepare_result')
