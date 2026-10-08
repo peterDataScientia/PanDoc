@@ -568,9 +568,20 @@ def show_remote_job(remote, local_key, remote_key):
                 st.caption('Running on Computer B. Status and log refresh every 2 seconds.')
             else:
                 st.caption('Running on Computer C. Status and log refresh every 2 seconds.')
-            if st.button('Cancel job', key=remote['job_id']+'cancel'):
-                backend.cancel(remote)
-                st.info('Cancellation requested.')
+            cancel_key = remote['job_id'] + '_cancel_confirm'
+            if st.session_state.get(cancel_key):
+                st.warning('Cancel this calculation? Current progress for the active search may be lost.')
+                a, b = st.columns(2)
+                if a.button('Yes, cancel calculation', key=remote['job_id']+'_cancel_yes'):
+                    backend.cancel(remote)
+                    st.session_state.pop(cancel_key, None)
+                    st.info('Cancellation requested.')
+                if b.button('Keep running', key=remote['job_id']+'_cancel_no'):
+                    st.session_state.pop(cancel_key, None)
+                    st.rerun()
+            elif st.button('Cancel calculation', key=remote['job_id']+'cancel'):
+                st.session_state[cancel_key] = True
+                st.rerun()
         elif current['state'] == 'completed':
             target = root/'jobs'/('github_'+remote['job_id'])
             try:
@@ -612,9 +623,20 @@ def show_job(directory):
             st.progress(min(completed / total, 1.0), text=f'{completed}/{total} docking searches completed')
         if state['state'] in active_states:
             st.caption('Updates automatically every 2 seconds. Cancellation takes effect between docking searches.')
-            if st.button('Cancel job', key=str(directory)+'cancel'):
-                jobs.cancel(directory)
-                st.info('Cancellation requested.')
+            cancel_key = str(directory) + '_cancel_confirm'
+            if st.session_state.get(cancel_key):
+                st.warning('Cancel this calculation? Current progress for the active search may be lost.')
+                a, b = st.columns(2)
+                if a.button('Yes, cancel calculation', key=str(directory)+'_cancel_yes'):
+                    jobs.cancel(directory)
+                    st.session_state.pop(cancel_key, None)
+                    st.info('Cancellation requested.')
+                if b.button('Keep running', key=str(directory)+'_cancel_no'):
+                    st.session_state.pop(cancel_key, None)
+                    st.rerun()
+            elif st.button('Cancel calculation', key=str(directory)+'cancel'):
+                st.session_state[cancel_key] = True
+                st.rerun()
         log = Path(directory)/'worker.log'
         with st.expander('Calculation log', expanded=polling):
             st.code(log.read_text(errors='replace')[-16000:] if log.exists() else 'Waiting for worker.')
