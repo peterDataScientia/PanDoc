@@ -35,8 +35,10 @@ def run(directory):
                     update('cancelled', total=total)
                     return
                 update('running', total=total, current=f"{ligand['name']} / seed {seed}")
+                cpu_threads = max(1, int(config.get('cpu', 2)))
                 print(f"Starting docking: {ligand['name']} / seed {seed}", flush=True)
-                vina = Vina(sf_name='vina', cpu=config.get('cpu', 2), seed=int(seed), verbosity=2)
+                print(f"AutoDock Vina CPU threads: {cpu_threads}", flush=True)
+                vina = Vina(sf_name='vina', cpu=cpu_threads, seed=int(seed), verbosity=2)
                 vina.set_receptor(config['receptor'])
                 vina.set_ligand_from_file(ligand['path'])
                 print('\n=== AutoDock Vina live output ===', flush=True)
