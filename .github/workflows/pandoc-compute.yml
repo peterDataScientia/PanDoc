@@ -20,7 +20,8 @@ permissions:
   packages: read
 
 jobs:
-  dock:
+  standard-compute:
+    if: ${{ inputs.operation != 'prepare-profile' }}
     runs-on: ubuntu-latest
     timeout-minutes: 330
     steps:
@@ -48,6 +49,64 @@ jobs:
             -w /workspace \
             ghcr.io/peterdatascientia/pandoc-compute:latest \
             python -m pandoc.github_action_worker "${{ inputs.job_id }}" "${{ inputs.operation }}"
+
+      - name: Upload PanDoc results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pandoc-job-${{ inputs.job_id }}
+          path: .pandoc_action_runs/${{ inputs.job_id }}/
+          if-no-files-found: warn
+          retention-days: 7
+
+  curated-profile-prep:
+    if: ${{ inputs.operation == 'prepare-profile' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out queued job
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11 for PanDoc
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install PanDoc scientific dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install AutoDockTools 1.5.7
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-name: pandoc-adt
+          create-args: >-
+            -c bioconda
+            -c conda-forge
+            mgltools=1.5.7
+          init-shell: none
+          generate-run-shell: false
+          cache-environment: true
+
+      - name: Verify curated-heme backend
+        run: |
+          micromamba run -n pandoc-adt prepare_receptor4.py -h >/dev/null
+          python - <<'PY'
+          import sys
+          import meeko
+          print("PanDoc Python:", sys.version)
+          print("Meeko:", meeko.__version__)
+          PY
+
+      - name: Run reviewed receptor profile preparation
+        env:
+          PANDOC_JOB_KEY: ${{ secrets.PANDOC_JOB_KEY }}
+          PANDOC_ADT_ENV: pandoc-adt
+        run: |
+          test -n "$PANDOC_JOB_KEY" || { echo "PANDOC_JOB_KEY repository secret is not configured."; exit 1; }
+          python -m pandoc.github_action_worker "${{ inputs.job_id }}" prepare-profile
 
       - name: Upload PanDoc results
         if: always()
