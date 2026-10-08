@@ -186,6 +186,14 @@ class GitHubCompute:
         )
         return self._queue(payload, "prepare-candidates")
 
+    def submit_profile_preparation(self, target: str) -> dict:
+        request = {"target": str(target)}
+        payload = _encrypt_archive(
+            {"request.json": json.dumps(request, indent=2).encode()},
+            self.job_key,
+        )
+        return self._queue(payload, "prepare-profile")
+
     def _run(self, job: dict):
         params = {
             "branch": job["branch"],
