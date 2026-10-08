@@ -540,7 +540,7 @@ def show_remote_job(remote, local_key, remote_key):
     active_states = ('queued', 'running', 'starting')
     polling = state['state'] in active_states
 
-    @st.fragment(run_every=5 if polling else None)
+    @st.fragment(run_every=2 if polling else None)
     def live_remote_job():
         try:
             current = backend.status(remote)
@@ -551,11 +551,21 @@ def show_remote_job(remote, local_key, remote_key):
         st.info(f"{backend_label} job: {current['state']} · {remote['job_id'][:8]}")
         with st.expander('Compute progress', expanded=True):
             show_compute_progress(backend, remote)
+
+        # Surface the worker output directly in PanDoc so the user can watch
+        # Vina/worker progress without opening Kaggle or GitHub.
+        try:
+            live_log = backend.logs(remote, tail=160)
+        except Exception as exc:
+            live_log = f'Waiting for calculation log…\n{exc}'
+        with st.expander('Live calculation log', expanded=True):
+            st.code(live_log or 'Waiting for worker.', language=None)
+
         if current['state'] in active_states:
             if remote.get('backend') == 'kaggle-direct':
-                st.caption('Runs directly on the warm Kaggle session. Status refreshes every 5 seconds.')
+                st.caption('Runs directly on the warm Kaggle session. Status and log refresh every 2 seconds.')
             else:
-                st.caption('Runs on a free GitHub-hosted runner. Status refreshes every 5 seconds.')
+                st.caption('Runs on a free GitHub-hosted runner. Status and log refresh every 2 seconds.')
             if st.button('Cancel job', key=remote['job_id']+'cancel'):
                 backend.cancel(remote)
                 st.info('Cancellation requested.')
