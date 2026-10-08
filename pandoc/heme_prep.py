@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import math
+import os
 import shutil
+import subprocess
 from pathlib import Path
 
 from . import core
@@ -13,76 +14,14 @@ class CuratedHemePreparationError(ValueError):
     pass
 
 
-PACKAGED_HEM_TEMPLATE = Path(__file__).with_name("templates") / "HEM_meeko_template.json"
-HEME_TEMPLATE_KEY = "HEM_PANDOC"
-DEFAULT_CYP450_THIOLATE_TEMPLATE = "CYX-"
-
-
 def _atom_id(atom):
     chain = atom["chain"] or "_"
     return f"{chain}:{atom['number']}{atom['icode']}"
 
 
-def _meeko_selector(residue_id: str):
-    """Convert PanDoc chain:number[:resname] IDs to Meeko chain:number selectors."""
-    parts = str(residue_id).split(":")
-    if len(parts) < 2:
-        raise CuratedHemePreparationError(f"Invalid residue identifier: {residue_id}")
-    chain, number = parts[0], parts[1]
-    chain = "" if chain == "_" else chain
-    return f"{chain}:{number}"
-
-
-def _set_assignment(assignments: str, residue: str, template: str):
-    """Add or replace one Meeko --set_template assignment deterministically."""
-    residue = _meeko_selector(residue)
-    tokens = []
-    replaced = False
-    for raw in (assignments or "").split(","):
-        raw = raw.strip()
-        if not raw:
-            continue
-        lhs = raw.split("=", 1)[0].strip()
-        if lhs == residue:
-            if not replaced:
-                tokens.append(f"{residue}={template}")
-                replaced = True
-            continue
-        tokens.append(raw)
-    if not replaced:
-        tokens.append(f"{residue}={template}")
-    return ",".join(tokens)
-
-
-def _copy_packaged_heme_template(component: str, output_json: Path):
-    """Copy the reviewed static HEM template into the experiment for provenance.
-
-    Runtime CCD template generation is intentionally not used for HEM because
-    upstream Meeko documents Fe-containing cofactor/CCD failures. The packaged
-    template is versioned with PanDoc and can therefore be audited exactly.
-    """
-    component = str(component or "").strip().upper()
-    if component != "HEM":
-        raise CuratedHemePreparationError(
-            f"The curated static template currently supports HEM, not {component or 'an empty component'}."
-        )
-    if not PACKAGED_HEM_TEMPLATE.is_file():
-        raise CuratedHemePreparationError(
-            f"Packaged HEM template is missing: {PACKAGED_HEM_TEMPLATE}"
-        )
-    output_json = Path(output_json)
-    output_json.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(PACKAGED_HEM_TEMPLATE, output_json)
-    digest = hashlib.sha256(output_json.read_bytes()).hexdigest()
-    return output_json, digest
-
-
 def _find_heme_atoms(pdb: str, component: str):
     component = str(component or "HEM").upper()
-    return [
-        atom for atom in core.atoms(pdb)
-        if atom["res"].upper() == component
-    ]
+    return [a for a in core.atoms(pdb) if a["res"].upper() == component]
 
 
 def validate_heme_site(
@@ -94,7 +33,6 @@ def validate_heme_site(
     protein_donor_atom: str = "SG",
     max_coordination_distance_A: float = 3.0,
 ):
-    """Validate the rigid P450 heme site before/after receptor conversion."""
     atoms = core.atoms(pdb)
     heme_atoms = _find_heme_atoms(pdb, heme_component)
     if not heme_atoms:
@@ -147,124 +85,124 @@ def validate_heme_site(
         "coordination_distance_A": round(distance, 3),
         "maximum_coordination_distance_A": float(max_coordination_distance_A),
         "heme_atom_count": len(heme_atoms),
-        "heme_heavy_atom_names": sorted(
-            a["name"] for a in heme_atoms if a["element"] not in ("H", "D")
-        ),
     }
 
 
-def _link_endpoint(line: str, second: bool = False):
-    if second:
-        name = line[42:46].strip()
-        res = line[47:50].strip()
-        chain = line[51:52].strip() or "_"
-        number = line[52:56].strip() + line[56:57].strip()
-    else:
-        name = line[12:16].strip()
-        res = line[17:20].strip()
-        chain = line[21:22].strip() or "_"
-        number = line[22:26].strip() + line[26:27].strip()
-    return name, res, f"{chain}:{number}"
-
-
-def _strip_coordination_connectivity(
-    pdb: str,
-    *,
-    coordination_residue: str,
-    heme_residue: str,
-    protein_donor_atom: str = "SG",
-    heme_iron_atom: str = "FE",
-):
-    """Remove only the explicit Fe-donor connectivity record for rigid PDBQT conversion.
-
-    Coordinates and atoms are untouched. The physical coordination geometry is
-    checked before and after conversion. Internal HEM CONECT records are retained.
-    """
-    atoms = core.atoms(pdb)
-    heme_selector = _meeko_selector(heme_residue)
-    coord_selector = _meeko_selector(coordination_residue)
-
-    donor = [
-        a for a in atoms
-        if _meeko_selector(_atom_id(a)) == coord_selector
-        and a["name"].upper() == protein_donor_atom.upper()
-    ]
-    iron = [
-        a for a in atoms
-        if _meeko_selector(_atom_id(a)) == heme_selector
-        and a["name"].upper() == heme_iron_atom.upper()
-    ]
-    donor_serial = int(donor[0]["line"][6:11]) if len(donor) == 1 else None
-    iron_serial = int(iron[0]["line"][6:11]) if len(iron) == 1 else None
-
+def _protein_without_component(pdb: str, component: str) -> str:
+    component = str(component).upper()
     kept = []
-    omitted = []
     for line in pdb.splitlines():
-        if line.startswith("LINK"):
-            left = _link_endpoint(line, False)
-            right = _link_endpoint(line, True)
-            left_id = _meeko_selector(left[2])
-            right_id = _meeko_selector(right[2])
-            pair = {
-                (left_id, left[0].upper()),
-                (right_id, right[0].upper()),
-            }
-            wanted = {
-                (coord_selector, protein_donor_atom.upper()),
-                (heme_selector, heme_iron_atom.upper()),
-            }
-            if pair == wanted:
-                omitted.append(line)
-                continue
-
-        if line.startswith("CONECT") and donor_serial is not None and iron_serial is not None:
-            try:
-                ids = [
-                    int(line[i:i + 5])
-                    for i in range(6, len(line), 5)
-                    if line[i:i + 5].strip()
-                ]
-            except ValueError:
-                ids = []
-            if ids:
-                source = ids[0]
-                targets = []
-                changed = False
-                for target in ids[1:]:
-                    if {source, target} == {donor_serial, iron_serial}:
-                        changed = True
-                        continue
-                    targets.append(target)
-                if changed:
-                    omitted.append(line)
-                    if targets:
-                        kept.append("CONECT" + "".join(f"{n:5d}" for n in [source] + targets))
-                    continue
-
+        if line.startswith(("ATOM  ", "HETATM")) and line[17:20].strip().upper() == component:
+            continue
+        if line.startswith(("CONECT", "LINK  ")):
+            continue
+        if line.strip() == "END":
+            continue
         kept.append(line)
+    return "\n".join(kept).rstrip() + "\nEND\n"
 
-    return "\n".join(kept).rstrip() + "\n", omitted
+
+def _component_only(pdb: str, component: str) -> str:
+    component = str(component).upper()
+    lines = [
+        line for line in pdb.splitlines()
+        if line.startswith(("ATOM  ", "HETATM")) and line[17:20].strip().upper() == component
+    ]
+    if not lines:
+        raise CuratedHemePreparationError(f"Component {component} was not found.")
+    return "\n".join(lines) + "\nEND\n"
 
 
-def _pdbqt_atom_names(path: Path, residue_name: str):
-    names = set()
-    for line in Path(path).read_text(errors="replace").splitlines():
+def _merge_prepared_protein_and_heme(prepared_protein: str, heme_pdb: str) -> str:
+    protein_lines = [
+        line for line in prepared_protein.splitlines()
+        if line.startswith(("ATOM  ", "HETATM", "TER"))
+    ]
+    heme_lines = [
+        line for line in heme_pdb.splitlines()
+        if line.startswith(("ATOM  ", "HETATM"))
+    ]
+    return "\n".join(protein_lines + heme_lines) + "\nEND\n"
+
+
+def _adt_command():
+    explicit = os.environ.get("PANDOC_ADT_PREPARE_RECEPTOR4", "").strip()
+    if explicit:
+        pythonsh = os.environ.get("PANDOC_ADT_PYTHON", "").strip()
+        return ([pythonsh, explicit] if pythonsh else [explicit]), "configured-path"
+
+    direct = shutil.which("prepare_receptor4.py")
+    if direct:
+        return [direct], "path"
+
+    micromamba = shutil.which("micromamba")
+    env_name = os.environ.get("PANDOC_ADT_ENV", "pandoc-adt").strip() or "pandoc-adt"
+    if micromamba:
+        return [micromamba, "run", "-n", env_name, "prepare_receptor4.py"], f"micromamba:{env_name}"
+
+    raise CuratedHemePreparationError(
+        "Curated heme preparation requires AutoDockTools prepare_receptor4.py. "
+        "The Meeko CCD route is intentionally not used for HEM because Meeko's "
+        "HEM automatic template construction is a known unsupported/failing case. "
+        "Run this profile on the PanDoc Computer C curated-heme backend."
+    )
+
+
+def _pdbqt_atom_records(path: Path):
+    rows = []
+    for line in path.read_text(errors="replace").splitlines():
         if not line.startswith(("ATOM", "HETATM")):
             continue
-        if len(line) >= 20 and line[17:20].strip().upper() == residue_name.upper():
-            names.add(line[12:16].strip())
-    return names
-
-
-def _pdbqt_has_iron(path: Path):
-    for line in Path(path).read_text(errors="replace").splitlines():
-        if not line.startswith(("ATOM", "HETATM")):
+        try:
+            rows.append({
+                "line": line,
+                "name": line[12:16].strip(),
+                "res": line[17:20].strip(),
+                "chain": line[21:22].strip(),
+                "number": line[22:26].strip(),
+                "xyz": [float(line[30:38]), float(line[38:46]), float(line[46:54])],
+                "atype": line.split()[-1] if line.split() else "",
+            })
+        except Exception:
             continue
-        atom_name = line[12:16].strip().upper() if len(line) >= 16 else ""
-        autodock_type = line.split()[-1].upper() if line.split() else ""
-        if atom_name == "FE" or autodock_type == "FE":
-            return True
-    return False
+    return rows
+
+
+def _validate_pdbqt_heme(path: Path, before: dict):
+    rows = _pdbqt_atom_records(path)
+    heme = [r for r in rows if r["res"].upper() == before["heme_component"].upper()]
+    iron = [
+        r for r in heme
+        if r["name"].upper() == before["iron_atom"].upper()
+        or r["atype"].upper() == "FE"
+    ]
+    if len(iron) != 1:
+        raise CuratedHemePreparationError(
+            "Prepared receptor PDBQT does not contain exactly one retained heme Fe atom."
+        )
+
+    chain, number = before["coordination_residue"].split(":", 1)
+    donor = [
+        r for r in rows
+        if (r["chain"] or "_") == chain
+        and r["number"] == number
+        and r["name"].upper() == before["protein_donor_atom"].upper()
+    ]
+    if len(donor) != 1:
+        raise CuratedHemePreparationError(
+            "Prepared receptor PDBQT does not contain the reviewed heme-coordinating donor atom."
+        )
+
+    distance = math.dist(iron[0]["xyz"], donor[0]["xyz"])
+    if distance > before["maximum_coordination_distance_A"]:
+        raise CuratedHemePreparationError(
+            f"Prepared receptor lost the reviewed Fe-donor geometry ({distance:.3f} Å)."
+        )
+    return {
+        "heme_atom_count_in_pdbqt": len(heme),
+        "iron_autodock_type": iron[0]["atype"],
+        "coordination_distance_A": round(distance, 3),
+    }
 
 
 def prepare_curated_heme_receptor(
@@ -276,14 +214,16 @@ def prepare_curated_heme_receptor(
     coordination_residue: str,
     heme_iron_atom: str = "FE",
     protein_donor_atom: str = "SG",
-    coordination_template: str = DEFAULT_CYP450_THIOLATE_TEMPLATE,
     max_coordination_distance_A: float = 3.0,
 ):
-    """Prepare a rigid CYP450 heme receptor with an explicit reviewed HEM template.
+    """Prepare a rigid P450-like heme receptor without Meeko HEM inference.
 
-    The proximal cysteine is forced to Meeko's thiolate template (CYX- by
-    default), HEM is forced to the packaged HEM_PANDOC template, and no residue
-    is deleted to make preparation pass.
+    The protein is first prepared with PanDoc's reviewed Meeko residue states.
+    The crystallographic heme coordinates are then merged back unchanged and the
+    complete rigid receptor is converted to PDBQT with AutoDockTools
+    prepare_receptor4.py, retaining non-standard residues. This follows the
+    established AutoDock/Vina receptor-preparation route used for heme proteins
+    while avoiding Meeko's known HEM CCD-template failure.
     """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
@@ -300,115 +240,90 @@ def prepare_curated_heme_receptor(
         json.dumps(before, indent=2)
     )
 
-    template_path, template_sha256 = _copy_packaged_heme_template(
-        heme_component,
-        directory / f"{heme_component.upper()}_meeko_template.json",
-    )
+    protein_only = _protein_without_component(pdb, heme_component)
+    (directory / "protein_only_for_reviewed_prep.pdb").write_text(protein_only)
 
-    heme_selector = _meeko_selector(before["heme_residue"])
-    assignments = _set_assignment(
-        template_assignments,
-        coordination_residue,
-        coordination_template,
+    # Meeko is used only for standard protein residue chemistry/protonation.
+    protein_pdbqt = core.prepare_receptor(
+        protein_only,
+        directory / "protein_meeko",
+        template_assignments=template_assignments,
     )
-    assignments = _set_assignment(assignments, heme_selector, HEME_TEMPLATE_KEY)
-    (directory / "meeko_template_assignments.txt").write_text(assignments + "\n")
-
-    meeko_input, omitted_connectivity = _strip_coordination_connectivity(
-        pdb,
-        coordination_residue=coordination_residue,
-        heme_residue=before["heme_residue"],
-        protein_donor_atom=protein_donor_atom,
-        heme_iron_atom=heme_iron_atom,
-    )
-    (directory / "receptor_for_meeko.pdb").write_text(meeko_input)
-    (directory / "omitted_coordination_records.txt").write_text(
-        "\n".join(omitted_connectivity)
-        if omitted_connectivity
-        else "No explicit Fe-donor LINK/CONECT record was present in the Meeko input.\n"
-    )
-
-    try:
-        receptor_pdbqt = core.prepare_receptor(
-            meeko_input,
-            directory / "meeko",
-            template_assignments=assignments,
-            add_templates=[template_path],
-        )
-    except ValueError as exc:
+    del protein_pdbqt
+    prepared_protein_path = directory / "protein_meeko" / "receptor_prepared.pdb"
+    if not prepared_protein_path.is_file():
         raise CuratedHemePreparationError(
-            "Curated heme receptor conversion failed with the packaged HEM template "
-            f"and {coordination_residue}={coordination_template}. No HEM atom or "
-            f"protein residue was deleted. Review the Meeko diagnostics: {exc}"
-        ) from exc
-
-    prepared_pdb = directory / "meeko" / "receptor_prepared.pdb"
-    if not prepared_pdb.is_file():
-        raise CuratedHemePreparationError(
-            "Meeko did not write receptor_prepared.pdb for curated heme verification."
+            "Reviewed protein-only preparation did not produce receptor_prepared.pdb."
         )
 
-    after = validate_heme_site(
-        prepared_pdb.read_text(),
+    heme_pdb = _component_only(pdb, heme_component)
+    (directory / "heme_crystallographic.pdb").write_text(heme_pdb)
+    merged = _merge_prepared_protein_and_heme(
+        prepared_protein_path.read_text(),
+        heme_pdb,
+    )
+    merged_path = directory / "protein_reviewed_plus_heme.pdb"
+    merged_path.write_text(merged)
+
+    # Verify the merge before conversion.
+    merge_audit = validate_heme_site(
+        merged,
         heme_component=heme_component,
         coordination_residue=coordination_residue,
         heme_iron_atom=heme_iron_atom,
         protein_donor_atom=protein_donor_atom,
         max_coordination_distance_A=max_coordination_distance_A,
     )
+    (directory / "heme_site_after_merge.json").write_text(json.dumps(merge_audit, indent=2))
 
-    if after["heme_atom_count"] != before["heme_atom_count"]:
-        raise CuratedHemePreparationError(
-            "HEM atom count changed during receptor preparation "
-            f"({before['heme_atom_count']} -> {after['heme_atom_count']})."
-        )
-
-    if not _pdbqt_has_iron(Path(receptor_pdbqt)):
-        raise CuratedHemePreparationError(
-            "The generated receptor PDBQT does not contain an Fe atom."
-        )
-
-    pdbqt_heme_names = _pdbqt_atom_names(Path(receptor_pdbqt), heme_component)
-    missing_heme_heavy = sorted(
-        set(before["heme_heavy_atom_names"]) - pdbqt_heme_names
+    prefix, backend = _adt_command()
+    receptor_pdbqt = directory / "receptor_curated_heme.pdbqt"
+    cmd = prefix + [
+        "-r", str(merged_path),
+        "-o", str(receptor_pdbqt),
+        "-U", "nphs_lps_waters",
+        "-v",
+    ]
+    completed = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=300,
     )
-    if missing_heme_heavy:
+    (directory / "autodocktools_command.json").write_text(json.dumps({
+        "backend": backend,
+        "command": cmd,
+        "returncode": completed.returncode,
+    }, indent=2))
+    (directory / "autodocktools_preparation.log").write_text(
+        completed.stdout + "\n" + completed.stderr
+    )
+
+    if completed.returncode != 0 or not receptor_pdbqt.is_file() or receptor_pdbqt.stat().st_size == 0:
         raise CuratedHemePreparationError(
-            "The generated receptor PDBQT is missing HEM heavy atoms: "
-            + ", ".join(missing_heme_heavy)
+            "AutoDockTools curated heme receptor conversion failed. "
+            f"Review {directory / 'autodocktools_preparation.log'}."
         )
+
+    pdbqt_audit = _validate_pdbqt_heme(receptor_pdbqt, before)
 
     audit = {
-        "mode": "curated_heme",
+        "mode": "curated_heme_autodocktools",
         "status": "prepared_curated_heme",
+        "protein_preparation": "Meeko reviewed standard-residue states",
+        "heme_preparation": "crystallographic HEM retained; AutoDockTools receptor conversion",
+        "autodocktools_backend": backend,
         "before": before,
-        "after": after,
-        "heme_retained_in_pdbqt": True,
-        "heme_pdbqt_heavy_atoms_verified": True,
+        "after_protein_heme_merge": merge_audit,
+        "pdbqt": pdbqt_audit,
         "remote_residue_exclusion": False,
-        "residue_deletion": False,
-        "heme_template_key": HEME_TEMPLATE_KEY,
-        "heme_template_assignment": f"{heme_selector}={HEME_TEMPLATE_KEY}",
-        "coordination_template_assignment": (
-            f"{_meeko_selector(coordination_residue)}={coordination_template}"
-        ),
-        "template_source": "PanDoc packaged reviewed HEM template",
-        "template_file": str(template_path),
-        "template_sha256": template_sha256,
-        "coordination_connectivity_records_omitted_for_pdbqt_conversion": len(
-            omitted_connectivity
-        ),
-        "coordination_geometry_preserved_by_distance_check": True,
+        "ccd_template_generation": False,
         "validation_required": True,
         "validation_note": (
-            "Successful receptor conversion does not establish docking validity. "
-            "Redock the crystallographic ligand and evaluate fixed-frame heavy-atom RMSD "
-            "before production docking."
+            "Successful preparation does not establish docking validity. "
+            "Redock the crystallographic substrate and evaluate fixed-frame "
+            "heavy-atom RMSD before production docking."
         ),
-        "upstream_notes": [
-            "Meeko issue 207 documents HEM/Fe-containing cofactor CCD template failures.",
-            "Meeko 0.8 supports explicit --add_templates and Fe-aware Gasteiger handling.",
-        ],
     }
     (directory / "curated_heme_audit.json").write_text(json.dumps(audit, indent=2))
-    return Path(receptor_pdbqt), audit
+    return receptor_pdbqt, audit
