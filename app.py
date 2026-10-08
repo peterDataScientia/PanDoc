@@ -317,9 +317,10 @@ def kaggle_backend():
     if not base_url or not api_key:
         return None
     try:
-        backend = compute.kaggle_from_credentials(base_url, api_key)
-        backend.health()
-        return backend
+        # Do not reject the backend during a Streamlit rerun because a Quick
+        # Tunnel health probe was transiently slow. Let the actual submit/status
+        # request report the precise error and trigger GitHub fallback if needed.
+        return compute.kaggle_from_credentials(base_url, api_key)
     except Exception:
         return None
 
