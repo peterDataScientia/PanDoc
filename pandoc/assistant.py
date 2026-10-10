@@ -78,11 +78,11 @@ def ask(question, api_key, context=None, model=MODEL, history=None, evidence=Non
     """
     from groq import Groq
     guide = Path(__file__).with_name('assistant_guide.md').read_text()
-    messages = [{'role': 'system', 'content': SYSTEM+'\\n\\n'+guide}]
+    messages = [{'role': 'system', 'content': SYSTEM+'\n\n'+guide}]
     for turn in (history or [])[-8:]:
         messages.extend([{'role': 'user', 'content': turn['question']}, {'role': 'assistant', 'content': turn['answer']}])
     if context is not None:
-        messages.append({'role': 'user', 'content': 'Use this current snapshot for current results; older conversation context may differ:\\n'+json.dumps(context, allow_nan=False)})
+        messages.append({'role': 'user', 'content': 'Use this current snapshot for current results; older conversation context may differ:\n'+json.dumps(context, allow_nan=False)})
     messages.append({'role': 'user', 'content': question})
 
     tool_enabled = context is not None and evidence is not None
