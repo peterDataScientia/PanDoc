@@ -185,7 +185,7 @@ def test_greeting_plus_real_scientific_request_reaches_groq(monkeypatch):
     assert len(sent) == 1
     assert sent[0]["tools"]
     prompt = sent[0]["messages"][-2]["content"]
-    assert "optional PanDoc background" in prompt.lower()
+    assert "optional pandoc background" in prompt.lower()
 
 
 def test_streamlit_greeting_keeps_chat_history_without_sending_groq(monkeypatch, tmp_path):
