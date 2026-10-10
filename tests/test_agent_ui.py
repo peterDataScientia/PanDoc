@@ -18,7 +18,6 @@ def _panel(monkeypatch, tmp_path):
     def fake_secret(_st, name):
         return {
             "PANDOC_AGENT_ENABLED": "true",
-            "PANDOC_AGENT_ACCESS_KEY": "pilot-password",
             "GROQ_API_KEY": "",
             "GROQ_MODEL": "",
         }.get(name, "")
@@ -65,13 +64,11 @@ def _panel(monkeypatch, tmp_path):
     )
     at = AppTest.from_string(script).run()
     assert not list(at.exception)
-    _widget(at.text_input, "pandoc_agent_access_entry").set_value("pilot-password").run()
     assert not list(at.exception)
     assert not calls
-    # Password entry alone does not silently unlock; user must submit.
-    next(b for b in at.button if b.label == "Unlock agent").click().run()
-    assert not list(at.exception)
-    assert at.session_state["pandoc_agent_unlocked"] is True
+    assert not any("access key" in x.label.lower() for x in at.text_input)
+    assert "Unlock agent" not in [button.label for button in at.button]
+    assert any("Start task" in button.label for button in at.button)
     return at, calls, task_id
 
 
@@ -159,13 +156,8 @@ def test_existing_scientific_chat_routes_followups_to_active_task(monkeypatch, t
                             calls.append((ident, message)) or "The observed ligand was R37."
                         ))
     st = SimpleNamespace(
-        secrets={"PANDOC_AGENT_ENABLED": "true",
-                 "PANDOC_AGENT_ACCESS_KEY": "pw"},
-        session_state={
-            "pandoc_agent_unlocked": True,
-            "pandoc_agent_key_verifier": agent_ui.hashlib.sha256(b"pw").hexdigest(),
-            "pandoc_agent_task_id": task_id,
-        },
+        secrets={"PANDOC_AGENT_ENABLED": "true"},
+        session_state={"pandoc_agent_task_id": task_id},
     )
     assert agent_ui.handle_chat_request(st, "What did you find?") == "The observed ligand was R37."
     assert calls == [(task_id, "What did you find?")]
@@ -176,15 +168,13 @@ def test_existing_scientific_chat_routes_followups_to_active_task(monkeypatch, t
 
 
 
-def test_wrong_access_key_gives_visible_feedback_and_no_actions(monkeypatch, tmp_path):
-    calls = []
+def test_no_frontend_key_or_unlock_button_even_when_legacy_secret_exists(monkeypatch, tmp_path):
     monkeypatch.setattr(agent_ui, "_secret", lambda st, name: {
         "PANDOC_AGENT_ENABLED": "true",
-        "PANDOC_AGENT_ACCESS_KEY": "correct-agent-key",
+        "PANDOC_AGENT_ACCESS_KEY": "legacy-unused-secret",
+        "GROQ_API_KEY": "backend-only",
     }.get(name, ""))
     monkeypatch.setattr(agent_ui, "_task_root", lambda st: tmp_path)
-    monkeypatch.setattr(agent_ui.task_agent, "create",
-                        lambda *args, **kwargs: calls.append("unexpected"))
     script = (
         "import streamlit as st\n"
         "from pandoc import agent_ui\n"
@@ -192,24 +182,23 @@ def test_wrong_access_key_gives_visible_feedback_and_no_actions(monkeypatch, tmp
     )
     at = AppTest.from_string(script).run()
     assert not list(at.exception)
-    assert any("locked" in item.value.lower() for item in at.info)
-    assert "Unlock agent" in [b.label for b in at.button]
-    _widget(at.text_input, "pandoc_agent_access_entry").set_value("groq-not-the-access-key").run()
-    assert not list(at.exception)
-    assert "Start task · Retrieve and inspect PDB" not in [b.label for b in at.button]
-    next(b for b in at.button if b.label == "Unlock agent").click().run()
-    assert not list(at.exception)
-    assert any("Access key not recognized" in item.value for item in at.error)
-    assert not calls
-    assert not at.session_state.get("pandoc_agent_unlocked", False)
+    assert not any("key" in inp.label.lower() for inp in at.text_input)
+    assert not any("Unlock" in btn.label or "Lock agent" in btn.label for btn in at.button)
+    assert any("Start task" in btn.label for btn in at.button)
+    assert any("Agent ready" in item.value for item in at.markdown)
+    assert "PANDOC_AGENT_ACCESS_KEY" not in "".join(m.value for m in at.markdown)
 
-    _widget(at.text_input, "pandoc_agent_access_entry").set_value("correct-agent-key").run()
-    next(b for b in at.button if b.label == "Unlock agent").click().run()
+
+def test_agent_remains_deployment_controlled_not_password_controlled(monkeypatch, tmp_path):
+    monkeypatch.setattr(agent_ui, "_secret", lambda st, name: {
+        "PANDOC_AGENT_ENABLED": "false",
+        "PANDOC_AGENT_ACCESS_KEY": "ignored",
+    }.get(name, ""))
+    script = (
+        "import streamlit as st\n"
+        "from pandoc import agent_ui\n"
+        "agent_ui.render(st, " + repr(str(tmp_path)) + ", lambda: None)\n"
+    )
+    at = AppTest.from_string(script).run()
     assert not list(at.exception)
-    assert at.session_state["pandoc_agent_unlocked"] is True
-    assert any("Agent unlocked" in item.value for item in at.success)
-    assert any("Start task" in b.label for b in at.button)
-    next(b for b in at.button if b.label == "Lock agent").click().run()
-    assert not list(at.exception)
-    assert not at.session_state.get("pandoc_agent_unlocked", False)
-    assert "Unlock agent" in [b.label for b in at.button]
+    assert not [btn for btn in at.button if "Start task" in btn.label]
