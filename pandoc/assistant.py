@@ -122,8 +122,8 @@ def checked_product_description(answer, overview):
     if not overview:
         return answer
     if len(answer.split()) > 100 or re.search(
-        r"\\b(workflow_stage|experiment_state|result_scope|available_actions|"
-        r"current snapshot|snapshot shows|click load complex)\\b",
+        r"\b(workflow_stage|experiment_state|result_scope|available_actions|"
+        r"current snapshot|snapshot shows|click load complex)\b",
         answer, re.IGNORECASE,
     ):
         return BRIEF_PRODUCT_DESCRIPTION
