@@ -12,7 +12,7 @@ import re
 import tempfile
 from pathlib import Path
 
-from . import task_agent, agent_planner, agent_conversation
+from . import task_agent, agent_planner, agent_conversation, assistant
 
 
 def _secret(st, key):
@@ -175,6 +175,62 @@ def render_task_chat(st, root, task_id, backend_factory):
         st.error(str(exc))
 
 
+def render_general_chat(st, root, backend_factory):
+    """Chat freely before a task exists; explicit PDB requests create tasks."""
+    st.markdown("**Chat with PanDoc**")
+    st.caption(
+        "Ask a scientific question, discuss a docking approach, or say "
+        "'Inspect PDB 1LF2'. You do not need a task ID or an API key."
+    )
+    history = st.session_state.get("pandoc_agent_lobby_history", [])
+    with st.container(height=280, border=True):
+        if not history:
+            with st.chat_message("assistant"):
+                st.markdown(
+                    "Hello! I can discuss molecular docking or inspect a "
+                    "structure such as PDB 1LF2. What would you like to do?"
+                )
+        for turn in history[-12:]:
+            with st.chat_message("user"):
+                st.markdown(turn["question"])
+            with st.chat_message("assistant"):
+                st.markdown(turn["answer"])
+    question = st.chat_input(
+        "Ask a question or tell PanDoc to inspect a PDB...",
+        key="pandoc_agent_lobby_input", max_chars=2000,
+    )
+    if not question:
+        return
+    try:
+        with st.spinner("Thinking about your request..."):
+            answer = handle_chat_request(st, question, backend_factory=backend_factory)
+            if answer is None:
+                api_key = _secret(st, "GROQ_API_KEY")
+                if api_key:
+                    answer = assistant.ask(
+                        question, api_key,
+                        history=history[-8:],
+                        model=_secret(st, "GROQ_MODEL") or agent_planner.MODEL,
+                    )
+                else:
+                    answer = (
+                        "I can retrieve and inspect an explicit PDB ID right now "
+                        "(for example, 'Inspect PDB 1LF2'). For open-ended AI "
+                        "conversation, the app owner must configure GROQ_API_KEY "
+                        "privately in the backend."
+                    )
+            history = (history + [{"question": question, "answer": answer}])[-20:]
+            st.session_state["pandoc_agent_lobby_history"] = history
+            created = str(st.session_state.get("pandoc_agent_task_id") or "")
+            if re.fullmatch(r"[0-9a-f]{32}", created):
+                # Carry the initiating exchange into durable task memory.
+                if (Path(root) / "agent_tasks" / created / "task.json").is_file():
+                    agent_conversation._save(root, created, question, answer)
+        st.rerun()
+    except (task_agent.AgentError, ValueError, RuntimeError, OSError) as exc:
+        st.error(str(exc))
+
+
 def render(st, root, backend_factory):
     if _secret(st, "PANDOC_AGENT_ENABLED").lower() not in ("1", "yes", "true"):
         return
@@ -200,6 +256,8 @@ def render(st, root, backend_factory):
             else:
                 # Main conversation comes first; the setup form is secondary.
                 render_task_chat(st, root, active_for_chat, backend_factory)
+        else:
+            render_general_chat(st, root, backend_factory)
 
         with st.expander(
             "Start a new PDB task" if active_for_chat else "Start with a structure",
