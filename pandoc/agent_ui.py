@@ -5,6 +5,7 @@ operation requires identity-scoped artifact storage and per-user authorization.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -30,6 +31,24 @@ def _task_root(st):
                  / "pandoc_agent"))
 
 
+def _agent_authorized(st):
+    """Require a successful explicit unlock for this Streamlit browser session.
+
+    The verifier is invalidated when the configured server secret changes.
+    The submitted plaintext key is never forwarded to Groq or scientific tools.
+    """
+    configured = _secret(st, "PANDOC_AGENT_ACCESS_KEY")
+    if not configured:
+        return False
+    fingerprint = hashlib.sha256(configured.encode("utf-8")).hexdigest()
+    return bool(
+        st.session_state.get("pandoc_agent_unlocked")
+        and secrets.compare_digest(
+            str(st.session_state.get("pandoc_agent_key_verifier", "")), fingerprint
+        )
+    )
+
+
 def handle_chat_request(st, question, backend_factory=None):
     """Route task follow-ups from the existing scientific assistant chat.
 
@@ -41,10 +60,7 @@ def handle_chat_request(st, question, backend_factory=None):
 
     message = str(question).strip()
     enabled = _secret(st, "PANDOC_AGENT_ENABLED").lower() in ("1", "yes", "true")
-    access_key = _secret(st, "PANDOC_AGENT_ACCESS_KEY")
-    entered = st.session_state.get("pandoc_agent_access_entry", "")
-    allowed = bool(enabled and access_key and
-                   secrets.compare_digest(entered, access_key))
+    allowed = bool(enabled and _agent_authorized(st))
     # Do not let a task monopolize greetings or general software questions.
     is_generic = (
         bool(re.fullmatch(r"(hi|hello|hey|habari|mambo|thanks|thank you)[!. ]*",
@@ -178,10 +194,43 @@ def render(st, root, backend_factory):
         if not access_key:
             st.error("Agent access is not configured. Set PANDOC_AGENT_ACCESS_KEY in app secrets.")
             return
-        typed = st.text_input("Agent access key", type="password", key="pandoc_agent_access_entry")
-        if not secrets.compare_digest(typed, access_key):
-            st.info("Enter the configured agent access key to use the scientific task agent.")
+        if not _agent_authorized(st):
+            st.caption(
+                "Enter your **PANDOC_AGENT_ACCESS_KEY** (not the Groq API key), "
+                "then press **Unlock agent**. The password field alone does not start a task."
+            )
+            with st.form("pandoc_agent_unlock_form", clear_on_submit=True):
+                typed = st.text_input(
+                    "Agent access key",
+                    type="password",
+                    key="pandoc_agent_access_entry",
+                    placeholder="Paste the agent access key",
+                )
+                submitted_key = st.form_submit_button(
+                    "Unlock agent", type="primary"
+                )
+            if submitted_key:
+                if typed and secrets.compare_digest(typed.strip(), access_key):
+                    st.session_state["pandoc_agent_unlocked"] = True
+                    st.session_state["pandoc_agent_key_verifier"] = hashlib.sha256(
+                        access_key.encode("utf-8")
+                    ).hexdigest()
+                    st.rerun()
+                else:
+                    st.error(
+                        "Access key not recognized. Copy the exact value of "
+                        "PANDOC_AGENT_ACCESS_KEY from Streamlit app secrets, "
+                        "not GROQ_API_KEY or PANDOC_JOB_KEY."
+                    )
+            else:
+                st.info("Agent locked · Enter the key and click Unlock agent.")
             return
+
+        st.success("Agent unlocked · Ready to inspect structures and continue tasks.")
+        if st.button("Lock agent", key="pandoc_agent_lock_button"):
+            st.session_state.pop("pandoc_agent_unlocked", None)
+            st.session_state.pop("pandoc_agent_key_verifier", None)
+            st.rerun()
         st.caption(
             "Describe the work below and press **Start task**. PanDoc creates "
             "a task ID automatically; do not type the instruction in the resume field."
