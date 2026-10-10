@@ -64,7 +64,7 @@ def test_groq_planner_failure_uses_safe_fallback(monkeypatch):
     assert plan["steps"] == agent_planner.STEP_LIBRARY["inspection"]
 
 
-def test_chat_work_intent_starts_only_authenticated_readonly_tasks(monkeypatch, tmp_path):
+def test_chat_work_intent_starts_with_server_enabled_agent(monkeypatch, tmp_path):
     from pandoc import agent_ui
     monkeypatch.setattr(agent_ui, "_task_root", lambda st: tmp_path)
     started = []
@@ -78,12 +78,8 @@ def test_chat_work_intent_starts_only_authenticated_readonly_tasks(monkeypatch, 
                         ))
     from types import SimpleNamespace
     st = SimpleNamespace(
-        secrets={"PANDOC_AGENT_ENABLED": "true",
-                 "PANDOC_AGENT_ACCESS_KEY": "pilot-secret"},
-        session_state={
-            "pandoc_agent_unlocked": True,
-            "pandoc_agent_key_verifier": agent_ui.hashlib.sha256(b"pilot-secret").hexdigest(),
-        },
+        secrets={"PANDOC_AGENT_ENABLED": "true"},
+        session_state={},
     )
     assert agent_ui.handle_chat_request(st, "HELLO") is None
     assert agent_ui.handle_chat_request(st, "How do I prepare PDB 1LF2?") is None
@@ -98,16 +94,16 @@ def test_chat_work_intent_starts_only_authenticated_readonly_tasks(monkeypatch, 
     assert started[0][0] == tmp_path
 
 
-def test_chat_agent_does_not_execute_without_access_key(monkeypatch):
+def test_chat_agent_does_not_execute_when_disabled(monkeypatch):
     from pandoc import agent_ui
     from types import SimpleNamespace
     st = SimpleNamespace(
-        secrets={"PANDOC_AGENT_ENABLED": "true",
-                 "PANDOC_AGENT_ACCESS_KEY": "secret"},
-        session_state={"pandoc_agent_access_entry": "wrong"},
+        secrets={"PANDOC_AGENT_ENABLED": "false",
+                 "PANDOC_AGENT_ACCESS_KEY": "irrelevant"},
+        session_state={},
     )
     monkeypatch.setattr(agent_ui.task_agent, "create",
                         lambda *a, **kw: (_ for _ in ()).throw(
-                            AssertionError("Unauthorized work request")))
-    text = agent_ui.handle_chat_request(st, "Prepare PDB 1LF2 at pH 5.0")
-    assert "access key" in text
+                            AssertionError("Disabled agent must not run")))
+    answer = agent_ui.handle_chat_request(st, "Prepare PDB 1LF2 at pH 5.0")
+    assert "not enabled" in answer
