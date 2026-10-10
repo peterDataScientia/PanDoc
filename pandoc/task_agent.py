@@ -49,7 +49,7 @@ def parse_request(message: str) -> dict:
     if not match:
         match = re.search(r"\b([0-9][A-Za-z0-9]{3})\b", text)
     pdb_id = match.group(1).upper() if match else None
-    ph = re.search(r"\bpH\s*(?:of|=|:)?\s*(\d{1,2}(?:\.\d+)?)\b", text, re.I)
+    ph = re.search(r"\bpH\s*(?:(?:of|to|at|=|:)\s*)?(\d{1,2}(?:\.\d+)?)\b", text, re.I)
     ph_value = float(ph.group(1)) if ph else None
     if ph_value is not None and not 0 <= ph_value <= 14:
         raise AgentError("The requested pH must be between 0 and 14.")
