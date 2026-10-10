@@ -7,7 +7,7 @@ import os
 import re
 from pathlib import Path
 
-from . import assistant_tools
+from . import assistant_tools, agent_ui, task_agent
 
 MODEL = 'openai/gpt-oss-120b'
 BRIEF_PRODUCT_DESCRIPTION = (
@@ -287,8 +287,10 @@ def render(st, root, panel=False):
                     history = st.session_state.get('assistant_history', [])
                     model = setting(st, 'GROQ_MODEL', MODEL)
                     with st.spinner('Thinking…'):
-                        answer = ask(request, api_key, context, model, history,
-                                     evidence=assistant_tools.from_session(st.session_state, active) if include else None)
+                        agent_response = agent_ui.handle_chat_request(st, request)
+                        answer = (agent_response if agent_response is not None
+                                  else ask(request, api_key, context, model, history,
+                                           evidence=assistant_tools.from_session(st.session_state, active) if include else None))
                     turn = dict(question=request, answer=answer, context=context, model=model, fingerprint=fingerprint if include else None)
                     st.session_state.assistant_history = (history+[turn])[-12:]
                     st.session_state.assistant_answer = turn
@@ -300,6 +302,8 @@ def render(st, root, panel=False):
                     st.warning('The assistant is busy. Please try again later.')
                 except APIError:
                     st.error('The assistant could not connect. Please try again later.')
+                except task_agent.AgentError as exc:
+                    st.error(str(exc))
                 except (ValueError, OSError):
                     st.error('No answer was returned. Please try again.')
         saved = st.session_state.get('assistant_answer')

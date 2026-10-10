@@ -142,7 +142,8 @@ def load_complex(text, suffix, provenance):
     pdb = core.normalize_structure(text, suffix)
     core.atoms(pdb)
     source_id = core.digest(pdb, text)
-    if st.session_state.get('source_id') != source_id:
+    newly_loaded = st.session_state.get('source_id') != source_id
+    if newly_loaded:
         for k in ('preparation_id', 'reference_path', 'receptor_path', 'validation_job', 'experiment_job',
                   'candidate_paths', 'selected_pdb', 'reference_pdb', 'selection_id', 'selection_record',
                   'assistant_diagnostic', 'assistant_structure_checks', 'assistant_selected_issue', 'structure_report', 'preparation_review', 'center', 'size', 'preparation_record', 'reference_id', 'reference_smiles', 'reference_chemistry_source'):
@@ -156,6 +157,11 @@ def load_complex(text, suffix, provenance):
     provenance = dict(provenance, original_sha256=hashlib.sha256(text.encode('utf-8')).hexdigest())
     st.session_state.structure_source = provenance
     manifest()
+    # The automation/status snapshot is emitted before the upload widget.
+    # Rerun once after a NEW source is loaded so visible state and DOM markers
+    # agree immediately; a persisted upload must not create a rerun loop.
+    if newly_loaded:
+        st.rerun()
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -1111,7 +1117,7 @@ ui.automation_snapshot(
     reference_ready=bool(st.session_state.get('reference_path')),
 )
 
-from pandoc import assistant
+from pandoc import assistant, agent_ui
 
 if st.session_state.get('assistant_open', False):
     workspace, assistant_panel = st.columns([3, 2], gap='large')
@@ -1121,6 +1127,7 @@ def show_assistant():
     if st.session_state.assistant_open:
         with assistant_panel:
             assistant.render(st, root, panel=True)
+            agent_ui.render(st, root, github_backend)
 
 st.session_state.pop('assistant_active_job', None)
 st.session_state.pop('assistant_selected_pose', None)
