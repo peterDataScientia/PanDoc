@@ -80,7 +80,10 @@ def test_chat_work_intent_starts_only_authenticated_readonly_tasks(monkeypatch, 
     st = SimpleNamespace(
         secrets={"PANDOC_AGENT_ENABLED": "true",
                  "PANDOC_AGENT_ACCESS_KEY": "pilot-secret"},
-        session_state={"pandoc_agent_access_entry": "pilot-secret"},
+        session_state={
+            "pandoc_agent_unlocked": True,
+            "pandoc_agent_key_verifier": agent_ui.hashlib.sha256(b"pilot-secret").hexdigest(),
+        },
     )
     assert agent_ui.handle_chat_request(st, "HELLO") is None
     assert agent_ui.handle_chat_request(st, "How do I prepare PDB 1LF2?") is None
