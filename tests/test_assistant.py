@@ -104,7 +104,7 @@ def test_compounds_do_not_merge_and_current_snapshot_follows_history(tmp_path, m
             return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='Answer'))])
     monkeypatch.setattr(groq,'Groq',FakeClient)
     assistant.ask('Explain this selection','test',context,history=[dict(question='Old selection',answer='Old answer')])
-    assert 'current snapshot' in captured[-2]['content']
+    assert 'Optional PanDoc background snapshot' in captured[-2]['content']
     assert captured[-3]['role']=='assistant'
 
 
