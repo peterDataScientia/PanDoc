@@ -111,7 +111,7 @@ def test_compounds_do_not_merge_and_current_snapshot_follows_history(tmp_path, m
 def test_suggestion_sends_once_and_conversation_is_ordered(monkeypatch,tmp_path):
     monkeypatch.setattr(assistant,'setting',lambda st,name,default='':'test-key' if name=='GROQ_API_KEY' else default)
     calls=[]
-    def fake_ask(question,*args):
+    def fake_ask(question,*args,**kwargs):
         calls.append(question)
         return 'Specific explanation'
     monkeypatch.setattr(assistant,'ask',fake_ask)
