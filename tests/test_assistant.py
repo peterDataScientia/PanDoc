@@ -137,3 +137,73 @@ def test_inspection_context_contains_evidence_and_current_choices():
     assert context['component_selection']['overrides']['A:10:ALA']=='B'
     assert context['preparation_under_review']['pH_context']==5
     assert context['total_preparation_changes']==1
+
+
+def test_standalone_greeting_is_short_and_never_sends_session_to_groq(monkeypatch):
+    import groq
+
+    def should_not_call_groq(*args, **kwargs):
+        raise AssertionError("A standalone greeting must not contact the model.")
+
+    monkeypatch.setattr(groq, "Groq", should_not_call_groq)
+    sensitive_context = {
+        "workflow_stage": "1 · Load complex",
+        "experiment_state": {"complex_loaded": False},
+    }
+    for greeting in ("HELLO", "Hello! 👋", " hi ", "Hey there", "Good morning"):
+        assert assistant.ask(greeting, "fake-key", context=sensitive_context, evidence={}) == (
+            "Hi! 👋 How can I help?"
+        )
+    assert assistant.ask("Mambo!", "fake-key", context=sensitive_context, evidence={}) == (
+        "Habari! 👋 Naweza kukusaidia nini?"
+    )
+
+
+def test_greeting_plus_real_scientific_request_reaches_groq(monkeypatch):
+    import groq
+    sent = []
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=self)
+
+        def __enter__(self): return self
+
+        def __exit__(self, *args): pass
+
+        def create(self, **kwargs):
+            sent.append(kwargs)
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+                content="Reference RMSD measures recovery of the crystal pose.",
+                tool_calls=None,
+            ))])
+
+    monkeypatch.setattr(groq, "Groq", FakeClient)
+    reply = assistant.ask("Hi, explain my reference RMSD", "fake-key",
+                          context={"workflow_stage": "3 · Validate docking"}, evidence={})
+    assert "RMSD" in reply
+    assert len(sent) == 1
+    assert sent[0]["tools"]
+    prompt = sent[0]["messages"][-2]["content"]
+    assert "optional PanDoc background" in prompt.lower()
+
+
+def test_streamlit_greeting_keeps_chat_history_without_sending_groq(monkeypatch, tmp_path):
+    import groq
+    monkeypatch.setattr(groq, "Groq", lambda **kwargs: (_ for _ in ()).throw(
+        AssertionError("Greeting must not call Groq")))
+    monkeypatch.setattr(assistant, "setting", lambda st, name, default="":
+                        "test-key" if name == "GROQ_API_KEY" else default)
+    script = (
+        "import streamlit as st\n"
+        "from pandoc import assistant\n"
+        "st.session_state.workflow_stage='1 · Load complex'\n"
+        "assistant.render(st, " + repr(str(tmp_path)) + ")"
+    )
+    at = AppTest.from_string(script).run()
+    at.chat_input[0].set_value("HELLO").run()
+    assert not list(at.exception)
+    assert at.session_state["assistant_history"][-1]["answer"] == "Hi! 👋 How can I help?"
+    at.run()
+    assert len(at.session_state["assistant_history"]) == 1
+    assert "Load complex" not in at.session_state["assistant_history"][-1]["answer"]
