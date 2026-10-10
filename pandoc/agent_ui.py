@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 import secrets
@@ -87,14 +88,24 @@ def render(st, root, backend_factory):
         if not secrets.compare_digest(typed, access_key):
             st.info("Enter the configured agent access key to use the scientific task agent.")
             return
-        st.text_area(
-            "What should PanDoc do?",
-            placeholder="Prepare PDB 1LF2 at pH 5.0 and validate by redocking",
-            max_chars=2000, height=90, key="pandoc_agent_instruction"
+        st.caption(
+            "Describe the work below and press **Start task**. PanDoc creates "
+            "a task ID automatically; do not type the instruction in the resume field."
         )
-        if st.button("Create and inspect task", key="pandoc_agent_create_task"):
+        with st.form("pandoc_agent_start_form", clear_on_submit=False):
+            instruction = st.text_area(
+                "What should PanDoc do?",
+                placeholder="Inspect PDB 1LF2. Or prepare PDB 1LF2 at pH 5.0 and validate by redocking.",
+                max_chars=2000, height=90, key="pandoc_agent_instruction",
+            )
+            start_task = st.form_submit_button(
+                "Start task · Retrieve and inspect PDB", type="primary",
+            )
+        if start_task:
             try:
-                instruction = st.session_state.pandoc_agent_instruction
+                # A task request is NOT a task ID. It is parsed and the ID is
+                # created by task_agent.create after successful submission.
+                task_agent.parse_request(instruction)
                 with st.spinner("Planning and inspecting the structure..."):
                     plan = agent_planner.plan_request(
                         instruction,
@@ -102,25 +113,64 @@ def render(st, root, backend_factory):
                         model=_secret(st, "GROQ_MODEL") or agent_planner.MODEL,
                     )
                     created = task_agent.create(root, instruction, plan=plan)
-                st.session_state.pandoc_agent_task_id = created["id"]
+                st.session_state["pandoc_agent_task_id"] = created["id"]
+                st.session_state.pop("pandoc_agent_resume_candidate", None)
                 st.rerun()
-            except (task_agent.AgentError, ValueError, OSError) as exc:
+            except (task_agent.AgentError, ValueError, RuntimeError, OSError) as exc:
                 st.error(str(exc))
 
-        current_id = st.text_input(
-            "Task ID (paste to resume after reload)",
-            value=st.session_state.get("pandoc_agent_task_id", ""),
-            key="pandoc_agent_resume_id"
-        ).strip()
+        # Resume is deliberately separate from instructions. Never attempt
+        # to look up what the user typed into the task-request text area.
+        with st.expander("Resume a previous task (optional)", expanded=False):
+            st.caption(
+                "Only use this after you already have a 32-character task ID "
+                "from an earlier task. For new requests, use Start task above."
+            )
+            resume = st.text_input(
+                "Previously generated task ID",
+                placeholder="Paste the 32-character ID, not an instruction",
+                key="pandoc_agent_resume_candidate",
+            )
+            if st.button("Resume existing task", key="pandoc_agent_resume_button"):
+                candidate = (resume or "").strip().lower()
+                if not re.fullmatch(r"[0-9a-f]{32}", candidate):
+                    st.warning(
+                        "That is not a task ID. To inspect PDB 1LF2, enter "
+                        "'Inspect PDB 1LF2' under 'What should PanDoc do?' "
+                        "and click 'Start task'."
+                    )
+                else:
+                    try:
+                        task_agent.describe(root, candidate)
+                        st.session_state["pandoc_agent_task_id"] = candidate
+                        st.rerun()
+                    except task_agent.AgentError:
+                        st.warning(
+                            "That task ID was not found on this server. "
+                            "Tasks on temporary hosting storage may be lost after a restart."
+                        )
+
+        current_id = str(st.session_state.get("pandoc_agent_task_id") or "").strip()
         if not current_id:
+            st.info("No task started yet. Enter a request above and click Start task.")
+            return
+        if not re.fullmatch(r"[0-9a-f]{32}", current_id):
+            st.session_state.pop("pandoc_agent_task_id", None)
+            st.warning("Previous task reference was invalid. Start a task above.")
             return
         try:
             view = task_agent.describe(root, current_id)
-        except task_agent.AgentError as exc:
-            st.warning(str(exc))
+        except task_agent.AgentError:
+            st.warning(
+                "Your previously selected task cannot be found on this server. "
+                "Its storage may have been cleared. Start a new task above, "
+                "or resume another saved task by its generated ID."
+            )
             return
         stage = view["stage"]
-        st.write(f"**Task:** {current_id} · **Stage:** {stage}")
+        st.write(f"**Task stage:** {stage}")
+        st.caption("Generated task ID (save this for resuming later):")
+        st.code(current_id, language=None)
         if view.get("plan"):
             st.caption(view["plan"]["summary"])
             st.caption("Scientific caution: " + view["plan"]["scientific_caution"])
@@ -136,6 +186,20 @@ def render(st, root, backend_factory):
             if view["structural_issues"]:
                 with st.expander("Inspect coordinate warnings"):
                     st.dataframe(view["structural_issues"], hide_index=True)
+            # Inspection-only requests end at a useful structural report.
+            # They must not force the user into reference-ligand selection.
+            if view["goal"] == "inspection":
+                folder = Path(root) / "agent_tasks" / current_id
+                inventory = json.loads((folder / "inspection.json").read_text())
+                st.dataframe(inventory["components"], hide_index=True)
+                if inventory.get("alternates"):
+                    with st.expander("Alternate atom positions"):
+                        st.dataframe(inventory["alternates"], hide_index=True)
+                st.success(
+                    "Structure inspection is complete. No preparation or "
+                    "docking calculations have been started."
+                )
+                return
             options = view["reference_candidates"]
             if not options:
                 st.error("No crystallographic reference ligand identified. Redocking cannot continue automatically.")
