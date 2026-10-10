@@ -76,7 +76,7 @@ def simple_social_reply(question):
     Deliberately narrow: a message such as 'Hi, explain my RMSD' must still
     reach the model and scientific tools. Avoid billing for generic pleasantries.
     """
-    cleaned = re.sub(r"[^\\w\\s]", " ", str(question).casefold())
+    cleaned = re.sub(r"[^\w\s]", " ", str(question).casefold())
     cleaned = " ".join(cleaned.split())
     if cleaned in {"hi", "hello", "hey", "hey there", "hello there",
                    "good morning", "good afternoon", "good evening", "yo"}:
