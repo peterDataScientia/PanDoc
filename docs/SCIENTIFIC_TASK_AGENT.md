@@ -74,3 +74,53 @@ Groq produces a bounded, strict-JSON planning summary. Its output cannot change 
 **Pilot limitations:** this workflow uses a process-local lock and a shared access key and is single-tenant. It is not ready for anonymous public multi-user compute. Before broad deployment add owner-specific authentication, isolated private storage, compute limits/budgets, transactional task database and cross-worker idempotency, workers for long chemistry operations, secure cleanup and lifecycle policies. Do not run multiple API workers with a file-lock-only implementation. PDB retrieval and preparation may take time; this implementation does not promise background notifications or scheduling.
 
 Existing baseline browser automation test failures remain separate. Unit tests use fake RCSB and compute outputs. A real known crystal reference, reviewed protonation and pose-recovery benchmark must be tested before treating this workflow as scientifically validated. Redocking RMSD is not an experimental affinity measurement.
+
+## Continuous scientific task conversation
+
+After creating a task, the agent panel now displays **Continue with this task ·
+Scientific agent conversation**. The opening uses the recorded structure inventory
+rather than generic setup instructions. Type a follow-up question and click
+**Send follow-up to agent**, or use the context-sensitive quick prompts:
+**What did you find?**, **Which ligands?**, **What next?**.
+
+The main **Scientific assistant** chat also follows the currently selected,
+authorized task instead of losing its context. Normal greetings and general
+software questions remain ordinary assistant conversations. The per-task
+conversation is saved in the task directory as conversation.json, so opening the
+same task later restores its chat if the configured storage persists.
+
+Examples that work on the *same task*:
+
+- "Inspect PDB 1LF2." → retrieving/inspecting a new PDB task.
+- "What did you find?" → answer from deposited protein chains, reference
+  candidates, and structural issues; no invented contacts or chemistry.
+- "Which ligand might be suitable for redocking?" → discusses recorded
+  candidates and limitations; never equates an HETATM with a validated ligand.
+- "Prepare it at pH 5.0" → upgrades the existing inspection task to preparation,
+  records pH, invalidates prior pKa/microstate proposals if pH changed, and
+  *waits* for researcher component selection.
+- "Run PROPKA now" → calculates predictions only after structure review and
+  an explicit preparation pH, then asks the researcher to review assignments.
+- "Retrieve CCD chemistry and ligand microstates" → collects candidates after
+  receptor/reference selection; it never silently picks a ligand state.
+- "Refresh job status" → queries an already-approved running job and retrieves
+  available results; does not submit a new docking job.
+
+Groq uses a short history and a bounded, coordinate-free, evidence-backed
+snapshot for conversational interpretation. If Groq is unavailable, the agent
+responds with a transparent recorded-evidence summary rather than inventing
+new findings. Any request to approve protein/ligand chemistry, retain waters
+or HEM, change grid settings, launch docking or retry an uncertain remote
+submission still uses the explicit scientific review/approval controls.
+
+### Programmatic follow-ups
+
+Authenticated agent endpoints also provide:
+
+- GET /api/v1/agent/tasks/{id}/conversation — saved question/answer pairs
+- POST /api/v1/agent/tasks/{id}/chat — JSON {"message": "What did you find?"}
+
+Both routes require the same X-API-Key as the rest of the task API.
+The chat endpoint replies with an answer and current task status, enabling
+external clients to keep a scientific task conversation without driving the
+Streamlit DOM. No arbitrary shell/code-execution tool is exposed.
