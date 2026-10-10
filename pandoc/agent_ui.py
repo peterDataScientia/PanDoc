@@ -133,9 +133,8 @@ def render_task_chat(st, root, task_id, backend_factory):
         ("What next?", "What should we do next in this task?"),
     )
     pending = None
-    for col, (label, prompt) in zip(example_buttons, suggestions):
-        if col.button(label, key="agent_quick_" + label.split()[0].lower(),
-                      use_container_width=True):
+    for i, (col, (label, prompt)) in enumerate(zip(example_buttons, suggestions)):
+        if col.button(label, key=f"agent_quick_{i}", width="stretch"):
             pending = prompt
     with st.form("pandoc_agent_followup_form", clear_on_submit=True):
         followup = st.text_input(
