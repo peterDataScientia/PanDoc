@@ -253,6 +253,34 @@ def select_structure(root, task_id, chains, reference_residue, retain=None, alte
                 "next_action": "Review PROPKA proposals and verify the crystal ligand SMILES before preparation."}
 
 
+def revise_intent(root, task_id, *, goal, ph=None):
+    """Upgrade an existing inspected task without duplicating PDB retrieval.
+
+    Changing pH invalidates prior prediction proposals. Once preparation or
+    docking has started, the task cannot change its chemical interpretation.
+    """
+    if goal not in ("preparation", "redocking"):
+        raise AgentError("Only preparation or redocking may extend this task.")
+    if ph is not None and (not isinstance(ph, (float, int)) or not 0 <= ph <= 14):
+        raise AgentError("Preparation pH must be between 0 and 14.")
+    order = {"inspection": 0, "preparation": 1, "redocking": 2}
+    with _LOCK:
+        folder, task = _get(root, task_id)
+        if task["stage"] not in ("await_structure_review", "await_chemistry_review"):
+            raise AgentError("Chemical and docking plans cannot be changed after preparation.")
+        before = (task["goal"], task.get("pH"))
+        task["goal"] = max((task["goal"], goal), key=lambda x: order.get(x, -1))
+        if ph is not None and ph != task.get("pH"):
+            task["pH"] = float(ph)
+            for file in ("protonation.json", "ligand_options.json"):
+                (folder / file).unlink(missing_ok=True)
+        if (task["goal"], task.get("pH")) != before:
+            _write(folder, task, "intent_revised", previous_goal=before[0],
+                   new_goal=task["goal"], previous_pH=before[1], new_pH=task["pH"])
+        return {"id": task_id, "stage": task["stage"],
+                "goal": task["goal"], "pH": task.get("pH")}
+
+
 def protonation(root, task_id):
     """Run PROPKA, record its proposals without assigning them automatically."""
     with _LOCK:
