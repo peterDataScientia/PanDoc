@@ -207,3 +207,88 @@ def test_streamlit_greeting_keeps_chat_history_without_sending_groq(monkeypatch,
     at.run()
     assert len(at.session_state["assistant_history"]) == 1
     assert "Load complex" not in at.session_state["assistant_history"][-1]["answer"]
+
+
+def test_brief_product_overview_uses_no_irrelevant_snapshot_or_tools(monkeypatch):
+    import groq
+    requests = []
+
+    class FakeClient:
+        def __init__(self, **kwargs): self.chat = SimpleNamespace(completions=self)
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def create(self, **kwargs):
+            requests.append(kwargs)
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+                content="PanDoc is a web-based workbench for preparing molecular docking "
+                        "structures, running Vina and assessing redocking pose recovery.",
+                tool_calls=None,
+            ))])
+
+    monkeypatch.setattr(groq, "Groq", FakeClient)
+    context = {"workflow_stage": "1 · Load complex",
+               "experiment_state": {"complex_loaded": False},
+               "software_versions": {"Python": "3.11"}}
+    history = [dict(question="How do I load a structure?", answer="Use Load complex.")]
+    for query in ("briefly tell me about this software",
+                  "BEIF TELL ME ABOUT THIS SOFTAWRE",
+                  "What is PanDoc?"):
+        result = assistant.ask(query, "test", context=context,
+                               history=history, evidence={"job": "/private/job"})
+        assert result.startswith("PanDoc is a web-based")
+        req = requests[-1]
+        assert len(req["messages"]) == 2  # System + actual question only
+        assert "tools" not in req
+        assert req["max_completion_tokens"] < 4096
+        assert "2-3 sentence" in req["messages"][0]["content"]
+        assert "workflow_stage" not in req["messages"][-1]["content"]
+    assert assistant.is_product_overview("What is my current PanDoc workflow stage?") is False
+    assert assistant.is_product_overview("Explain my redocking error in PanDoc") is False
+
+
+def test_overlong_or_snapshot_hijacked_product_answer_falls_back_to_verified_summary(monkeypatch):
+    import groq
+
+    class FakeClient:
+        def __init__(self, **kwargs): self.chat = SimpleNamespace(completions=self)
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def create(self, **kwargs):
+            answer = ("In the current snapshot, your workflow_stage is 1. " +
+                      " ".join(["Unrequested information"] * 180))
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+                content=answer, tool_calls=None,
+            ))])
+
+    monkeypatch.setattr(groq, "Groq", FakeClient)
+    result = assistant.ask("Briefly tell me about this software", "test", context={
+        "workflow_stage": "1 · Load complex",
+    })
+    assert result == assistant.BRIEF_PRODUCT_DESCRIPTION
+    assert len(result.split()) < 65
+    assert "snapshot" not in result.lower()
+
+
+def test_brief_scientific_question_keeps_relevant_context_and_tools(monkeypatch):
+    import groq
+    requests = []
+
+    class FakeClient:
+        def __init__(self, **kwargs): self.chat = SimpleNamespace(completions=self)
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def create(self, **kwargs):
+            requests.append(kwargs)
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+                content="The best redocking pose has the smallest reference RMSD.",
+                tool_calls=None,
+            ))])
+
+    monkeypatch.setattr(groq, "Groq", FakeClient)
+    result = assistant.ask("Briefly explain my redocking RMSD", "test",
+                           context={"workflow_stage": "3 · Validate docking"},
+                           evidence={})
+    assert "redocking" in result
+    assert "tools" in requests[0]
+    assert requests[0]["messages"][-2]["role"] == "user"
+    assert "workflow_stage" in requests[0]["messages"][-2]["content"]
