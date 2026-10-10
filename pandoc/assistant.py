@@ -104,7 +104,7 @@ def ask(question, api_key, context=None, model=MODEL, history=None, evidence=Non
     for turn in (history or [])[-8:]:
         messages.extend([{'role': 'user', 'content': turn['question']}, {'role': 'assistant', 'content': turn['answer']}])
     if context is not None:
-        messages.append({'role': 'user', 'content': 'Optional PanDoc background snapshot. Use only information relevant to the user's latest question; do not narrate workflow status or setup steps unless asked. Older conversation context may differ:\n'+json.dumps(context, allow_nan=False)})
+        messages.append({'role': 'user', 'content': 'Optional PanDoc background snapshot. Use only information relevant to the latest question; do not narrate workflow status or setup steps unless asked. Older conversation context may differ:\n'+json.dumps(context, allow_nan=False)})
     messages.append({'role': 'user', 'content': question})
 
     tool_enabled = context is not None and evidence is not None
