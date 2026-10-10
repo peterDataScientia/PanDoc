@@ -26,7 +26,6 @@ Set these values in Streamlit App Settings → Secrets (or environment variables
 GROQ_API_KEY = "your-provider-key"                 # optional for structured planning
 GROQ_MODEL = "openai/gpt-oss-120b"
 PANDOC_AGENT_ENABLED = "true"
-PANDOC_AGENT_ACCESS_KEY = "long-private-secret"    # required
 PANDOC_AGENT_DATA_DIR = "/mounted/pandoc_tasks"    # required for restart durability
 GITHUB_TOKEN = "your-compute-token"
 PANDOC_JOB_KEY = "your-Fernet-key"
@@ -34,9 +33,9 @@ PANDOC_JOB_KEY = "your-Fernet-key"
 
 Once the agent key is entered, explicit requests such as 'Prepare PDB 1LF2 at pH 5.0' can also be sent in the existing scientific assistant chat; they create a task and pause at the review panel. This does not authorize docking.
 
-Open the existing Scientific assistant panel, then open **AI task agent · Perform reviewed scientific work**. In the agent access form, paste the value configured as **PANDOC_AGENT_ACCESS_KEY**, then explicitly click **Unlock agent**. A correct key shows **Agent unlocked · Ready to inspect structures and continue tasks**; an incorrect key shows a visible error. This password is **not** GROQ_API_KEY or PANDOC_JOB_KEY. Click **Lock agent** to close the agent for the current browser session. Enter the configured access key and request, for example, "Prepare PDB 1LF2 at pH 5.0 and validate by redocking." The task retrieves a structure and awaits approval of the chains, crystal ligand and retained components. You may inspect PROPKA proposals, retrieve candidate CCD ligand SMILES and enumerate pH-aware MolScrub microstates; no chemical state is automatically accepted.  After explicitly approving chemical preparation, inspect and approve the proposed grid and search settings, then submit redocking. Refresh the remote job to collect results and download the ZIP.
+Open the Scientific assistant panel, then expand **AI task agent · Perform reviewed scientific work**. **No user access key is needed.** The Groq provider key, GitHub token and Fernet job-encryption key are configured privately by the app owner in Streamlit Secrets or environment variables; they are never displayed in the browser. The old PANDOC_AGENT_ACCESS_KEY setting is obsolete for the Streamlit agent and can be deleted.
 
-The pilot UI uses the existing GitHub Actions compute backend. Kaggle compute remains in PanDoc but is not wired to this pilot selector. Without valid compute credentials, redocking cannot be submitted.
+Enter, for example, "Prepare PDB 1LF2 at pH 5.0 and validate by redocking." The agent inspects the deposited structure, then asks you to review receptor chains and crystallographic reference components. It can show PROPKA suggestions, CCD ligand chemistry and MolScrub microstates, but does not silently approve a state. Approve reviewed preparation, then inspect and separately approve the docking protocol before compute submission. Refresh the remote job to retrieve results and download the reproducibility ZIP.
 
 The task ID can be used to resume as long as the same persistent task root remains accessible. A temporary directory on Streamlit Community Cloud is not durable across host restarts.
 
@@ -71,7 +70,7 @@ Each task has a UUID directory, audit trail, review selections, prepared structu
 
 Groq produces a bounded, strict-JSON planning summary. Its output cannot change PDB identity, pH, trusted action list or permissions. Scientific code is executed by PanDoc, never by unrestricted model-generated Python or shell commands. Groq quota/network failure falls back to a deterministic plan.
 
-**Pilot limitations:** this workflow uses a process-local lock and a shared access key and is single-tenant. It is not ready for anonymous public multi-user compute. Before broad deployment add owner-specific authentication, isolated private storage, compute limits/budgets, transactional task database and cross-worker idempotency, workers for long chemistry operations, secure cleanup and lifecycle policies. Do not run multiple API workers with a file-lock-only implementation. PDB retrieval and preparation may take time; this implementation does not promise background notifications or scheduling.
+**Pilot limitations:** the public Streamlit agent no longer requests a shared user password. It uses server-side Groq/GitHub credentials and an app-owner feature flag, which is **not per-user authorization**. If the Streamlit app is public, visitors can initiate agent work with its backend compute integration, subject to scientific approval controls; compute usage must be limited independently. This file-backed pilot is not a secure public multi-user compute service. Before broad rollout implement user identity and isolated data, server-side rate/compute limits and budgets, transactional task persistence, cross-worker idempotency, workers for long preparation, and storage cleanup. Do not run multiple API workers with only process-local locking. The standalone REST agent API **still requires PANDOC_API_KEY** via X-API-Key; removing the Streamlit prompt does not weaken that REST authentication.
 
 Existing baseline browser automation test failures remain separate. Unit tests use fake RCSB and compute outputs. A real known crystal reference, reviewed protonation and pose-recovery benchmark must be tested before treating this workflow as scientifically validated. Redocking RMSD is not an experimental affinity measurement.
 
