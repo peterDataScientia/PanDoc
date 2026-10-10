@@ -203,7 +203,8 @@ def render(st, root, panel=False):
                     history = st.session_state.get('assistant_history', [])
                     model = setting(st, 'GROQ_MODEL', MODEL)
                     with st.spinner('Thinking…'):
-                        answer = ask(request, api_key, context, model, history,\n                                     evidence=assistant_tools.from_session(st.session_state, active) if include else None)
+                        answer = ask(request, api_key, context, model, history,
+                                     evidence=assistant_tools.from_session(st.session_state, active) if include else None)
                     turn = dict(question=request, answer=answer, context=context, model=model, fingerprint=fingerprint if include else None)
                     st.session_state.assistant_history = (history+[turn])[-12:]
                     st.session_state.assistant_answer = turn
