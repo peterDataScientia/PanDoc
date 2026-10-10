@@ -99,7 +99,7 @@ def is_product_overview(question):
         "describe", "introduce", "overview", "about this",
         "features", "capabilities", "explain this software",
     ))
-    experiment = any(re.search(r"\\b" + term + r"\\b", normalized) for term in (
+    experiment = any(re.search(r"\b" + term + r"\b", normalized) for term in (
         "my", "current", "status", "stage", "loaded", "result", "rmsd",
         "error", "problem", "failed", "job", "settings", "configure",
         "version", "install", "runtime", "log", "today",
@@ -110,7 +110,7 @@ def is_product_overview(question):
 def requests_short_answer(question):
     """Explicit length preferences override the usual explanatory detail."""
     normalized = str(question).casefold()
-    return bool(re.search(r"\\b(brief|briefly|beif|brif|short|quick|concise|succinct)\\b", normalized)
+    return bool(re.search(r"\b(brief|briefly|beif|brif|short|quick|concise|succinct)\b", normalized)
                 or "few words" in normalized or "two sentences" in normalized)
 
 
