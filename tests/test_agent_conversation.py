@@ -167,3 +167,43 @@ def test_authenticated_rest_chat_followup_and_history(task, monkeypatch):
     assert len(transcript.json()["messages"]) == 1
     assert client.post(url + "/chat", headers=headers,
                        json={"message": "x" * 2100}).status_code == 422
+
+
+def test_polite_conversation_controls_only_safe_explicit_actions(task, monkeypatch):
+    root, ident, folder = task
+    observed = []
+    monkeypatch.setattr(task_agent, "protonation",
+                        lambda *a: observed.append("pka") or {"proposal": {}})
+    # A general how-to question must not run calculations.
+    agent_conversation.respond(root, ident, "How would I run PROPKA?")
+    assert observed == []
+    record = json.loads((folder / "task.json").read_text())
+    record["stage"] = "await_chemistry_review"
+    record["goal"] = "preparation"
+    record["pH"] = 5.0
+    task_agent._write(folder, record)
+    answer = agent_conversation.respond(root, ident,
+                                        "Could you please run PROPKA now?")
+    assert "now recorded" in answer
+    assert observed == ["pka"]
+    agent_conversation.respond(root, ident, "Please don't run PROPKA")
+    agent_conversation.respond(root, ident, "Okay continue")
+    assert observed == ["pka"]
+    assert not (folder / "chemistry.json").exists()
+    assert not (folder / "docking_config.json").exists()
+
+
+def test_researcher_can_change_planned_ph_without_restarting(task):
+    root, ident, folder = task
+    agent_conversation.respond(root, ident, "Can we prepare it at pH 5.0?")
+    (folder / "protonation.json").write_text('{"pH":5.0}')
+    (folder / "ligand_options.json").write_text('{"pH":5.0}')
+    answer = agent_conversation.respond(root, ident, "Could you change our pH to 6.0?")
+    view = task_agent.describe(root, ident)
+    assert "6.0" in answer
+    assert view["goal"] == "preparation"
+    assert view["pH"] == 6.0
+    assert not (folder / "protonation.json").exists()
+    assert not (folder / "ligand_options.json").exists()
+    assert not (folder / "chemistry.json").exists()
+    assert not (folder / "docking_config.json").exists()

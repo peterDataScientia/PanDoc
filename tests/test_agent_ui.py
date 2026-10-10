@@ -118,7 +118,7 @@ def test_task_chat_accepts_followup_and_remembers_answer(monkeypatch, tmp_path):
     _widget(at.text_area, "pandoc_agent_instruction").set_value("Inspect PDB 1LF2.").run()
     next(b for b in at.button if "Start task" in b.label).click().run()
     assert not list(at.exception)
-    assert any("Send follow-up" in b.label for b in at.button)
+    assert _widget(at.chat_input, "pandoc_agent_followup") is not None
 
     answers = []
     def fake_followup(root, ident, question, **kwargs):
@@ -130,10 +130,9 @@ def test_task_chat_accepts_followup_and_remembers_answer(monkeypatch, tmp_path):
         return "I found R37 and SO4 in the deposited structure."
     monkeypatch.setattr(agent_ui.agent_conversation, "respond", fake_followup)
 
-    _widget(at.text_input, "pandoc_agent_followup").set_value(
+    _widget(at.chat_input, "pandoc_agent_followup").set_value(
         "Which ligands are present?"
     ).run()
-    next(b for b in at.button if "Send follow-up" in b.label).click().run()
     assert not list(at.exception)
     assert answers == ["Which ligands are present?"]
     assert any("R37 and SO4" in m.value for m in at.markdown)
@@ -202,3 +201,28 @@ def test_agent_remains_deployment_controlled_not_password_controlled(monkeypatch
     at = AppTest.from_string(script).run()
     assert not list(at.exception)
     assert not [btn for btn in at.button if "Start task" in btn.label]
+
+
+def test_polite_explicit_request_starts_task_from_general_chat(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    created = []
+    monkeypatch.setattr(agent_ui, "_task_root", lambda st: tmp_path)
+    monkeypatch.setattr(agent_ui, "_secret", lambda st, name: {
+        "PANDOC_AGENT_ENABLED": "true", "GROQ_API_KEY": "", "GROQ_MODEL": "",
+    }.get(name, ""))
+    monkeypatch.setattr(agent_ui.agent_planner, "plan_request",
+                        lambda *a, **kw: {"summary": "Inspection"})
+    monkeypatch.setattr(agent_ui.task_agent, "create",
+                        lambda root, instruction, plan=None: (
+                            created.append(instruction) or
+                            {"id": "e" * 32, "stage": "await_structure_review", "pdb_id": "1LF2"}
+                        ))
+    st = SimpleNamespace(secrets={}, session_state={})
+    message = agent_ui.handle_chat_request(st, "Could you please inspect PDB 1LF2?")
+    assert "Created task" in message
+    assert created == ["Could you please inspect PDB 1LF2?"]
+    assert st.session_state["pandoc_agent_task_id"] == "e" * 32
+    # A scientific explanation question is not authorization to retrieve.
+    st.session_state.clear()
+    assert agent_ui.handle_chat_request(st, "How do I inspect PDB 1LF2?") is None
+    assert len(created) == 1

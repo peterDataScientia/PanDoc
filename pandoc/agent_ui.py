@@ -12,7 +12,7 @@ import re
 import tempfile
 from pathlib import Path
 
-from . import task_agent, agent_planner, agent_conversation
+from . import task_agent, agent_planner, agent_conversation, assistant
 
 
 def _secret(st, key):
@@ -60,9 +60,16 @@ def handle_chat_request(st, question, backend_factory=None):
                 # A request to discuss a different PDB must not silently act
                 # on the previously inspected structure.
                 parsed = task_agent.parse_request(message)
-                if parsed["pdb_id"] and parsed["pdb_id"] != current["pdb_id"]:
-                    return ("That request names a different PDB. Start a separate task "
-                            "under 'What should PanDoc do?' to avoid mixing structures.")
+                command = agent_conversation._explicit_command(message)
+                explicit_change = bool(re.match(
+                    r"^(?:prepare|inspect|retrieve|load|redock|validate|"
+                    r"start|check|review|examine)\b", command
+                ))
+                if (explicit_change and parsed["pdb_id"]
+                        and parsed["pdb_id"] != current["pdb_id"]):
+                    return ("This is a different PDB. Start a new structure task "
+                            "to inspect or prepare it without mixing evidence. "
+                            "You can still ask general comparison questions here.")
                 return agent_conversation.respond(
                     _task_root(st), active, message,
                     api_key=_secret(st, "GROQ_API_KEY"),
@@ -70,10 +77,11 @@ def handle_chat_request(st, question, backend_factory=None):
                     backend_factory=backend_factory,
                 )
 
-    # First-time explicit action prompts start a task. An ordinary question
-    # like "How do I prepare..." must never create one.
-    if not re.match(r"^\s*(?:(?:please)\s+)?(?:prepare|inspect|retrieve|load|"
-                    r"start|validate|redock)\b", message, re.I):
+    # Conversational explicit requests can create a task; informational
+    # questions never trigger network retrieval by themselves.
+    command = agent_conversation._explicit_command(message)
+    if not re.match(r"^(?:prepare|inspect|retrieve|load|start|validate|redock|"
+                    r"check|review|examine|look up|look at)\b", command):
         return None
     parsed = task_agent.parse_request(message)
     if parsed["pdb_id"] is None:
@@ -99,9 +107,10 @@ def render_task_chat(st, root, task_id, backend_factory):
     """Always-visible follow-up conversation for the active scientific task."""
     st.markdown("**Continue with this task · Scientific agent conversation**")
     st.caption(
-        "Ask follow-up questions, review findings or request the next safe action. "
-        "The conversation stays attached to this task across app reruns. "
-        "Chemical decisions and docking still require explicit approval."
+        "Chat naturally: ask why, explore alternatives, change the preparation "
+        "goal or pH, or request a safe calculation. You can change direction "
+        "without creating a new task. Chemical decisions and docking still "
+        "require your explicit approval."
     )
     transcript = agent_conversation.history(root, task_id)
     with st.container(height=270, border=True):
@@ -118,24 +127,43 @@ def render_task_chat(st, root, task_id, backend_factory):
                 st.markdown(turn["question"])
             with st.chat_message("assistant"):
                 st.markdown(turn["answer"])
+    stage = task_agent.describe(root, task_id)["stage"]
     example_buttons = st.columns(3)
-    suggestions = (
-        ("What did you find?", "What did you find in this structure?"),
-        ("Which ligands?", "Which crystallographic ligand candidates were detected?"),
-        ("What next?", "What should we do next in this task?"),
-    )
+    suggestions = {
+        "await_structure_review": (
+            ("Findings", "What did you find in this structure?"),
+            ("Ligands", "Which crystallographic ligand candidates were detected?"),
+            ("Options", "Explain possible next steps and what requires my review."),
+        ),
+        "await_chemistry_review": (
+            ("Chemistry", "What ligand chemistry needs reviewing?"),
+            ("Protein pKa", "Could you run PROPKA for this task?"),
+            ("Ligand states", "Could you retrieve CCD ligand chemistry and microstates?"),
+        ),
+        "running": (
+            ("Progress", "Could you check the job status?"),
+            ("Protocol", "Explain the current redocking protocol and its limitations."),
+            ("What next?", "What should I do after results arrive?"),
+        ),
+        "completed": (
+            ("Results", "Explain the recorded redocking results and RMSD."),
+            ("Limitations", "What scientific limitations should I report?"),
+            ("What next?", "What validations should I consider next?"),
+        ),
+    }.get(stage, (
+        ("Explain", "Explain this task in simple scientific terms."),
+        ("Evidence", "What evidence do we have so far?"),
+        ("Next", "What should we do next?"),
+    ))
     pending = None
     for i, (col, (label, prompt)) in enumerate(zip(example_buttons, suggestions)):
         if col.button(label, key=f"agent_quick_{i}", width="stretch"):
             pending = prompt
-    with st.form("pandoc_agent_followup_form", clear_on_submit=True):
-        followup = st.text_input(
-            "Message your task agent",
-            placeholder="What did you find? Which ligand is suitable? Prepare it at pH 5.0.",
-            key="pandoc_agent_followup", max_chars=2000,
-        )
-        submitted = st.form_submit_button("Send follow-up to agent", type="primary")
-    if pending is None and not submitted:
+    followup = st.chat_input(
+        "Ask PanDoc anything about this task...",
+        key="pandoc_agent_followup", max_chars=2000,
+    )
+    if pending is None and not followup:
         return
     question = pending if pending is not None else followup.strip()
     if not question:
@@ -154,13 +182,69 @@ def render_task_chat(st, root, task_id, backend_factory):
         st.error(str(exc))
 
 
+def render_general_chat(st, root, backend_factory):
+    """Chat freely before a task exists; explicit PDB requests create tasks."""
+    st.markdown("**Chat with PanDoc**")
+    st.caption(
+        "Ask a scientific question, discuss a docking approach, or say "
+        "'Inspect PDB 1LF2'. You do not need a task ID or an API key."
+    )
+    history = st.session_state.get("pandoc_agent_lobby_history", [])
+    with st.container(height=280, border=True):
+        if not history:
+            with st.chat_message("assistant"):
+                st.markdown(
+                    "Hello! I can discuss molecular docking or inspect a "
+                    "structure such as PDB 1LF2. What would you like to do?"
+                )
+        for turn in history[-12:]:
+            with st.chat_message("user"):
+                st.markdown(turn["question"])
+            with st.chat_message("assistant"):
+                st.markdown(turn["answer"])
+    question = st.chat_input(
+        "Ask a question or tell PanDoc to inspect a PDB...",
+        key="pandoc_agent_lobby_input", max_chars=2000,
+    )
+    if not question:
+        return
+    try:
+        with st.spinner("Thinking about your request..."):
+            answer = handle_chat_request(st, question, backend_factory=backend_factory)
+            if answer is None:
+                api_key = _secret(st, "GROQ_API_KEY")
+                if api_key:
+                    answer = assistant.ask(
+                        question, api_key,
+                        history=history[-8:],
+                        model=_secret(st, "GROQ_MODEL") or agent_planner.MODEL,
+                    )
+                else:
+                    answer = (
+                        "I can retrieve and inspect an explicit PDB ID right now "
+                        "(for example, 'Inspect PDB 1LF2'). For open-ended AI "
+                        "conversation, the app owner must configure GROQ_API_KEY "
+                        "privately in the backend."
+                    )
+            history = (history + [{"question": question, "answer": answer}])[-20:]
+            st.session_state["pandoc_agent_lobby_history"] = history
+            created = str(st.session_state.get("pandoc_agent_task_id") or "")
+            if re.fullmatch(r"[0-9a-f]{32}", created):
+                # Carry the initiating exchange into durable task memory.
+                if (Path(root) / "agent_tasks" / created / "task.json").is_file():
+                    agent_conversation._save(root, created, question, answer)
+        st.rerun()
+    except (task_agent.AgentError, ValueError, RuntimeError, OSError) as exc:
+        st.error(str(exc))
+
+
 def render(st, root, backend_factory):
     if _secret(st, "PANDOC_AGENT_ENABLED").lower() not in ("1", "yes", "true"):
         return
     # Use stable host storage rather than the random per-WebSocket app root.
     # Set PANDOC_AGENT_DATA_DIR to mounted durable storage in production.
     root = _task_root(st)
-    with st.expander("AI task agent · Perform reviewed scientific work", expanded=False):
+    with st.expander("AI task agent · Chat and reviewed scientific work", expanded=True):
         st.caption(
             "Pilot mode: PDB retrieval, structure review, pH proposals, approved "
             "receptor/reference preparation and approved redocking. The agent "
@@ -170,36 +254,52 @@ def render(st, root, backend_factory):
             "Agent ready · No access key is required. AI and compute credentials "
             "are managed privately by the app administrator."
         )
-        st.caption(
-            "Describe the work below and press **Start task**. PanDoc creates "
-            "a task ID automatically; do not type the instruction in the resume field."
-        )
-        with st.form("pandoc_agent_start_form", clear_on_submit=False):
-            instruction = st.text_area(
-                "What should PanDoc do?",
-                placeholder="Inspect PDB 1LF2. Or prepare PDB 1LF2 at pH 5.0 and validate by redocking.",
-                max_chars=2000, height=90, key="pandoc_agent_instruction",
-            )
-            start_task = st.form_submit_button(
-                "Start task · Retrieve and inspect PDB", type="primary",
-            )
-        if start_task:
+        active_for_chat = str(st.session_state.get("pandoc_agent_task_id") or "")
+        if re.fullmatch(r"[0-9a-f]{32}", active_for_chat):
             try:
-                # A task request is NOT a task ID. It is parsed and the ID is
-                # created by task_agent.create after successful submission.
-                task_agent.parse_request(instruction)
-                with st.spinner("Planning and inspecting the structure..."):
-                    plan = agent_planner.plan_request(
-                        instruction,
-                        api_key=_secret(st, "GROQ_API_KEY"),
-                        model=_secret(st, "GROQ_MODEL") or agent_planner.MODEL,
-                    )
-                    created = task_agent.create(root, instruction, plan=plan)
-                st.session_state["pandoc_agent_task_id"] = created["id"]
-                st.session_state.pop("pandoc_agent_resume_candidate", None)
-                st.rerun()
-            except (task_agent.AgentError, ValueError, RuntimeError, OSError) as exc:
-                st.error(str(exc))
+                task_agent.describe(root, active_for_chat)
+            except task_agent.AgentError:
+                render_general_chat(st, root, backend_factory)
+            else:
+                # Main conversation comes first; the setup form is secondary.
+                render_task_chat(st, root, active_for_chat, backend_factory)
+        else:
+            render_general_chat(st, root, backend_factory)
+
+        with st.expander(
+            "Start a new PDB task" if active_for_chat else "Start with a structure",
+            expanded=not bool(active_for_chat),
+        ):
+            st.caption(
+                "Describe the work below and press **Start task**. PanDoc creates "
+                "a task ID automatically; do not type the instruction in the resume field."
+            )
+            with st.form("pandoc_agent_start_form", clear_on_submit=False):
+                instruction = st.text_area(
+                    "What should PanDoc do?",
+                    placeholder="Inspect PDB 1LF2. Or prepare PDB 1LF2 at pH 5.0 and validate by redocking.",
+                    max_chars=2000, height=90, key="pandoc_agent_instruction",
+                )
+                start_task = st.form_submit_button(
+                    "Start task · Retrieve and inspect PDB", type="primary",
+                )
+            if start_task:
+                try:
+                    # A task request is NOT a task ID. It is parsed and the ID is
+                    # created by task_agent.create after successful submission.
+                    task_agent.parse_request(instruction)
+                    with st.spinner("Planning and inspecting the structure..."):
+                        plan = agent_planner.plan_request(
+                            instruction,
+                            api_key=_secret(st, "GROQ_API_KEY"),
+                            model=_secret(st, "GROQ_MODEL") or agent_planner.MODEL,
+                        )
+                        created = task_agent.create(root, instruction, plan=plan)
+                    st.session_state["pandoc_agent_task_id"] = created["id"]
+                    st.session_state.pop("pandoc_agent_resume_candidate", None)
+                    st.rerun()
+                except (task_agent.AgentError, ValueError, RuntimeError, OSError) as exc:
+                    st.error(str(exc))
 
         # Resume is deliberately separate from instructions. Never attempt
         # to look up what the user typed into the task-request text area.
@@ -257,7 +357,6 @@ def render(st, root, backend_factory):
             st.caption(view["plan"]["summary"])
             st.caption("Scientific caution: " + view["plan"]["scientific_caution"])
         st.caption(f"PDB: {view.get('pdb_id') or 'Not provided'} · Target pH: {view.get('pH')}")
-        render_task_chat(st, root, current_id, backend_factory)
         if stage == "needs_pdb_id":
             st.warning("Create a new task with an explicit PDB ID; structure identity is never guessed.")
             return

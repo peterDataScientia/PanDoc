@@ -31,7 +31,7 @@ GITHUB_TOKEN = "your-compute-token"
 PANDOC_JOB_KEY = "your-Fernet-key"
 ~~~
 
-Once the agent key is entered, explicit requests such as 'Prepare PDB 1LF2 at pH 5.0' can also be sent in the existing scientific assistant chat; they create a task and pause at the review panel. This does not authorize docking.
+No user-facing agent key is needed. The **AI task agent** opens with a general chat: discuss a docking problem, ask what the software can do, or say "Could you please inspect PDB 1LF2?" to create a task directly from chat. After retrieval, the same panel becomes a persistent, structure-grounded chat. Explicit requests such as "Can we prepare it at pH 5.0?" and "Could you change our pH to 6.0?" revise the existing plan without a new task while review gates remain mandatory. The generic scientific-assistant chat can also start or continue an active task. Backend `GROQ_API_KEY` enables flexible AI explanations; without it, the task can still run and provide deterministic recorded-evidence summaries.
 
 Open the Scientific assistant panel, then expand **AI task agent · Perform reviewed scientific work**. **No user access key is needed.** The Groq provider key, GitHub token and Fernet job-encryption key are configured privately by the app owner in Streamlit Secrets or environment variables; they are never displayed in the browser. The old PANDOC_AGENT_ACCESS_KEY setting is obsolete for the Streamlit agent and can be deleted.
 
@@ -76,8 +76,11 @@ Existing baseline browser automation test failures remain separate. Unit tests u
 
 ## Continuous scientific task conversation
 
-After creating a task, the agent panel now displays **Continue with this task ·
-Scientific agent conversation**. The opening uses the recorded structure inventory
+The expanded agent panel prioritizes **chat**, not task IDs or a fixed wizard.
+Before a task exists, use the free-form "Chat with PanDoc" input for general
+questions or an explicit PDB inspection request. After creating a task, the
+panel displays **Continue with this task · Scientific agent conversation**.
+Its opening uses the recorded structure inventory
 rather than generic setup instructions. Type a follow-up question and click
 **Send follow-up to agent**, or use the context-sensitive quick prompts:
 **What did you find?**, **Which ligands?**, **What next?**.
