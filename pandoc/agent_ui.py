@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 import secrets
 
-from . import task_agent, agent_planner
+from . import task_agent, agent_planner, agent_conversation
 
 
 def _secret(st, key):
@@ -66,6 +66,66 @@ def handle_chat_request(st, question):
                 "any preparation or redocking. No calculation has been submitted.")
     return (f"Created task **{result['id']}**. Open the AI task agent panel to "
             "provide an exact PDB identifier before work can continue.")
+
+
+def render_task_chat(st, root, task_id, backend_factory):
+    """Always-visible follow-up conversation for the active scientific task."""
+    st.markdown("**Continue with this task · Scientific agent conversation**")
+    st.caption(
+        "Ask follow-up questions, review findings or request the next safe action. "
+        "The conversation stays attached to this task across app reruns. "
+        "Chemical decisions and docking still require explicit approval."
+    )
+    transcript = agent_conversation.history(root, task_id)
+    with st.container(height=270, border=True):
+        if not transcript:
+            # In regular deployments, show a grounded first finding, not
+            # an empty chat box. AppTest's fake task may omit task.json.
+            if (Path(root) / "agent_tasks" / task_id / "task.json").is_file():
+                with st.chat_message("assistant"):
+                    st.markdown(agent_conversation.opening(root, task_id))
+            else:
+                st.caption("Ask about the current task to begin its conversation.")
+        for turn in transcript[-10:]:
+            with st.chat_message("user"):
+                st.markdown(turn["question"])
+            with st.chat_message("assistant"):
+                st.markdown(turn["answer"])
+    example_buttons = st.columns(3)
+    suggestions = (
+        ("What did you find?", "What did you find in this structure?"),
+        ("Which ligands?", "Which crystallographic ligand candidates were detected?"),
+        ("What next?", "What should we do next in this task?"),
+    )
+    pending = None
+    for col, (label, prompt) in zip(example_buttons, suggestions):
+        if col.button(label, key="agent_quick_" + label.split()[0].lower(),
+                      use_container_width=True):
+            pending = prompt
+    with st.form("pandoc_agent_followup_form", clear_on_submit=True):
+        followup = st.text_input(
+            "Message your task agent",
+            placeholder="What did you find? Which ligand is suitable? Prepare it at pH 5.0.",
+            key="pandoc_agent_followup", max_chars=2000,
+        )
+        submitted = st.form_submit_button("Send follow-up to agent", type="primary")
+    if pending is None and not submitted:
+        return
+    question = pending if pending is not None else followup.strip()
+    if not question:
+        st.warning("Enter a follow-up question.")
+        return
+    try:
+        with st.spinner("Reviewing task evidence..."):
+            agent_conversation.respond(
+                root, task_id, question,
+                api_key=_secret(st, "GROQ_API_KEY"),
+                model=_secret(st, "GROQ_MODEL") or agent_planner.MODEL,
+                backend_factory=backend_factory,
+            )
+        st.rerun()
+    except (task_agent.AgentError, OSError, RuntimeError, ValueError) as exc:
+        st.error(str(exc))
 
 
 def render(st, root, backend_factory):
@@ -175,6 +235,7 @@ def render(st, root, backend_factory):
             st.caption(view["plan"]["summary"])
             st.caption("Scientific caution: " + view["plan"]["scientific_caution"])
         st.caption(f"PDB: {view.get('pdb_id') or 'Not provided'} · Target pH: {view.get('pH')}")
+        render_task_chat(st, root, current_id, backend_factory)
         if stage == "needs_pdb_id":
             st.warning("Create a new task with an explicit PDB ID; structure identity is never guessed.")
             return
