@@ -108,3 +108,60 @@ def test_empty_panel_has_distinct_submit_and_resume_actions(monkeypatch, tmp_pat
     assert "Resume existing task" in labels
     assert not any("Unknown agent task" in m.value for m in at.warning)
     assert any("No task started yet" in m.value for m in at.info)
+
+
+
+def test_task_chat_accepts_followup_and_remembers_answer(monkeypatch, tmp_path):
+    at, calls, task_id = _panel(monkeypatch, tmp_path)
+    _widget(at.text_area, "pandoc_agent_instruction").set_value("Inspect PDB 1LF2.").run()
+    next(b for b in at.button if "Start task" in b.label).click().run()
+    assert not list(at.exception)
+    assert any("Send follow-up" in b.label for b in at.button)
+
+    answers = []
+    def fake_followup(root, ident, question, **kwargs):
+        assert ident == task_id
+        answers.append(question)
+        (root / "agent_tasks" / ident / "conversation.json").write_text(json.dumps(
+            [{"question": question, "answer": "I found R37 and SO4 in the deposited structure."}]
+        ))
+        return "I found R37 and SO4 in the deposited structure."
+    monkeypatch.setattr(agent_ui.agent_conversation, "respond", fake_followup)
+
+    _widget(at.text_input, "pandoc_agent_followup").set_value(
+        "Which ligands are present?"
+    ).run()
+    next(b for b in at.button if "Send follow-up" in b.label).click().run()
+    assert not list(at.exception)
+    assert answers == ["Which ligands are present?"]
+    assert any("R37 and SO4" in m.value for m in at.markdown)
+    at.run()
+    assert len(answers) == 1  # reruns do not repeat actions
+
+
+def test_existing_scientific_chat_routes_followups_to_active_task(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from pandoc import task_agent
+    task_id = "b" * 32
+    monkeypatch.setattr(agent_ui, "_task_root", lambda st: tmp_path)
+    monkeypatch.setattr(task_agent, "describe", lambda root, ident: {
+        "id": task_id, "pdb_id": "1LF2",
+        "goal": "inspection", "stage": "await_structure_review"
+    })
+    calls = []
+    monkeypatch.setattr(agent_ui.agent_conversation, "respond",
+                        lambda root, ident, message, **kwargs: (
+                            calls.append((ident, message)) or "The observed ligand was R37."
+                        ))
+    st = SimpleNamespace(
+        secrets={"PANDOC_AGENT_ENABLED": "true",
+                 "PANDOC_AGENT_ACCESS_KEY": "pw"},
+        session_state={"pandoc_agent_access_entry": "pw",
+                       "pandoc_agent_task_id": task_id},
+    )
+    assert agent_ui.handle_chat_request(st, "What did you find?") == "The observed ligand was R37."
+    assert calls == [(task_id, "What did you find?")]
+    assert agent_ui.handle_chat_request(st, "Hello") is None
+    assert agent_ui.handle_chat_request(st, "What is PanDoc?") is None
+    assert "different PDB" in agent_ui.handle_chat_request(st, "Prepare PDB 2XYZ")
+    assert len(calls) == 1
