@@ -240,7 +240,7 @@ def suggestions(context):
     }.get(stage, [])
 
 
-def render(st, root, panel=False):
+def render(st, root, panel=False, backend_factory=None):
     with (st.container(border=True) if panel else st.expander('Scientific assistant', expanded=False)):
         if panel:
             st.subheader('Scientific assistant')
@@ -287,7 +287,7 @@ def render(st, root, panel=False):
                     history = st.session_state.get('assistant_history', [])
                     model = setting(st, 'GROQ_MODEL', MODEL)
                     with st.spinner('Thinking…'):
-                        agent_response = agent_ui.handle_chat_request(st, request)
+                        agent_response = agent_ui.handle_chat_request(st, request, backend_factory=backend_factory)
                         answer = (agent_response if agent_response is not None
                                   else ask(request, api_key, context, model, history,
                                            evidence=assistant_tools.from_session(st.session_state, active) if include else None))
