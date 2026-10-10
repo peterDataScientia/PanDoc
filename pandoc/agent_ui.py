@@ -30,40 +30,75 @@ def _task_root(st):
                  / "pandoc_agent"))
 
 
-def handle_chat_request(st, question):
-    """Start only an explicitly requested, PDB-specific read-only task from chat.
+def handle_chat_request(st, question, backend_factory=None):
+    """Route task follow-ups from the existing scientific assistant chat.
 
-    User-facing approvals and all chemistry/compute steps stay in the agent
-    panel. Do not interpret explanations ('How do I prepare...?') as commands.
-    Return None for ordinary messages, preserving existing Groq conversation.
+    Ordinary greetings and product explanations still use the generic Groq
+    assistant. A verified active task receives contextual questions; nothing
+    auto-approves the scientist's chemistry or launches remote jobs.
     """
     import re
 
-    if not re.match(r"^\s*(?:please\s+)?(?:prepare|inspect|retrieve|load|"
-                    r"start|validate|redock)\b", str(question), re.I):
-        return None
-    parsed = task_agent.parse_request(question)
-    if parsed["pdb_id"] is None:
-        return None
-    if _secret(st, "PANDOC_AGENT_ENABLED").lower() not in ("1", "yes", "true"):
-        return "Scientific task execution is not enabled in this PanDoc deployment."
+    message = str(question).strip()
+    enabled = _secret(st, "PANDOC_AGENT_ENABLED").lower() in ("1", "yes", "true")
     access_key = _secret(st, "PANDOC_AGENT_ACCESS_KEY")
     entered = st.session_state.get("pandoc_agent_access_entry", "")
-    if not access_key or not secrets.compare_digest(entered, access_key):
+    allowed = bool(enabled and access_key and
+                   secrets.compare_digest(entered, access_key))
+    # Do not let a task monopolize greetings or general software questions.
+    is_generic = (
+        bool(re.fullmatch(r"(hi|hello|hey|habari|mambo|thanks|thank you)[!. ]*",
+                          message.casefold())) or
+        bool(re.match(r"^\s*(what is|tell me about|describe)\s+(pandoc|this software|the software)\b",
+                      message, re.I))
+    )
+    active = str(st.session_state.get("pandoc_agent_task_id") or "")
+    if allowed and re.fullmatch(r"[0-9a-f]{32}", active) and not is_generic:
+        try:
+            current = task_agent.describe(_task_root(st), active)
+        except task_agent.AgentError:
+            current = None
+        if current is not None:
+            new_request = bool(re.match(r"^\s*(?:start|create)\s+(?:a\s+)?new\s+task\b", message, re.I))
+            if not new_request:
+                # A request to discuss a different PDB must not silently act
+                # on the previously inspected structure.
+                parsed = task_agent.parse_request(message)
+                if parsed["pdb_id"] and parsed["pdb_id"] != current["pdb_id"]:
+                    return ("That request names a different PDB. Start a separate task "
+                            "under 'What should PanDoc do?' to avoid mixing structures.")
+                return agent_conversation.respond(
+                    _task_root(st), active, message,
+                    api_key=_secret(st, "GROQ_API_KEY"),
+                    model=_secret(st, "GROQ_MODEL") or agent_planner.MODEL,
+                    backend_factory=backend_factory,
+                )
+
+    # First-time explicit action prompts start a task. An ordinary question
+    # like "How do I prepare..." must never create one.
+    if not re.match(r"^\s*(?:(?:please)\s+)?(?:prepare|inspect|retrieve|load|"
+                    r"start|validate|redock)\b", message, re.I):
+        return None
+    parsed = task_agent.parse_request(message)
+    if parsed["pdb_id"] is None:
+        return None
+    if not enabled:
+        return "Scientific task execution is not enabled in this PanDoc deployment."
+    if not allowed:
         return ("Open **AI task agent · Perform reviewed scientific work** below "
                 "the assistant and enter your agent access key first.")
 
     plan = agent_planner.plan_request(
-        question, api_key=_secret(st, "GROQ_API_KEY"),
+        message, api_key=_secret(st, "GROQ_API_KEY"),
         model=_secret(st, "GROQ_MODEL") or agent_planner.MODEL
     )
-    result = task_agent.create(_task_root(st), question, plan=plan)
+    result = task_agent.create(_task_root(st), message, plan=plan)
     st.session_state["pandoc_agent_task_id"] = result["id"]
     if result["stage"] == "await_structure_review":
         return (f"Created task **{result['id']}** for PDB **{result['pdb_id']}**. "
                 "The structure was retrieved and inspected. Open the **AI task agent** "
-                "panel to review its receptor chains and crystal reference before "
-                "any preparation or redocking. No calculation has been submitted.")
+                "panel to review its findings and keep discussing the same task. "
+                "No calculation has been submitted.")
     return (f"Created task **{result['id']}**. Open the AI task agent panel to "
             "provide an exact PDB identifier before work can continue.")
 
