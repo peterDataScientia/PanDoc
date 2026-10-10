@@ -60,9 +60,16 @@ def handle_chat_request(st, question, backend_factory=None):
                 # A request to discuss a different PDB must not silently act
                 # on the previously inspected structure.
                 parsed = task_agent.parse_request(message)
-                if parsed["pdb_id"] and parsed["pdb_id"] != current["pdb_id"]:
-                    return ("That request names a different PDB. Start a separate task "
-                            "under 'What should PanDoc do?' to avoid mixing structures.")
+                command = agent_conversation._explicit_command(message)
+                explicit_change = bool(re.match(
+                    r"^(?:prepare|inspect|retrieve|load|redock|validate|"
+                    r"start|check|review|examine)\b", command
+                ))
+                if (explicit_change and parsed["pdb_id"]
+                        and parsed["pdb_id"] != current["pdb_id"]):
+                    return ("This is a different PDB. Start a new structure task "
+                            "to inspect or prepare it without mixing evidence. "
+                            "You can still ask general comparison questions here.")
                 return agent_conversation.respond(
                     _task_root(st), active, message,
                     api_key=_secret(st, "GROQ_API_KEY"),
@@ -252,7 +259,7 @@ def render(st, root, backend_factory):
             try:
                 task_agent.describe(root, active_for_chat)
             except task_agent.AgentError:
-                pass
+                render_general_chat(st, root, backend_factory)
             else:
                 # Main conversation comes first; the setup form is secondary.
                 render_task_chat(st, root, active_for_chat, backend_factory)
