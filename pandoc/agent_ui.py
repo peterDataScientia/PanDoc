@@ -1,17 +1,16 @@
-"""Streamlit pilot panel for the durable scientific task agent.
+"""Streamlit scientific task agent, backed by server-managed credentials.
 
-The panel is opt-in, access-key gated and single-tenant. Multi-user public
-operation requires identity-scoped artifact storage and per-user authorization.
+The agent is enabled by deployment configuration; researchers never enter
+provider tokens or a shared access passphrase in the web interface.
+Public multi-user compute still needs owner isolation and server quotas.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
 import tempfile
 from pathlib import Path
-import secrets
 
 from . import task_agent, agent_planner, agent_conversation
 
@@ -31,36 +30,17 @@ def _task_root(st):
                  / "pandoc_agent"))
 
 
-def _agent_authorized(st):
-    """Require a successful explicit unlock for this Streamlit browser session.
-
-    The verifier is invalidated when the configured server secret changes.
-    The submitted plaintext key is never forwarded to Groq or scientific tools.
-    """
-    configured = _secret(st, "PANDOC_AGENT_ACCESS_KEY")
-    if not configured:
-        return False
-    fingerprint = hashlib.sha256(configured.encode("utf-8")).hexdigest()
-    return bool(
-        st.session_state.get("pandoc_agent_unlocked")
-        and secrets.compare_digest(
-            str(st.session_state.get("pandoc_agent_key_verifier", "")), fingerprint
-        )
-    )
-
-
 def handle_chat_request(st, question, backend_factory=None):
     """Route task follow-ups from the existing scientific assistant chat.
 
     Ordinary greetings and product explanations still use the generic Groq
-    assistant. A verified active task receives contextual questions; nothing
+    assistant. A selected active task receives contextual questions; nothing
     auto-approves the scientist's chemistry or launches remote jobs.
     """
     import re
 
     message = str(question).strip()
     enabled = _secret(st, "PANDOC_AGENT_ENABLED").lower() in ("1", "yes", "true")
-    allowed = bool(enabled and _agent_authorized(st))
     # Do not let a task monopolize greetings or general software questions.
     is_generic = (
         bool(re.fullmatch(r"(hi|hello|hey|habari|mambo|thanks|thank you)[!. ]*",
@@ -69,7 +49,7 @@ def handle_chat_request(st, question, backend_factory=None):
                       message, re.I))
     )
     active = str(st.session_state.get("pandoc_agent_task_id") or "")
-    if allowed and re.fullmatch(r"[0-9a-f]{32}", active) and not is_generic:
+    if enabled and re.fullmatch(r"[0-9a-f]{32}", active) and not is_generic:
         try:
             current = task_agent.describe(_task_root(st), active)
         except task_agent.AgentError:
@@ -100,10 +80,6 @@ def handle_chat_request(st, question, backend_factory=None):
         return None
     if not enabled:
         return "Scientific task execution is not enabled in this PanDoc deployment."
-    if not allowed:
-        return ("Open **AI task agent · Perform reviewed scientific work** below "
-                "the assistant and enter your agent access key first.")
-
     plan = agent_planner.plan_request(
         message, api_key=_secret(st, "GROQ_API_KEY"),
         model=_secret(st, "GROQ_MODEL") or agent_planner.MODEL
@@ -190,47 +166,10 @@ def render(st, root, backend_factory):
             "receptor/reference preparation and approved redocking. The agent "
             "never silently accepts chemical states or launches compute."
         )
-        access_key = _secret(st, "PANDOC_AGENT_ACCESS_KEY")
-        if not access_key:
-            st.error("Agent access is not configured. Set PANDOC_AGENT_ACCESS_KEY in app secrets.")
-            return
-        if not _agent_authorized(st):
-            st.caption(
-                "Enter your **PANDOC_AGENT_ACCESS_KEY** (not the Groq API key), "
-                "then press **Unlock agent**. The password field alone does not start a task."
-            )
-            with st.form("pandoc_agent_unlock_form", clear_on_submit=True):
-                typed = st.text_input(
-                    "Agent access key",
-                    type="password",
-                    key="pandoc_agent_access_entry",
-                    placeholder="Paste the agent access key",
-                )
-                submitted_key = st.form_submit_button(
-                    "Unlock agent", type="primary"
-                )
-            if submitted_key:
-                if typed and secrets.compare_digest(typed.strip(), access_key):
-                    st.session_state["pandoc_agent_unlocked"] = True
-                    st.session_state["pandoc_agent_key_verifier"] = hashlib.sha256(
-                        access_key.encode("utf-8")
-                    ).hexdigest()
-                    st.rerun()
-                else:
-                    st.error(
-                        "Access key not recognized. Copy the exact value of "
-                        "PANDOC_AGENT_ACCESS_KEY from Streamlit app secrets, "
-                        "not GROQ_API_KEY or PANDOC_JOB_KEY."
-                    )
-            else:
-                st.info("Agent locked · Enter the key and click Unlock agent.")
-            return
-
-        st.success("Agent unlocked · Ready to inspect structures and continue tasks.")
-        if st.button("Lock agent", key="pandoc_agent_lock_button"):
-            st.session_state.pop("pandoc_agent_unlocked", None)
-            st.session_state.pop("pandoc_agent_key_verifier", None)
-            st.rerun()
+        st.caption(
+            "Agent ready · Groq and compute credentials are configured securely "
+            "by the app administrator. No access key is required here."
+        )
         st.caption(
             "Describe the work below and press **Start task**. PanDoc creates "
             "a task ID automatically; do not type the instruction in the resume field."
