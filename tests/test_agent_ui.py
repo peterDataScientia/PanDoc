@@ -75,15 +75,15 @@ def test_natural_language_instruction_submits_and_generates_separate_id(monkeypa
     area = _widget(at.text_area, "pandoc_agent_instruction")
     area.set_value("Inspect PDB 1LF2.").run()
     assert not calls  # Typing does not submit or look up the instruction.
-    assert "Unknown agent task." not in " ".join(w.message for w in at.warning)
+    assert "Unknown agent task." not in " ".join(w.value for w in at.warning)
     start = next(b for b in at.button if "Start task" in b.label)
     start.click().run()
     assert not list(at.exception)
     assert len(calls) == 1
     assert calls[0][1] == "Inspect PDB 1LF2."
     assert at.session_state["pandoc_agent_task_id"] == task_id
-    assert "Unknown agent task." not in " ".join(w.message for w in at.warning)
-    assert any("Structure inspection is complete" in m.message for m in at.success)
+    assert "Unknown agent task." not in " ".join(w.value for w in at.warning)
+    assert any("Structure inspection is complete" in m.value for m in at.success)
     assert any("Task stage" in m.value for m in at.markdown)
     # Ordinary reruns must not spawn a duplicate task.
     at.run()
@@ -96,7 +96,7 @@ def test_resume_field_rejects_plain_english_without_lookup(monkeypatch, tmp_path
     next(b for b in at.button if b.label == "Resume existing task").click().run()
     assert not list(at.exception)
     assert not calls
-    assert any("That is not a task ID" in m.message for m in at.warning)
+    assert any("That is not a task ID" in m.value for m in at.warning)
     assert "pandoc_agent_task_id" not in at.session_state
 
 
@@ -106,5 +106,5 @@ def test_empty_panel_has_distinct_submit_and_resume_actions(monkeypatch, tmp_pat
     labels = [b.label for b in at.button]
     assert any("Start task" in label for label in labels)
     assert "Resume existing task" in labels
-    assert not any("Unknown agent task" in m.message for m in at.warning)
-    assert any("No task started yet" in m.message for m in at.info)
+    assert not any("Unknown agent task" in m.value for m in at.warning)
+    assert any("No task started yet" in m.value for m in at.info)
