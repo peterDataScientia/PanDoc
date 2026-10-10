@@ -233,6 +233,14 @@ Open **Scientific assistant** below the workflow. Add `GROQ_API_KEY = "your-key"
 Answers remain visible across reruns within the same session. Requests occur only when a chat message is submitted. The quick conversation snapshot includes box settings and up to the first 50 anonymous result rows. With **Share experiment context** enabled, Groq may additionally call allowlisted **read-only scientific evidence tools** to summarize *all saved result rows*, retrieve bounded score/RMSD pages, inspect recorded structure issues or one residue's atom inventory, and read job/provenance settings. Context sharing off disables tool calls. The selected PanDoc job/structure determines what can be inspected; the model cannot provide arbitrary filesystem paths. The tools exclude raw PDB/SDF/PDBQT coordinates, ligand labels and original filenames. The AI still cannot execute calculations, modify settings, determine uncomputed interactions or search literature. Verify model interpretations independently before using them for scientific conclusions. Model/account quotas apply.
 
 
+### Reviewed AI scientific task agent (pilot)
+
+PanDoc now includes an opt-in **AI task agent · Perform reviewed scientific work** panel alongside the Groq scientific assistant. It goes beyond explanations: natural-language requests can start a durable PDB retrieval/inspection task, present receptor/reference selection, suggest pKa assignments for review, prepare approved structures, run approved Vina redocking through GitHub Actions, and export an evidence/provenance bundle. The model **cannot** silently choose chemistry or authorize compute. Groq uses structured output for task planning, with a safe deterministic fallback.
+
+**Setup:** set PANDOC_AGENT_ENABLED=true, PANDOC_AGENT_ACCESS_KEY, GROQ_API_KEY (optional planning), and GITHUB_TOKEN/PANDOC_JOB_KEY to enable remote redocking. Set PANDOC_AGENT_DATA_DIR to a persistent mounted directory; the default temporary directory does not survive cloud host replacement. The pilot is **single-tenant** and not appropriate for open public multi-user compute without additional owner-bound access and resource limits. An authenticated user can also type an explicit instruction such as **Prepare PDB 1LF2 at pH 5.0** in the existing chat to start read-only retrieval; the agent then waits in its review panel. The chemistry panel can retrieve CCD ligand identity and propose MolScrub states, but never accepts them automatically.
+
+See [Scientific Task Agent pilot guide](docs/SCIENTIFIC_TASK_AGENT.md) for the approval stages, REST endpoints, task recovery and deployment restrictions.
+
 ### Automatic structure inspection
 
 Loading a complex now runs coordinate screening before component cleanup. The

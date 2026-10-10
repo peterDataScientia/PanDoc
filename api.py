@@ -4,6 +4,7 @@ import json
 import os
 import re
 import uuid
+import secrets
 from pathlib import Path
 from typing import Annotated
 
@@ -12,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from pandoc import compute, core, jobs, phprep
+from pandoc import compute, core, jobs, phprep, task_agent, agent_planner
 
 
 API_ROOT = Path(os.environ.get("PANDOC_API_DATA_DIR", "/tmp/pandoc_api")).resolve()
@@ -466,4 +467,147 @@ def docking_bundle(job_id: str):
         payload,
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="pandoc_job_{job_id}.zip"'},
+    )
+
+
+# The task-agent API is deliberately fail-closed and single-tenant in v1.
+# Unlike the legacy API, agent routes cannot run with an unset key.
+def require_agent_key(x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None):
+    if not API_KEY:
+        raise HTTPException(status_code=503, detail="Agent API requires PANDOC_API_KEY configuration.")
+    if not x_api_key or not secrets.compare_digest(x_api_key, API_KEY):
+        raise HTTPException(status_code=401, detail="Invalid or missing agent API key.")
+
+
+class AgentRequest(BaseModel):
+    instruction: str = Field(min_length=1, max_length=2000)
+
+
+class StructureReview(BaseModel):
+    chains: list[str] = Field(min_length=1)
+    reference_residue: str = Field(min_length=1)
+    retain: list[str] = Field(default_factory=list)
+    alternates: dict[str, str] = Field(default_factory=dict)
+
+
+class ChemistryReview(BaseModel):
+    reference_smiles: str = Field(min_length=1, max_length=2000)
+    template_assignments: str = Field(default="", max_length=6000)
+    repair_missing_heavy_atoms: bool = True
+    approved: bool = False
+
+
+class RedockingReview(BaseModel):
+    center: list[float] | None = None
+    size: list[float] | None = None
+    seeds: list[int] | None = None
+    exhaustiveness: int = Field(default=8, ge=1, le=64)
+    poses: int = Field(default=9, ge=1, le=20)
+    cpu: int = Field(default=2, ge=1, le=8)
+    approved: bool = False
+
+
+def agent_error(error: task_agent.AgentError):
+    raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post("/api/v1/agent/tasks", dependencies=[Depends(require_agent_key)])
+def agent_create(request: AgentRequest):
+    try:
+        plan = agent_planner.plan_request(
+            request.instruction, api_key=os.environ.get("GROQ_API_KEY", ""),
+            model=os.environ.get("GROQ_MODEL", agent_planner.MODEL),
+        )
+        return task_agent.create(API_ROOT, request.instruction, plan=plan)
+    except task_agent.AgentError as exc:
+        agent_error(exc)
+
+
+@app.get("/api/v1/agent/tasks/{task_id}", dependencies=[Depends(require_agent_key)])
+def agent_read(task_id: str):
+    try:
+        return task_agent.describe(API_ROOT, task_id)
+    except task_agent.AgentError as exc:
+        agent_error(exc)
+
+
+@app.post("/api/v1/agent/tasks/{task_id}/select", dependencies=[Depends(require_agent_key)])
+def agent_select(task_id: str, review: StructureReview):
+    try:
+        return task_agent.select_structure(
+            API_ROOT, task_id, review.chains, review.reference_residue,
+            review.retain, review.alternates
+        )
+    except task_agent.AgentError as exc:
+        agent_error(exc)
+
+
+@app.post("/api/v1/agent/tasks/{task_id}/protonation", dependencies=[Depends(require_agent_key)])
+def agent_protonation(task_id: str):
+    try:
+        return task_agent.protonation(API_ROOT, task_id)
+    except task_agent.AgentError as exc:
+        agent_error(exc)
+
+
+@app.post("/api/v1/agent/tasks/{task_id}/ligand-options", dependencies=[Depends(require_agent_key)])
+def agent_ligand_options(task_id: str):
+    try:
+        return task_agent.ligand_options(API_ROOT, task_id)
+    except task_agent.AgentError as exc:
+        agent_error(exc)
+
+
+@app.post("/api/v1/agent/tasks/{task_id}/prepare", dependencies=[Depends(require_agent_key)])
+def agent_prepare(task_id: str, review: ChemistryReview):
+    try:
+        return task_agent.prepare(
+            API_ROOT, task_id, reference_smiles=review.reference_smiles,
+            template_assignments=review.template_assignments,
+            repair_missing_heavy_atoms=review.repair_missing_heavy_atoms,
+            approved=review.approved
+        )
+    except task_agent.AgentError as exc:
+        agent_error(exc)
+
+
+@app.post("/api/v1/agent/tasks/{task_id}/redock", dependencies=[Depends(require_agent_key)])
+def agent_redock(task_id: str, review: RedockingReview):
+    if not review.approved:
+        raise HTTPException(status_code=422, detail="Explicit redocking approval is required.")
+    try:
+        return task_agent.submit_redocking(
+            API_ROOT, task_id, backend=compute_backend(), approved=review.approved,
+            center=review.center, size=review.size, seeds=review.seeds,
+            exhaustiveness=review.exhaustiveness, poses=review.poses, cpu=review.cpu,
+        )
+    except task_agent.AgentError as exc:
+        agent_error(exc)
+
+
+@app.post("/api/v1/agent/tasks/{task_id}/refresh", dependencies=[Depends(require_agent_key)])
+def agent_refresh(task_id: str):
+    try:
+        return task_agent.refresh(API_ROOT, task_id, compute_backend())
+    except task_agent.AgentError as exc:
+        agent_error(exc)
+
+
+@app.post("/api/v1/agent/tasks/{task_id}/cancel", dependencies=[Depends(require_agent_key)])
+def agent_cancel(task_id: str):
+    try:
+        return task_agent.cancel(API_ROOT, task_id, compute_backend())
+    except task_agent.AgentError as exc:
+        agent_error(exc)
+
+
+@app.get("/api/v1/agent/tasks/{task_id}/bundle", dependencies=[Depends(require_agent_key)])
+def agent_bundle(task_id: str):
+    try:
+        content = task_agent.artifacts(API_ROOT, task_id)
+    except task_agent.AgentError as exc:
+        agent_error(exc)
+    return Response(
+        content, media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="pandoc_agent_{task_id}.zip"'},
     )
