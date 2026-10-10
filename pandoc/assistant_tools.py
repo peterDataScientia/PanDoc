@@ -214,13 +214,32 @@ def _residue(evidence, args):
             "scope": "First-model atom inventory, without coordinates or interaction claims."}
 
 
+def _triplet(config, name):
+    """Expose only finite numeric grid vectors, not arbitrary list data."""
+    if not isinstance(config, dict):
+        return None
+    raw = config.get(name)
+    if not isinstance(raw, (tuple, list)) or len(raw) != 3:
+        return None
+    try:
+        numbers = [float(value) for value in raw]
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return numbers if all(math.isfinite(x) for x in numbers) else None
+
+
 def _provenance(evidence):
     config = _load_job_file(evidence, "config.json")
     status = _load_job_file(evidence, "status.json")
     return {"job_available": evidence.get("job") is not None,
-            "calculation_settings": _safe_fields(config, (
-                "center", "size", "exhaustiveness", "poses", "cpu", "protocol_id", "preparation_id")),
-            "seeds": (config.get("seeds") or [])[:30] if isinstance(config, dict) and isinstance(config.get("seeds"), list) else [],
+            "calculation_settings": {
+                **_safe_fields(config, (
+                    "exhaustiveness", "poses", "cpu", "protocol_id", "preparation_id")),
+                "center_A": _triplet(config, "center"),
+                "size_A": _triplet(config, "size"),
+            },
+            "seeds": [x for x in (config.get("seeds") or [])[:30] if type(x) is int]
+                     if isinstance(config, dict) and isinstance(config.get("seeds"), list) else [],
             "job_status": _safe_fields(status, ("state", "completed", "total", "poses_written", "cpu_threads")),
             "preparation_review": _safe_fields(evidence.get("preparation"), (
                 "pH_context", "pH", "templates", "repaired_heavy_atoms", "heme_coordination_residue")),
