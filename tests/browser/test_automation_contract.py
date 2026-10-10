@@ -63,8 +63,15 @@ def main() -> int:
 
             # Select the deposited ethanol component as the generic crystallographic reference.
             combo = page.get_by_role("combobox", name="Crystallographic reference ligand")
+            # Streamlit 1.64 uses a searchable combobox whose choices may
+            # render in a detached portal rather than a stable ARIA option.
+            # Drive it with the accessible keyboard interaction instead.
             combo.click()
-            page.get_by_role("option", name=re.compile(r"EOH")).click()
+            combo.press("ArrowDown")
+            combo.press("Enter")
+            assert "EOH" in combo.input_value(), (
+                "Expected reference ligand EOH, got " + combo.input_value()
+            )
 
             page.get_by_role("button", name="Use selection and continue").click()
 
