@@ -230,6 +230,9 @@ def _read_only_action(root, task_id, question, snapshot, backend_factory=None):
         if stage != "await_chemistry_review":
             return ("PROPKA requires a reviewed receptor selection and a preparation pH. " +
                     _next_step(snapshot))
+        if snapshot.get("preparation_pH") is None:
+            return ("What preparation pH should I use? Specify it explicitly, "
+                    "for example 'Prepare at pH 5.0', before requesting PROPKA.")
         task_agent.protonation(root, task_id)
         return "PROPKA predictions are now recorded for this task, not automatically assigned. Review the residue proposals in Chemical-state review."
     if re.match(r"^(please\s+)?(retrieve|fetch|run|enumerate|generate|suggest|find|show)\b", q) and re.search(
