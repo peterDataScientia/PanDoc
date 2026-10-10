@@ -185,7 +185,7 @@ def test_no_frontend_key_or_unlock_button_even_when_legacy_secret_exists(monkeyp
     assert not any("key" in inp.label.lower() for inp in at.text_input)
     assert not any("Unlock" in btn.label or "Lock agent" in btn.label for btn in at.button)
     assert any("Start task" in btn.label for btn in at.button)
-    assert any("Agent ready" in item.value for item in at.markdown)
+    assert any("Agent ready" in item.value for item in at.info)
     assert "PANDOC_AGENT_ACCESS_KEY" not in "".join(m.value for m in at.markdown)
 
 
