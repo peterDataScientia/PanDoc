@@ -122,7 +122,7 @@ def test_groq_local_tool_round_trip_and_no_unconsented_tools(monkeypatch, tmp_pa
 
         def create(self, **kwargs):
             queries.append(kwargs)
-            if len(queries) == 1:
+            if len(queries) == 1 and "tools" in kwargs:
                 call = SimpleNamespace(
                     id="call_1", function=SimpleNamespace(
                         name="get_calculation_summary", arguments="{}"))
