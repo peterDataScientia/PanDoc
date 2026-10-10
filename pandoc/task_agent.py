@@ -275,6 +275,15 @@ def revise_intent(root, task_id, *, goal, ph=None):
             for file in ("protonation.json", "ligand_options.json"):
                 (folder / file).unlink(missing_ok=True)
         if (task["goal"], task.get("pH")) != before:
+            if isinstance(task.get("plan"), dict):
+                task["plan"]["goal"] = task["goal"]
+                task["plan"]["pH"] = task.get("pH")
+                task["plan"]["summary"] = (
+                    f"Continue PDB {task.get('pdb_id')} toward {task['goal']} "
+                    f"with preparation pH {task.get('pH') if task.get('pH') is not None else 'to be specified'}; "
+                    "scientific component and chemical-state reviews remain mandatory."
+                )
+                task["plan"]["source"] = "explicit_user_followup"
             _write(folder, task, "intent_revised", previous_goal=before[0],
                    new_goal=task["goal"], previous_pH=before[1], new_pH=task["pH"])
         return {"id": task_id, "stage": task["stage"],
