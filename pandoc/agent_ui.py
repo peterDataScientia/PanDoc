@@ -166,9 +166,9 @@ def render(st, root, backend_factory):
             "receptor/reference preparation and approved redocking. The agent "
             "never silently accepts chemical states or launches compute."
         )
-        st.caption(
-            "Agent ready · Groq and compute credentials are configured securely "
-            "by the app administrator. No access key is required here."
+        st.info(
+            "Agent ready · No access key is required. AI and compute credentials "
+            "are managed privately by the app administrator."
         )
         st.caption(
             "Describe the work below and press **Start task**. PanDoc creates "
