@@ -1126,7 +1126,7 @@ else:
 def show_assistant():
     if st.session_state.assistant_open:
         with assistant_panel:
-            assistant.render(st, root, panel=True)
+            assistant.render(st, root, panel=True, backend_factory=github_backend)
             agent_ui.render(st, root, github_backend)
 
 st.session_state.pop('assistant_active_job', None)

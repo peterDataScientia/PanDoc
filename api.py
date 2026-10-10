@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from pandoc import compute, core, jobs, phprep, task_agent, agent_planner
+from pandoc import compute, core, jobs, phprep, task_agent, agent_planner, agent_conversation
 
 
 API_ROOT = Path(os.environ.get("PANDOC_API_DATA_DIR", "/tmp/pandoc_api")).resolve()
@@ -527,6 +527,36 @@ def agent_create(request: AgentRequest):
 def agent_read(task_id: str):
     try:
         return task_agent.describe(API_ROOT, task_id)
+    except task_agent.AgentError as exc:
+        agent_error(exc)
+
+
+class TaskChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+
+
+@app.get("/api/v1/agent/tasks/{task_id}/conversation", dependencies=[Depends(require_agent_key)])
+def agent_conversation_history(task_id: str):
+    try:
+        task_agent.describe(API_ROOT, task_id)
+        return {"task_id": task_id, "messages": agent_conversation.history(API_ROOT, task_id)}
+    except task_agent.AgentError as exc:
+        agent_error(exc)
+
+
+@app.post("/api/v1/agent/tasks/{task_id}/chat", dependencies=[Depends(require_agent_key)])
+def agent_chat(task_id: str, request: TaskChatRequest):
+    try:
+        answer = agent_conversation.respond(
+            API_ROOT, task_id, request.message,
+            api_key=os.environ.get("GROQ_API_KEY", ""),
+            model=os.environ.get("GROQ_MODEL", agent_planner.MODEL),
+            backend_factory=compute_backend,
+        )
+        return {
+            "task_id": task_id, "answer": answer,
+            "task": task_agent.describe(API_ROOT, task_id),
+        }
     except task_agent.AgentError as exc:
         agent_error(exc)
 
