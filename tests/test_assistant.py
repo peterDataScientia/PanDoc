@@ -104,14 +104,14 @@ def test_compounds_do_not_merge_and_current_snapshot_follows_history(tmp_path, m
             return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='Answer'))])
     monkeypatch.setattr(groq,'Groq',FakeClient)
     assistant.ask('Explain this selection','test',context,history=[dict(question='Old selection',answer='Old answer')])
-    assert 'current snapshot' in captured[-2]['content']
+    assert 'Optional PanDoc background snapshot' in captured[-2]['content']
     assert captured[-3]['role']=='assistant'
 
 
 def test_suggestion_sends_once_and_conversation_is_ordered(monkeypatch,tmp_path):
     monkeypatch.setattr(assistant,'setting',lambda st,name,default='':'test-key' if name=='GROQ_API_KEY' else default)
     calls=[]
-    def fake_ask(question,*args):
+    def fake_ask(question,*args,**kwargs):
         calls.append(question)
         return 'Specific explanation'
     monkeypatch.setattr(assistant,'ask',fake_ask)
@@ -137,3 +137,158 @@ def test_inspection_context_contains_evidence_and_current_choices():
     assert context['component_selection']['overrides']['A:10:ALA']=='B'
     assert context['preparation_under_review']['pH_context']==5
     assert context['total_preparation_changes']==1
+
+
+def test_standalone_greeting_is_short_and_never_sends_session_to_groq(monkeypatch):
+    import groq
+
+    def should_not_call_groq(*args, **kwargs):
+        raise AssertionError("A standalone greeting must not contact the model.")
+
+    monkeypatch.setattr(groq, "Groq", should_not_call_groq)
+    sensitive_context = {
+        "workflow_stage": "1 · Load complex",
+        "experiment_state": {"complex_loaded": False},
+    }
+    for greeting in ("HELLO", "Hello! 👋", " hi ", "Hey there", "Good morning"):
+        assert assistant.ask(greeting, "fake-key", context=sensitive_context, evidence={}) == (
+            "Hi! 👋 How can I help?"
+        )
+    assert assistant.ask("Mambo!", "fake-key", context=sensitive_context, evidence={}) == (
+        "Habari! 👋 Naweza kukusaidia nini?"
+    )
+
+
+def test_greeting_plus_real_scientific_request_reaches_groq(monkeypatch):
+    import groq
+    sent = []
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=self)
+
+        def __enter__(self): return self
+
+        def __exit__(self, *args): pass
+
+        def create(self, **kwargs):
+            sent.append(kwargs)
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+                content="Reference RMSD measures recovery of the crystal pose.",
+                tool_calls=None,
+            ))])
+
+    monkeypatch.setattr(groq, "Groq", FakeClient)
+    reply = assistant.ask("Hi, explain my reference RMSD", "fake-key",
+                          context={"workflow_stage": "3 · Validate docking"}, evidence={})
+    assert "RMSD" in reply
+    assert len(sent) == 1
+    assert sent[0]["tools"]
+    prompt = sent[0]["messages"][-2]["content"]
+    assert "optional pandoc background" in prompt.lower()
+
+
+def test_streamlit_greeting_keeps_chat_history_without_sending_groq(monkeypatch, tmp_path):
+    import groq
+    monkeypatch.setattr(groq, "Groq", lambda **kwargs: (_ for _ in ()).throw(
+        AssertionError("Greeting must not call Groq")))
+    monkeypatch.setattr(assistant, "setting", lambda st, name, default="":
+                        "test-key" if name == "GROQ_API_KEY" else default)
+    script = (
+        "import streamlit as st\n"
+        "from pandoc import assistant\n"
+        "st.session_state.workflow_stage='1 · Load complex'\n"
+        "assistant.render(st, " + repr(str(tmp_path)) + ")"
+    )
+    at = AppTest.from_string(script).run()
+    at.chat_input[0].set_value("HELLO").run()
+    assert not list(at.exception)
+    assert at.session_state["assistant_history"][-1]["answer"] == "Hi! 👋 How can I help?"
+    at.run()
+    assert len(at.session_state["assistant_history"]) == 1
+    assert "Load complex" not in at.session_state["assistant_history"][-1]["answer"]
+
+
+def test_brief_product_overview_uses_no_irrelevant_snapshot_or_tools(monkeypatch):
+    import groq
+    requests = []
+
+    class FakeClient:
+        def __init__(self, **kwargs): self.chat = SimpleNamespace(completions=self)
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def create(self, **kwargs):
+            requests.append(kwargs)
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+                content="PanDoc is a web-based workbench for preparing molecular docking "
+                        "structures, running Vina and assessing redocking pose recovery.",
+                tool_calls=None,
+            ))])
+
+    monkeypatch.setattr(groq, "Groq", FakeClient)
+    context = {"workflow_stage": "1 · Load complex",
+               "experiment_state": {"complex_loaded": False},
+               "software_versions": {"Python": "3.11"}}
+    history = [dict(question="How do I load a structure?", answer="Use Load complex.")]
+    for query in ("briefly tell me about this software",
+                  "BEIF TELL ME ABOUT THIS SOFTAWRE",
+                  "What is PanDoc?"):
+        result = assistant.ask(query, "test", context=context,
+                               history=history, evidence={"job": "/private/job"})
+        assert result.startswith("PanDoc is a web-based")
+        req = requests[-1]
+        assert len(req["messages"]) == 2  # System + actual question only
+        assert "tools" not in req
+        assert req["max_completion_tokens"] < 4096
+        assert "2-3 sentence" in req["messages"][0]["content"]
+        assert "workflow_stage" not in req["messages"][-1]["content"]
+    assert assistant.is_product_overview("What is my current PanDoc workflow stage?") is False
+    assert assistant.is_product_overview("Explain my redocking error in PanDoc") is False
+
+
+def test_overlong_or_snapshot_hijacked_product_answer_falls_back_to_verified_summary(monkeypatch):
+    import groq
+
+    class FakeClient:
+        def __init__(self, **kwargs): self.chat = SimpleNamespace(completions=self)
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def create(self, **kwargs):
+            answer = ("In the current snapshot, your workflow_stage is 1. " +
+                      " ".join(["Unrequested information"] * 180))
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+                content=answer, tool_calls=None,
+            ))])
+
+    monkeypatch.setattr(groq, "Groq", FakeClient)
+    result = assistant.ask("Briefly tell me about this software", "test", context={
+        "workflow_stage": "1 · Load complex",
+    })
+    assert result == assistant.BRIEF_PRODUCT_DESCRIPTION
+    assert len(result.split()) < 65
+    assert "snapshot" not in result.lower()
+
+
+def test_brief_scientific_question_keeps_relevant_context_and_tools(monkeypatch):
+    import groq
+    requests = []
+
+    class FakeClient:
+        def __init__(self, **kwargs): self.chat = SimpleNamespace(completions=self)
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def create(self, **kwargs):
+            requests.append(kwargs)
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+                content="The best redocking pose has the smallest reference RMSD.",
+                tool_calls=None,
+            ))])
+
+    monkeypatch.setattr(groq, "Groq", FakeClient)
+    result = assistant.ask("Briefly explain my redocking RMSD", "test",
+                           context={"workflow_stage": "3 · Validate docking"},
+                           evidence={})
+    assert "redocking" in result
+    assert "tools" in requests[0]
+    assert requests[0]["messages"][-2]["role"] == "user"
+    assert "workflow_stage" in requests[0]["messages"][-2]["content"]
