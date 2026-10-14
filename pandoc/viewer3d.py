@@ -84,6 +84,10 @@ html, body { margin:0; padding:0; background:#fff; color:#26384b;
                           border:1px solid #cbd5e1; background:#f8fafc;
                           color:#26384b; cursor:pointer; font-size:13px; }
 #VIEW_ID_toolbar button:disabled { opacity:.5; cursor:not-allowed; }
+#VIEW_ID_toolbar label { font-size:13px; font-weight:650; color:#26384b; }
+#VIEW_ID_toolbar select { appearance:auto; min-width:120px; padding:5px 9px;
+    border:1px solid #cbd5e1; border-radius:6px; color:#26384b; background:#fff;
+    font:13px system-ui,-apple-system,"Segoe UI",sans-serif; cursor:pointer; }
 #VIEW_ID_retry { display:none; }
 </style>
 </head>
@@ -92,6 +96,13 @@ html, body { margin:0; padding:0; background:#fff; color:#26384b;
   <div id="VIEW_ID_status" role="status" aria-live="polite">Loading molecular viewer...</div>
 </div>
 <div id="VIEW_ID_toolbar">
+  <label for="VIEW_ID_style">Protein style</label>
+  <select id="VIEW_ID_style" aria-label="Protein display style">
+    <option value="cartoon" selected>Cartoon</option>
+    <option value="stick">Stick</option>
+    <option value="sphere">Sphere</option>
+    <option value="line">Line</option>
+  </select>
   <button id="VIEW_ID_zoom_in" type="button" disabled>Zoom +</button>
   <button id="VIEW_ID_zoom_out" type="button" disabled>Zoom -</button>
   <button id="VIEW_ID_fit" type="button" disabled>Fit structure</button>
@@ -107,6 +118,7 @@ html, body { margin:0; padding:0; background:#fff; color:#26384b;
   const zoomIn = document.getElementById("VIEW_ID_zoom_in");
   const zoomOut = document.getElementById("VIEW_ID_zoom_out");
   const fit = document.getElementById("VIEW_ID_fit");
+  const styleSelect = document.getElementById("VIEW_ID_style");
   let viewer = null;
   let fallbackControls = null;
 
@@ -140,7 +152,8 @@ html, body { margin:0; padding:0; background:#fff; color:#26384b;
       if (![x,y,z].every(Number.isFinite)) return -1;
       const index = atoms.length;
       atoms.push({x:x, y:y, z:z, element:(element || "C").toUpperCase(),
-                  kind:kind, chain:chain || "", group:group || "", serial:serial});
+                  kind:kind, chain:chain || "", group:group || "", serial:serial,
+                  name:""});
       return index;
     }
     function addBond(a,b,style) {
@@ -159,7 +172,7 @@ html, body { margin:0; padding:0; background:#fff; color:#26384b;
       const lines=text.split(/\r?\n/), serialMap=new Map();
       let prior=null, tracesFound=0;
       const heteroGroups=new Map();
-      const proteinPoints=[];
+      const proteinGroups=new Map();
       lines.forEach(function(line) {
         const rec=line.slice(0,6).trim();
         if (rec !== "ATOM" && rec !== "HETATM") return;
@@ -176,10 +189,14 @@ html, body { margin:0; padding:0; background:#fff; color:#26384b;
         const chain=line.slice(21,22);
         const group=chain+":"+line.slice(22,27)+":"+residue;
         if (rec==="ATOM") {
-          const current={x:x,y:y,z:z,element:el,chain:chain};
-          if (name==="CA") {
-            const idx=addAtom(x,y,z,"C","trace",chain,group,serial);
-            if (idx>=0) {
+          const idx=addAtom(x,y,z,el,name==="CA"?"trace":"protein",
+                            chain,group,serial);
+          if (idx>=0) {
+            atoms[idx].name=name;
+            serialMap.set(serial,idx);
+            if (!proteinGroups.has(group)) proteinGroups.set(group,[]);
+            proteinGroups.get(group).push(idx);
+            if (name==="CA") {
               if (prior && prior.chain===chain &&
                   distance(atoms[prior.idx],atoms[idx])<5.3) {
                 addBond(prior.idx,idx,"trace");
@@ -187,8 +204,6 @@ html, body { margin:0; padding:0; background:#fff; color:#26384b;
               prior={idx:idx,chain:chain};
               tracesFound++;
             }
-          } else if (Number.isFinite(x)&&Number.isFinite(y)&&Number.isFinite(z)) {
-            proteinPoints.push(current);
           }
         } else {
           const idx=addAtom(x,y,z,el,"hetero",chain,group,serial);
@@ -199,12 +214,31 @@ html, body { margin:0; padding:0; background:#fff; color:#26384b;
           }
         }
       });
-      // Non-protein PDBs may contain no alpha carbons.
-      if (!tracesFound) {
-        proteinPoints.slice(0,8000).forEach(function(a) {
-          addAtom(a.x,a.y,a.z,a.element,"trace",a.chain,"",null);
-        });
-      }
+      // Build atomic protein connectivity only within residues (plus peptide C-N).
+      // This lets non-WebGL Stick/Line/Sphere show actual protein atoms,
+      // while Cartoon draws the lighter-weight connected C-alpha trace.
+      let previousGroup=null;
+      proteinGroups.forEach(function(ids,group) {
+        for(let i=0;i<ids.length;i++) for(let j=i+1;j<ids.length;j++) {
+          const a=atoms[ids[i]],b=atoms[ids[j]];
+          const max=(a.element==="S"||b.element==="S")?2.18:1.95;
+          const d=distance(a,b);
+          if(d>0.55&&d<max) addBond(ids[i],ids[j],"protein");
+        }
+        if(previousGroup && previousGroup.group!==group &&
+           atoms[previousGroup.ids[0]].chain===atoms[ids[0]].chain) {
+          const carb=previousGroup.ids.find(function(id) {
+            return atoms[id].serial !== null && atoms[id].element==="C" &&
+                   atoms[id].name==="C";
+          });
+          const nit=ids.find(function(id) {
+            return atoms[id].name==="N";
+          });
+          if(carb!==undefined && nit!==undefined &&
+             distance(atoms[carb],atoms[nit])<1.8) addBond(carb,nit,"protein");
+        }
+        previousGroup={group:group,ids:ids};
+      });
       lines.forEach(function(line) {
         if (line.slice(0,6).trim()!=="CONECT") return;
         const ids=(line.slice(6).match(/.{1,5}/g)||[])
@@ -325,25 +359,48 @@ html, body { margin:0; padding:0; background:#fff; color:#26384b;
       ctx.fillStyle="#fff";ctx.fillRect(0,0,w,h);
       const scale=Math.min(w,h)*0.73/maxExtent*state.zoom;
       const projectedAtoms=atoms.map(function(a){return projected(a,w,h,scale);});
+      const mode=styleSelect.value;
       const edges=bonds.map(function(b){
         return {a:projectedAtoms[b.a],b:projectedAtoms[b.b],
                 kind:b.style,depth:(projectedAtoms[b.a].z+projectedAtoms[b.b].z)/2,
                 atomA:atoms[b.a],atomB:atoms[b.b]};
+      }).filter(function(e){
+        if (e.kind==="trace") return mode==="cartoon";
+        if (e.kind==="protein") return mode==="stick" || mode==="line";
+        return true;
       }).sort(function(a,b){return a.depth-b.depth;});
       ctx.lineCap="round";
       edges.forEach(function(e) {
-        ctx.strokeStyle=e.kind==="trace" ? "#6789ad" : atomColor(e.atomA);
-        ctx.globalAlpha=e.kind==="trace"?0.78:0.95;
-        ctx.lineWidth=e.kind==="trace"?2.2:3.0;
-        ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke();
+        if (e.kind==="trace") {
+          // A smooth shaded ribbon-like backbone preview in Canvas 2D.
+          // True secondary-structure cartoons require the WebGL viewer.
+          ctx.globalAlpha=0.9;
+          ctx.strokeStyle="#3b6287";
+          ctx.lineWidth=9;
+          ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke();
+          ctx.strokeStyle="#83aacb";
+          ctx.lineWidth=5.5;
+          ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke();
+        } else {
+          ctx.strokeStyle=e.kind==="protein" ? "#7f9bb9" : atomColor(e.atomA);
+          ctx.globalAlpha=e.kind==="protein"?0.80:0.95;
+          ctx.lineWidth=mode==="line"?1.1:3.0;
+          ctx.beginPath();ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke();
+        }
       });
       ctx.globalAlpha=1;
       const dots=atoms.map(function(a,i){return {atom:a,p:projectedAtoms[i]};})
-        .filter(function(e){return e.atom.kind!=="trace";})
+        .filter(function(e){
+          return e.atom.kind==="hetero" || e.atom.kind==="reference" ||
+                 e.atom.kind==="candidate" || mode!=="cartoon";
+        })
         .sort(function(a,b){return a.p.z-b.p.z;});
       dots.forEach(function(e){
         ctx.fillStyle=atomColor(e.atom);
-        ctx.beginPath();ctx.arc(e.p.x,e.p.y,3.3,0,Math.PI*2);ctx.fill();
+        const radius=(mode==="sphere" && 
+          (e.atom.kind==="protein" || e.atom.kind==="trace"))?5.7:
+          (mode==="line"?1.3:3.0);
+        ctx.beginPath();ctx.arc(e.p.x,e.p.y,radius,0,Math.PI*2);ctx.fill();
       });
       // Protein structures with no alpha carbons: draw a point cloud.
       if (!edges.length && !dots.length) {
@@ -375,8 +432,8 @@ html, body { margin:0; padding:0; background:#fff; color:#26384b;
     fallbackControls=controls;
     [zoomIn,zoomOut,fit].forEach(function(b){b.disabled=false;});
     status.className="fallback";
-    status.textContent="Interactive molecular preview (Canvas 2D; "+reason+
-      "). Drag to rotate, scroll to zoom. No WebGL required.";
+    status.textContent="Canvas 2D molecular preview (simplified "+styleSelect.value+
+      "; "+reason+"). Drag to rotate, scroll to zoom.";
     retry.style.display="none";
     draw();
   }
@@ -420,6 +477,31 @@ html, body { margin:0; padding:0; background:#fff; color:#26384b;
     catch (error) { errorMessage(error); }
   }
 
+  function applyProteinStyle() {
+    if (!viewer || fallbackControls) return;
+    data.models.forEach(function(item,index) {
+      if (item.kind!=="protein") return;
+      const selection={model:index,hetflag:false};
+      const mode=styleSelect.value;
+      if (mode==="cartoon") {
+        viewer.setStyle(selection,{cartoon:{color:"#7b94ad"}});
+      } else if (mode==="stick") {
+        viewer.setStyle(selection,{stick:{colorscheme:"Jmol"}});
+      } else if (mode==="sphere") {
+        viewer.setStyle(selection,{sphere:{scale:0.75,colorscheme:"Jmol"}});
+      } else {
+        viewer.setStyle(selection,{line:{colorscheme:"Jmol"}});
+      }
+      viewer.addStyle({model:index,hetflag:true},
+                      {stick:{colorscheme:"cyanCarbon"}});
+    });
+    if (data.focus_serials.length) {
+      viewer.addStyle({model:0,serial:data.focus_serials},
+                      {stick:{color:"#f59e0b"}});
+    }
+    viewer.render();
+  }
+
   function initializeViewer() {
     fallbackControls = null;
     scene.querySelectorAll("canvas").forEach(function(node) { node.remove(); });
@@ -435,14 +517,13 @@ html, body { margin:0; padding:0; background:#fff; color:#26384b;
       }
       atomCount += atoms.length;
       if (item.kind === "protein") {
-        viewer.setStyle({model:index}, {cartoon:{color:"#7b94ad"}});
-        viewer.addStyle({model:index, hetflag:true},
-                        {stick:{colorscheme:"cyanCarbon"}});
+        // The user's selected protein style is applied once all models load.
       } else {
         const color = item.kind === "reference" ? "greenCarbon" : "magentaCarbon";
         viewer.setStyle({model:index}, {stick:{colorscheme:color}});
       }
     });
+    applyProteinStyle();
     if (data.focus_serials.length) {
       viewer.addStyle({model:0, serial:data.focus_serials},
                       {stick:{color:"#f59e0b"}});
@@ -502,6 +583,10 @@ html, body { margin:0; padding:0; background:#fff; color:#26384b;
     else if (viewer) { viewer.zoomTo(); viewer.render(); }
   });
   retry.addEventListener("click", start);
+  styleSelect.addEventListener("change",function() {
+    if (fallbackControls) fallbackControls.resize();
+    else if (viewer) applyProteinStyle();
+  });
 
   if (typeof ResizeObserver !== "undefined") {
     new ResizeObserver(resizeViewer).observe(scene);
