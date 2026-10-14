@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review, profile_engine, profile_quality, compute
+from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review, profile_engine, profile_quality, compute, viewer3d
 
 PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.png'
 PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
@@ -44,37 +44,18 @@ if 'root' not in st.session_state:
 root = Path(st.session_state.root)
 
 
+
 def viewer(pdb=None, sdf=None, reference=None, center=None, size=None, focus=None):
-    import py3Dmol
-    view = py3Dmol.view(width='100%', height=430)
-    view.setBackgroundColor('#ffffff')
-    if pdb:
-        view.addModel(pdb, 'pdb')
-        view.setStyle({'model': 0}, {'cartoon': {'color': '#7b94ad'}})
-        view.addStyle({'model': 0, 'hetflag': True}, {'stick': {'colorscheme': 'cyanCarbon'}})
-    if reference:
-        view.addModel(reference, 'sdf')
-        view.setStyle({'model': int(bool(pdb))}, {'stick': {'colorscheme': 'greenCarbon'}})
-    if sdf:
-        view.addModel(sdf, 'sdf')
-        # Last model is the candidate or redocked pose.
-        idx = int(bool(pdb)) + int(bool(reference))
-        view.setStyle({'model': idx}, {'stick': {'colorscheme': 'magentaCarbon'}})
-    if center and size:
-        view.addBox({'center': dict(zip('xyz', center)), 'dimensions': dict(zip('whd', size)), 'color': '#f59e0b', 'wireframe': True})
-    view.zoomTo()
-    if pdb and focus:
-        serials = [int(a['line'][6:11]) for a in core.atoms(pdb) if core.key(a)==focus]
-        if serials:
-            selection = {'model': 0, 'serial': serials}
-            view.addStyle(selection, {'stick': {'color': '#f59e0b'}})
-            view.zoomTo(selection)
+    """Render an instrumented molecular canvas with visible loading failures."""
     import streamlit.components.v1 as components
-    html = view._make_html()
-    controls = f"""<div style='padding:6px'><button onclick='viewer_{view.uniqueid}.zoom(1.2);viewer_{view.uniqueid}.render()'>Zoom +</button>
-<button onclick='viewer_{view.uniqueid}.zoom(0.8);viewer_{view.uniqueid}.render()'>Zoom −</button>
-<button onclick='viewer_{view.uniqueid}.zoomTo();viewer_{view.uniqueid}.render()'>Fit structure</button></div>"""
-    components.html(html + controls, height=490, scrolling=False)
+    components.html(
+        viewer3d.viewer_html(
+            pdb=pdb, sdf=sdf, reference=reference,
+            center=center, size=size, focus=focus,
+        ),
+        height=490,
+        scrolling=False,
+    )
 
 
 
