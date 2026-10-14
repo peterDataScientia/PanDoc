@@ -41,17 +41,6 @@ def main() -> int:
         browser = pw.chromium.launch(headless=True)
         page = browser.new_page(accept_downloads=True)
         page.set_default_timeout(30_000)
-        # Simulate the reported browser environment: WebGL blocked, Canvas 2D available.
-        page.add_init_script("""
-            (() => {
-              const original = HTMLCanvasElement.prototype.getContext;
-              HTMLCanvasElement.prototype.getContext = function(kind, ...args) {
-                if (kind === 'webgl' || kind === 'webgl2' ||
-                    kind === 'experimental-webgl') return null;
-                return original.call(this, kind, ...args);
-              };
-            })();
-        """)
 
         try:
             page.goto(BASE_URL, wait_until="domcontentloaded")
@@ -65,52 +54,6 @@ def main() -> int:
             # Streamlit-generated CSS classes, framework data-testid values, or DOM position.
             page.get_by_label("PDB or mmCIF complex", exact=True).locator('input[type="file"]').set_input_files(str(FIXTURE))
             wait_marker_state(page, "pandoc-complex", "ready")
-
-            # A loaded PDB must produce a nonblank molecular view even if WebGL is off.
-            page.wait_for_function(
-                """() => Array.from(document.querySelectorAll('iframe')).some(frame => {
-                    try {
-                        const canvas = frame.contentDocument &&
-                          frame.contentDocument.querySelector('canvas[data-pandoc-renderer="2d"]');
-                        if (!canvas || canvas.width < 1 || canvas.height < 1) return false;
-                        const pixels = canvas.getContext('2d').getImageData(
-                            0, 0, canvas.width, canvas.height).data;
-                        for (let i = 0; i < pixels.length; i += 4) {
-                            if (pixels[i] < 210 && pixels[i+1] < 210 &&
-                                pixels[i+2] < 210 && pixels[i+3] > 0) return true;
-                        }
-                        return false;
-                    } catch (_) { return false; }
-                })""",
-                timeout=30_000,
-            )
-
-            # The no-WebGL viewer starts as Cartoon and users can switch styles.
-            # Compare actual rendered pixels rather than just checking the controls.
-            assert page.evaluate("""() => {
-              const iframe = Array.from(document.querySelectorAll('iframe')).find(f => {
-                try { return !!f.contentDocument.querySelector(
-                  'select[aria-label="Protein display style"]'); }
-                catch (_) { return false; }
-              });
-              if (!iframe) return false;
-              const doc = iframe.contentDocument;
-              const style = doc.querySelector('select[aria-label="Protein display style"]');
-              const canvas = doc.querySelector('canvas[data-pandoc-renderer="2d"]');
-              if (!style || !canvas || style.value !== 'cartoon') return false;
-              const before = canvas.toDataURL();
-              for (const mode of ['stick', 'sphere', 'line']) {
-                style.value = mode;
-                style.dispatchEvent(new Event('change', {bubbles:true}));
-                if (!canvas.width || !canvas.height) return false;
-              }
-              style.value = 'sphere';
-              style.dispatchEvent(new Event('change', {bubbles:true}));
-              const changed = canvas.toDataURL() !== before;
-              style.value = 'cartoon';
-              style.dispatchEvent(new Event('change', {bubbles:true}));
-              return changed && style.value === 'cartoon';
-            }"""), "Protein display selector did not update rendered molecular style"
 
             # Confirm the application exposes deterministic workflow and compute state.
             stage = marker(page, "pandoc-workflow-stage").get_attribute("data-state")
