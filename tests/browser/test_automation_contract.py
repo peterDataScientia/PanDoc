@@ -41,6 +41,17 @@ def main() -> int:
         browser = pw.chromium.launch(headless=True)
         page = browser.new_page(accept_downloads=True)
         page.set_default_timeout(30_000)
+        # Simulate the reported browser environment: WebGL blocked, Canvas 2D available.
+        page.add_init_script("""
+            (() => {
+              const original = HTMLCanvasElement.prototype.getContext;
+              HTMLCanvasElement.prototype.getContext = function(kind, ...args) {
+                if (kind === 'webgl' || kind === 'webgl2' ||
+                    kind === 'experimental-webgl') return null;
+                return original.call(this, kind, ...args);
+              };
+            })();
+        """)
 
         try:
             page.goto(BASE_URL, wait_until="domcontentloaded")
@@ -54,6 +65,18 @@ def main() -> int:
             # Streamlit-generated CSS classes, framework data-testid values, or DOM position.
             page.get_by_label("PDB or mmCIF complex", exact=True).locator('input[type="file"]').set_input_files(str(FIXTURE))
             wait_marker_state(page, "pandoc-complex", "ready")
+
+            # A loaded PDB must produce a nonblank molecular view even if WebGL is off.
+            page.wait_for_function(
+                """() => Array.from(document.querySelectorAll('iframe')).some(frame => {
+                    try {
+                        const canvas = frame.contentDocument &&
+                          frame.contentDocument.querySelector('canvas[data-pandoc-renderer="2d"]');
+                        return !!canvas && canvas.width > 0 && canvas.height > 0;
+                    } catch (_) { return false; }
+                })""",
+                timeout=30_000,
+            )
 
             # Confirm the application exposes deterministic workflow and compute state.
             stage = marker(page, "pandoc-workflow-stage").get_attribute("data-state")
