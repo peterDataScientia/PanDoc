@@ -72,7 +72,14 @@ def main() -> int:
                     try {
                         const canvas = frame.contentDocument &&
                           frame.contentDocument.querySelector('canvas[data-pandoc-renderer="2d"]');
-                        return !!canvas && canvas.width > 0 && canvas.height > 0;
+                        if (!canvas || canvas.width < 1 || canvas.height < 1) return false;
+                        const pixels = canvas.getContext('2d').getImageData(
+                            0, 0, canvas.width, canvas.height).data;
+                        for (let i = 0; i < pixels.length; i += 4) {
+                            if (pixels[i] < 210 && pixels[i+1] < 210 &&
+                                pixels[i+2] < 210 && pixels[i+3] > 0) return true;
+                        }
+                        return false;
                     } catch (_) { return false; }
                 })""",
                 timeout=30_000,
