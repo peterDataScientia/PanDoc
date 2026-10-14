@@ -74,3 +74,29 @@ def test_webgl_failure_uses_interactive_2d_canvas_instead_of_blank_viewer():
     assert 'canvas.addEventListener("wheel"' in html
     assert 'fallbackControls.zoom(1.2)' in html
     assert 'draw()' in html
+
+
+
+def test_cartoon_is_default_with_user_switchable_protein_styles():
+    html = viewer_html(pdb=minimal_pdb())
+    assert 'aria-label="Protein display style"' in html
+    assert '<option value="cartoon" selected>Cartoon</option>' in html
+    for style in ("stick", "sphere", "line"):
+        assert f'<option value="{style}">' in html
+    assert 'styleSelect.addEventListener("change"' in html
+    assert 'applyProteinStyle()' in html
+    assert 'viewer.setStyle(selection,{cartoon:' in html
+    assert 'viewer.setStyle(selection,{stick:' in html
+    assert 'viewer.setStyle(selection,{sphere:' in html
+    assert 'viewer.setStyle(selection,{line:' in html
+
+
+def test_no_webgl_protein_style_selection_uses_actual_backbone_and_atomic_bonds():
+    html = viewer_html(pdb=minimal_pdb())
+    assert 'proteinGroups=new Map()' in html
+    assert 'addBond(ids[i],ids[j],"protein")' in html
+    assert 'mode==="cartoon"' in html
+    assert 'mode==="stick" || mode==="line"' in html
+    assert 'mode==="sphere"' in html
+    assert 'fallbackControls.resize()' in html
+    assert 'hasBackbone' in html
