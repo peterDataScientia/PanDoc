@@ -144,7 +144,8 @@ html, body { margin:0; padding:0; background:#fff; color:#26384b;
       return index;
     }
     function addBond(a,b,style) {
-      if (a < 0 || b < 0 || a === b) return;
+      if (!Number.isInteger(a) || !Number.isInteger(b) ||
+          !atoms[a] || !atoms[b] || a === b) return;
       const key = Math.min(a,b) + ":" + Math.max(a,b);
       if (bondKeys.has(key)) return;
       bondKeys.add(key);
@@ -270,8 +271,9 @@ html, body { margin:0; padding:0; background:#fff; color:#26384b;
 
     // Do not use a WebGL context. HTML Canvas 2D works with software rendering.
     viewer = null;
-    const old=scene.querySelector('canvas[data-pandoc-renderer="2d"]');
-    if (old) old.remove();
+    Array.from(scene.children).forEach(function(node) {
+      if (node !== status) node.remove();
+    });
     const canvas=document.createElement("canvas");
     canvas.dataset.pandocRenderer="2d";
     canvas.style.cssText="width:100%;height:100%;display:block;touch-action:none;cursor:grab";
