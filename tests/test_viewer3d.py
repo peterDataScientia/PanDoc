@@ -18,7 +18,7 @@ def test_protein_viewer_has_real_coordinates_and_bootstrap():
     assert 'cdn.jsdelivr.net' in html
     assert 'unpkg.com' in html
     assert 'tag.onerror' in html
-    assert 'WebGL is unavailable' in html
+    assert 'createCanvasFallback("WebGL unavailable")' in html
     assert 'No atoms parsed' in html
     assert 'Retry viewer' in html
     assert 'Zoom +' in html
