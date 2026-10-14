@@ -18,7 +18,7 @@ def test_protein_viewer_has_real_coordinates_and_bootstrap():
     assert 'cdn.jsdelivr.net' in html
     assert 'unpkg.com' in html
     assert 'tag.onerror' in html
-    assert 'WebGL is unavailable' in html
+    assert 'createCanvasFallback("WebGL unavailable")' in html
     assert 'No atoms parsed' in html
     assert 'Retry viewer' in html
     assert 'Zoom +' in html
@@ -61,3 +61,16 @@ def test_script_escaping_prevents_untrusted_structure_html_injection():
 
 def test_empty_viewer_explains_problem():
     assert "No structure supplied" in viewer_html()
+
+
+def test_webgl_failure_uses_interactive_2d_canvas_instead_of_blank_viewer():
+    html = viewer_html(pdb=minimal_pdb())
+    assert "createCanvasFallback(\"WebGL unavailable\")" in html
+    assert "createCanvasFallback(\"3D library unavailable\")" in html
+    assert "createCanvasFallback(\"3D renderer failed\")" in html
+    assert 'canvas.getContext("2d")' in html
+    assert 'canvas.dataset.pandocRenderer="2d"' in html
+    assert 'canvas.addEventListener("pointermove"' in html
+    assert 'canvas.addEventListener("wheel"' in html
+    assert 'fallbackControls.zoom(1.2)' in html
+    assert 'draw()' in html
