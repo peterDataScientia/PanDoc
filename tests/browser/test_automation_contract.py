@@ -85,6 +85,33 @@ def main() -> int:
                 timeout=30_000,
             )
 
+            # The no-WebGL viewer starts as Cartoon and users can switch styles.
+            # Compare actual rendered pixels rather than just checking the controls.
+            assert page.evaluate("""() => {
+              const iframe = Array.from(document.querySelectorAll('iframe')).find(f => {
+                try { return !!f.contentDocument.querySelector(
+                  'select[aria-label="Protein display style"]'); }
+                catch (_) { return false; }
+              });
+              if (!iframe) return false;
+              const doc = iframe.contentDocument;
+              const style = doc.querySelector('select[aria-label="Protein display style"]');
+              const canvas = doc.querySelector('canvas[data-pandoc-renderer="2d"]');
+              if (!style || !canvas || style.value !== 'cartoon') return false;
+              const before = canvas.toDataURL();
+              for (const mode of ['stick', 'sphere', 'line']) {
+                style.value = mode;
+                style.dispatchEvent(new Event('change', {bubbles:true}));
+                if (!canvas.width || !canvas.height) return false;
+              }
+              style.value = 'sphere';
+              style.dispatchEvent(new Event('change', {bubbles:true}));
+              const changed = canvas.toDataURL() !== before;
+              style.value = 'cartoon';
+              style.dispatchEvent(new Event('change', {bubbles:true}));
+              return changed && style.value === 'cartoon';
+            }"""), "Protein display selector did not update rendered molecular style"
+
             # Confirm the application exposes deterministic workflow and compute state.
             stage = marker(page, "pandoc-workflow-stage").get_attribute("data-state")
             node = marker(page, "pandoc-compute-node").get_attribute("data-state")
