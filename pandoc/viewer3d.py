@@ -360,6 +360,7 @@ html, body { margin:0; padding:0; background:#fff; color:#26384b;
       const scale=Math.min(w,h)*0.73/maxExtent*state.zoom;
       const projectedAtoms=atoms.map(function(a){return projected(a,w,h,scale);});
       const mode=styleSelect.value;
+      const hasBackbone=bonds.some(function(b){return b.style==="trace";});
       const edges=bonds.map(function(b){
         return {a:projectedAtoms[b.a],b:projectedAtoms[b.b],
                 kind:b.style,depth:(projectedAtoms[b.a].z+projectedAtoms[b.b].z)/2,
@@ -392,7 +393,7 @@ html, body { margin:0; padding:0; background:#fff; color:#26384b;
       const dots=atoms.map(function(a,i){return {atom:a,p:projectedAtoms[i]};})
         .filter(function(e){
           return e.atom.kind==="hetero" || e.atom.kind==="reference" ||
-                 e.atom.kind==="candidate" || mode!=="cartoon";
+                 e.atom.kind==="candidate" || mode!=="cartoon" || !hasBackbone;
         })
         .sort(function(a,b){return a.p.z-b.p.z;});
       dots.forEach(function(e){
