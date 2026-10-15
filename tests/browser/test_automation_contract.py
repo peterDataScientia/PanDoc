@@ -50,8 +50,11 @@ def main() -> int:
             # The main canvas displays only the current stage heading.
             assert page.locator(".pd-stepper").count() == 0
             assert page.locator(".pd-workspace-title").inner_text() == "Load complex"
-            menu = page.get_by_test_id("stSidebarCollapsedControl").get_by_role("button")
+            menu = page.get_by_test_id("stSidebarCollapsedControl")
             menu.wait_for(state="visible")
+            print("SIDEBAR CONTROL DOM:", menu.evaluate(
+                "el => ({tag:el.tagName,html:el.outerHTML.slice(0,800)})"
+            ))
             menu.click()
             page.get_by_text("Workflow navigation", exact=True).wait_for(state="visible")
             assert page.locator('[data-testid="stSidebar"] [role="radiogroup"]').count() >= 1
