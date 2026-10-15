@@ -51,6 +51,10 @@ def main() -> int:
             assert page.locator(".pd-workspace-title").inner_text() == "Load complex"
             workflow_menu = page.get_by_role("button", name="☰ Workflow menu")
             workflow_menu.wait_for(state="visible")
+            menu_box = workflow_menu.bounding_box()
+            assert menu_box and 0 <= menu_box["y"] < 105, (
+                "Excessive blank space above Workflow menu: " + str(menu_box)
+            )
             workflow_menu.click()
             page.get_by_text("Go to step", exact=True).wait_for(state="visible")
             page.get_by_text("2 · Prepare structures", exact=True).click()
@@ -151,7 +155,12 @@ def main() -> int:
             # visible; advanced settings and the 3D receptor inspection are optional.
             # No jumping from the bottom of the receptor tab back to the top
             # to reach the crystallographic reference ligand.
-            page.get_by_role("spinbutton", name="Preparation pH").wait_for(state="visible")
+            ph_control = page.get_by_role("spinbutton", name="Preparation pH")
+            ph_control.wait_for(state="visible")
+            ph_box = ph_control.bounding_box()
+            assert ph_box and 0 <= ph_box["y"] < 310, (
+                "After saving selection, pH requires manual scrolling: " + str(ph_box)
+            )
             page.get_by_role("button", name="Analyze protonation at selected pH").wait_for(state="visible")
             page.get_by_role("button", name="Prepare receptor").wait_for(state="visible")
             assert page.locator('[data-testid="stTabs"]').count() == 0
