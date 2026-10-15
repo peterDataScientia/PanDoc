@@ -157,17 +157,6 @@ def main() -> int:
             assert page.locator('[data-testid="stTabs"]').count() == 0
             prep_nav = page.get_by_test_id("stRadio").filter(has_text="Preparation workspace")
             prep_nav.get_by_text("Reference ligand", exact=True).click()
-            page.wait_for_timeout(1500)
-            print("PAGE AFTER SWITCH", page.evaluate("""() => ({
-                appReady:document.querySelector('[data-testid="pandoc-app-ready"]')?.getAttribute('data-state'),
-                stage:document.querySelector('[data-testid="pandoc-workflow-stage"]')?.getAttribute('data-state'),
-                prep:document.querySelector('[data-testid="pandoc-preparation-view"]')?.outerHTML,
-                errors:Array.from(document.querySelectorAll('[data-testid="stException"],[data-testid="stAlert"]'))
-                    .map(e=>e.innerText).slice(-5),
-                radio:Array.from(document.querySelectorAll('[data-testid="stRadioOption"]'))
-                    .map(e=>({text:e.innerText,selected:e.getAttribute('data-selected')})).slice(-12),
-                body:document.body.innerText.slice(-1900)
-            })"""), flush=True)
             wait_marker_state(page, "pandoc-preparation-view", "Reference ligand")
             assert marker(page, "pandoc-preparation-view").get_attribute("data-value") == "reference_selected"
             page.get_by_role("button", name="Find ligand chemistry from PDB").wait_for(state="visible")
