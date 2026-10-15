@@ -12,7 +12,8 @@ APP_SOURCE = (Path(__file__).resolve().parents[1] / "app.py").read_text(encoding
 
 def test_app_compiles_and_has_single_preparation_view():
     ast.parse(APP_SOURCE)
-    assert "st.segmented_control(" in APP_SOURCE
+    assert "preparation_view = st.radio(" in APP_SOURCE
+    assert "horizontal=True" in APP_SOURCE
     assert "key='preparation_view'" in APP_SOURCE
     assert "protein_tab, ligand_tab = st.tabs" not in APP_SOURCE
     assert "if preparation_view == 'Receptor':" in APP_SOURCE
