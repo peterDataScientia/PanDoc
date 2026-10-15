@@ -47,16 +47,16 @@ def main() -> int:
             wait_marker_state(page, "pandoc-app-ready", "ready")
 
             # Workflow navigation lives ONLY in the collapsible sidebar.
-            # The main page must start with a compact active-stage heading.
-            assert page.locator(".pd-stepper").count() == 0
+            # No heading, step counter, or Complex/Receptor/Reference status tiles
+            # should consume main-page space.
+            assert page.locator(".pd-stepper, .pd-workspace-heading, .pd-status-grid").count() == 0
             assert page.get_by_role("button", name="☰ Workflow menu").count() == 0
-            heading = page.locator(".pd-workspace-heading")
-            heading.wait_for(state="visible")
-            heading_box = heading.bounding_box()
-            assert heading_box and 0 <= heading_box["y"] < 150, (
-                "Excessive whitespace above STEP 1 OF 5: " + str(heading_box)
+            source = page.get_by_text("Structure source", exact=True)
+            source.wait_for(state="visible")
+            source_box = source.bounding_box()
+            assert source_box and 0 <= source_box["y"] < 230, (
+                "Excessive whitespace before first working control: " + str(source_box)
             )
-            assert page.locator(".pd-workspace-title").inner_text() == "Load complex"
 
             # The standard hamburger opens sidebar navigation and settings.
             hamburger = page.get_by_test_id("stExpandSidebarButton")
@@ -66,10 +66,11 @@ def main() -> int:
             sidebar.get_by_text("Workflow", exact=True).wait_for(state="visible")
             sidebar.get_by_role("button", name="2 · Prepare structures").click()
             wait_marker_state(page, "pandoc-workflow-stage", "2 · Prepare structures")
-            assert page.locator(".pd-workspace-title").inner_text() == "Prepare structures"
+            page.get_by_text("Choose the receptor in Load complex", exact=False).wait_for(state="visible")
+            assert page.locator(".pd-workspace-heading, .pd-status-grid").count() == 0
             sidebar.get_by_role("button", name="1 · Load complex").click()
             wait_marker_state(page, "pandoc-workflow-stage", "1 · Load complex")
-            assert page.locator(".pd-workspace-title").inner_text() == "Load complex"
+            page.get_by_text("Structure source", exact=True).wait_for(state="visible")
             sidebar.get_by_text("Where calculations run", exact=True).wait_for(state="visible")
 
             # Buttons must be readable BEFORE hover. Regression for white-on-white
@@ -184,7 +185,7 @@ def main() -> int:
             page.wait_for_timeout(550)
             print("AFTER REPAIR CLICK", page.evaluate("""() => ({
                 stage:document.querySelector('[data-testid="pandoc-workflow-stage"]')?.getAttribute('data-state'),
-                title:document.querySelector('.pd-workspace-title')?.textContent,
+                stageHeadingPresent:!!document.querySelector('.pd-workspace-title'),
                 errors:Array.from(document.querySelectorAll('[data-testid="stException"]'))
                     .map(x=>x.textContent?.slice(0,350)),
                 ligandFound:document.body.innerText.includes("Find ligand chemistry from PDB"),
@@ -207,7 +208,8 @@ def main() -> int:
             # The workflow stays in the sidebar after upload and rerun.
             assert sidebar.get_by_role("button", name="2 · Prepare structures").is_visible()
             assert page.get_by_role("button", name="☰ Workflow menu").count() == 0
-            assert page.locator(".pd-workspace-title").inner_text() == "Prepare structures"
+            assert page.locator(".pd-workspace-heading, .pd-status-grid").count() == 0
+            wait_marker_state(page, "pandoc-workflow-stage", "2 · Prepare structures")
 
             page.screenshot(path=str(ARTIFACT_DIR / "contract-pass.png"), full_page=True)
             print("PASS: PanDoc browser-automation contract survived upload, selection and rerun.")
