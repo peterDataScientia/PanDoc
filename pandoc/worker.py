@@ -43,13 +43,19 @@ def _prepare_shared_maps(directory, config, cpu_threads):
         return None
 
 
-def _run_search(directory, config, ligand, seed, cpu_threads, map_prefix=None):
+def _run_search(directory, config, ligand, seed, cpu_threads, map_prefix=None, stage_callback=None):
     from rdkit import Chem
     from meeko import PDBQTMolecule, RDKitMolCreate
     from vina import Vina
 
     directory = Path(directory)
     cpu_threads = max(1, int(cpu_threads))
+
+    def checkpoint(stage, message, **progress):
+        """Record the exact step before starting a potentially costly operation."""
+        print(message, flush=True)
+        if stage_callback is not None:
+            stage_callback(stage, **progress)
 
     print(f"Starting docking: {ligand['name']} / seed {seed}", flush=True)
     print(f"AutoDock Vina CPU threads: {cpu_threads}", flush=True)
@@ -75,6 +81,7 @@ def _run_search(directory, config, ligand, seed, cpu_threads, map_prefix=None):
 
     print(f"=== AutoDock Vina live output · {ligand['name']} · seed {seed} ===", flush=True)
     print(vina, flush=True)
+    checkpoint("vina_search", "Performing Vina search...")
     vina.dock(
         exhaustiveness=config["exhaustiveness"],
         n_poses=config["poses"],
@@ -82,9 +89,12 @@ def _run_search(directory, config, ligand, seed, cpu_threads, map_prefix=None):
 
     stem = directory / f"{ligand['id']}_seed{seed}"
     output = str(stem.with_suffix(".pdbqt"))
+    checkpoint("writing_poses", "Vina search returned; exporting docked PDBQT poses...")
     vina.write_poses(output, n_poses=config["poses"], overwrite=True)
+    checkpoint("reading_scores", "PDBQT poses saved; retrieving Vina scores...")
     scores = vina.energies(n_poses=config["poses"])
 
+    checkpoint("reconstructing_poses", "Scores retrieved; reconstructing RDKit conformers via Meeko...")
     poses = RDKitMolCreate.from_pdbqt_mol(
         PDBQTMolecule.from_file(output, skip_typing=True)
     )
@@ -94,42 +104,56 @@ def _run_search(directory, config, ligand, seed, cpu_threads, map_prefix=None):
     mol = poses[0]
     reference = None
     if config.get("reference"):
+        checkpoint("loading_reference", "Loading crystallographic reference for fixed-frame RMSD...")
         reference = next(iter(Chem.SDMolSupplier(config["reference"], removeHs=False)))
         if reference is None:
             raise ValueError("Unreadable reference SDF.")
 
     writer = Chem.SDWriter(str(stem.with_suffix(".sdf")))
     rows = []
-    for rank, conf in enumerate(mol.GetConformers(), 1):
-        pose = Chem.Mol(mol)
-        pose.RemoveAllConformers()
-        pose.AddConformer(Chem.Conformer(conf), assignId=True)
-        score = float(scores[rank - 1][0])
-        pose.SetProp("vina_score_kcal_mol", str(score))
-        row = dict(
-            ligand=ligand["name"],
-            ligand_id=ligand["id"],
-            seed=seed,
-            rank=rank,
-            score_kcal_mol=score,
-            sdf=stem.with_suffix(".sdf").name,
-        )
-        if reference is not None:
-            row["reference_rmsd_A"] = reference_rmsd(reference, pose)
-            pose.SetProp("reference_rmsd_A", str(row["reference_rmsd_A"]))
-        writer.write(pose)
-        rows.append(row)
-    writer.close()
+    conformers = list(mol.GetConformers())
+    try:
+        for rank, conf in enumerate(conformers, 1):
+            pose = Chem.Mol(mol)
+            pose.RemoveAllConformers()
+            pose.AddConformer(Chem.Conformer(conf), assignId=True)
+            score = float(scores[rank - 1][0])
+            pose.SetProp("vina_score_kcal_mol", str(score))
+            row = dict(
+                ligand=ligand["name"],
+                ligand_id=ligand["id"],
+                seed=seed,
+                rank=rank,
+                score_kcal_mol=score,
+                sdf=stem.with_suffix(".sdf").name,
+            )
+            if reference is not None:
+                checkpoint(
+                    "computing_rmsd",
+                    f"Calculating symmetry-aware RMSD for pose {rank}/{len(conformers)}...",
+                    pose_rank=rank,
+                    poses_total=len(conformers),
+                )
+                row["reference_rmsd_A"] = reference_rmsd(reference, pose)
+                pose.SetProp("reference_rmsd_A", str(row["reference_rmsd_A"]))
+            checkpoint(
+                "writing_sdf",
+                f"Writing SDF pose {rank}/{len(conformers)}...",
+                pose_rank=rank,
+                poses_total=len(conformers),
+            )
+            writer.write(pose)
+            rows.append(row)
+    finally:
+        writer.close()
 
+    checkpoint("search_completed", f"Saved {len(rows)} SDF poses and scores.")
     print(f"Completed docking: {ligand['name']} / seed {seed}", flush=True)
     return rows
 
 
 def run(directory):
     directory = Path(directory)
-    config = json.loads((directory / "config.json").read_text())
-    validate_config(config)
-
     results = []
     completed_searches = 0
 
@@ -144,6 +168,8 @@ def run(directory):
         tmp.replace(directory / "status.json")
 
     try:
+        config = json.loads((directory / "config.json").read_text())
+        validate_config(config)
         tasks = [
             (ligand, int(seed))
             for ligand in config["ligands"]
@@ -161,7 +187,7 @@ def run(directory):
         vina_threads = max(1, min(available_cpu, exhaustiveness))
 
         print(
-            f"Computer B performance mode: {available_cpu} CPU(s) available; "
+            f"Vina compute: {available_cpu} CPU(s) allocated; "
             f"Vina uses {vina_threads} thread(s) per search; "
             f"exhaustiveness={exhaustiveness}.",
             flush=True,
@@ -172,6 +198,7 @@ def run(directory):
             flush=True,
         )
 
+        update("running", total=total, stage="preparing_vina_maps", cpu_threads=vina_threads)
         map_prefix = _prepare_shared_maps(directory, config, vina_threads)
 
         for ligand, seed in tasks:
@@ -184,7 +211,18 @@ def run(directory):
                 total=total,
                 current=f"{ligand['name']} / seed {seed}",
                 cpu_threads=vina_threads,
+                stage="starting_search",
             )
+
+            def report_stage(stage, **progress):
+                update(
+                    "running",
+                    total=total,
+                    current=f"{ligand['name']} / seed {seed}",
+                    cpu_threads=vina_threads,
+                    stage=stage,
+                    **progress,
+                )
 
             rows = _run_search(
                 str(directory),
@@ -193,6 +231,7 @@ def run(directory):
                 seed,
                 vina_threads,
                 map_prefix=map_prefix,
+                stage_callback=report_stage,
             )
             results.extend(rows)
             completed_searches += 1
@@ -206,11 +245,11 @@ def run(directory):
             )
             print(f"Completed docking search {completed_searches}/{total}", flush=True)
 
-        update("completed", total=total, cpu_threads=vina_threads)
+        update("completed", total=total, stage="completed", cpu_threads=vina_threads)
 
     except Exception as exc:
         traceback.print_exc()
-        update("failed", error=str(exc))
+        update("failed", error=str(exc), stage="failed")
 
 
 if __name__ == "__main__":
