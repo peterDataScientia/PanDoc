@@ -158,9 +158,13 @@ def main() -> int:
             ):
                 marker(page, testid).wait_for(state="attached")
 
-            # Users can close the navigation after choosing their step.
-            page.get_by_test_id("stSidebarCollapseButton").get_by_role("button").click()
+            # The sidebar may already be collapsed by Streamlit on rerun.
+            # In either state, the independent hamburger navigation remains usable.
+            collapse = page.get_by_test_id("stSidebarCollapseButton").get_by_role("button")
+            if collapse.is_visible():
+                collapse.click()
             page.get_by_test_id("stExpandSidebarButton").wait_for(state="visible")
+            assert page.get_by_role("button", name="☰ Workflow menu").is_visible()
             assert page.locator(".pd-workspace-title").inner_text() == "Prepare structures"
 
             page.screenshot(path=str(ARTIFACT_DIR / "contract-pass.png"), full_page=True)
