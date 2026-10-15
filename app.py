@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review, profile_engine, profile_quality, compute
+from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review, profile_engine, profile_quality, compute, compute_options
 
 PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.png'
 PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
@@ -441,7 +441,7 @@ def show_microstate_job(task_key, result_key):
         return
     backend = backend_for_handle(remote)
     if backend is None:
-        node = 'Computer B' if remote.get('backend') == 'kaggle-direct' else 'Computer C'
+        node = 'Kaggle worker' if remote.get('backend') == 'kaggle-direct' else 'GitHub Actions'
         st.warning(node + ' is not available for ligand pH enumeration.')
         return
 
@@ -491,7 +491,7 @@ def show_candidate_prep_job(task_key):
         return
     backend = backend_for_handle(remote)
     if backend is None:
-        node = 'Computer B' if remote.get('backend') == 'kaggle-direct' else 'Computer C'
+        node = 'Kaggle worker' if remote.get('backend') == 'kaggle-direct' else 'GitHub Actions'
         st.warning(node + ' is not available for candidate preparation.')
         return
 
@@ -607,7 +607,7 @@ def show_profile_prep_jobs():
     for target_name, remote in remotes.items():
         backend = backend_for_handle(remote)
         if backend is None:
-            states[target_name] = {'state': 'failed', 'error': 'Computer C is not configured.'}
+            states[target_name] = {'state': 'failed', 'error': 'GitHub Actions is not configured.'}
             continue
         try:
             states[target_name] = backend.status(remote)
@@ -626,7 +626,7 @@ def show_profile_prep_jobs():
         for target_name, remote in profile_quality.snapshot_profile_jobs(current_jobs):
             backend = backend_for_handle(remote)
             if backend is None:
-                st.error(f'{target_name} · Computer C is not configured.')
+                st.error(f'{target_name} · GitHub Actions is not configured.')
                 continue
 
             try:
@@ -674,7 +674,7 @@ def show_profile_prep_jobs():
                 message = state.get('error') or (
                     'Curated receptor preparation was cancelled.'
                     if state.get('state') == 'cancelled'
-                    else 'Curated receptor preparation failed on Computer C.'
+                    else 'Curated receptor preparation failed on GitHub Actions.'
                 )
                 current = st.session_state.get('profile_prepare_result') or {
                     'results': [], 'errors': [], 'bundle': b''
@@ -719,7 +719,7 @@ def show_heme_prep_job():
             st.rerun()
         return
     if backend is None:
-        st.error('Computer C is not configured for retained-HEM preparation.')
+        st.error('GitHub Actions is not configured for retained-HEM preparation.')
         return
     try:
         first = backend.status(handle)
@@ -738,7 +738,7 @@ def show_heme_prep_job():
         status = state.get('state', 'queued')
         ui.automation_marker(st, 'heme-preparation-job', state=status,
                              value=handle['job_id'])
-        st.info(f'Retained HEM preparation · Computer C · {status} · {handle["job_id"][:8]}')
+        st.info(f'Retained HEM preparation · GitHub Actions · {status} · {handle["job_id"][:8]}')
         with st.expander('HEM preparation progress', expanded=True):
             show_compute_progress(backend, handle)
             st.code(backend.logs(handle, tail=80), language=None)
@@ -804,7 +804,7 @@ def show_heme_prep_job():
                         'heme_preparation_report.json', 'application/json',
                         key='failed_heme_report')
         elif status == 'failed':
-            st.error(state.get('error') or 'Curated HEM preparation failed on Computer C.')
+            st.error(state.get('error') or 'Curated HEM preparation failed on GitHub Actions.')
         elif status == 'cancelled':
             st.warning('Curated HEM preparation was cancelled.')
         if status in ('queued', 'running', 'starting'):
@@ -819,7 +819,7 @@ def show_heme_prep_job():
 def show_remote_job(remote, local_key, remote_key):
     backend = backend_for_handle(remote)
     if backend is None:
-        label = 'Computer B' if remote.get('backend') == 'kaggle-direct' else 'Computer C'
+        label = 'Kaggle worker' if remote.get('backend') == 'kaggle-direct' else 'GitHub Actions'
         st.error(label + ' is not configured or reachable.')
         return {'state': 'failed'}
     try:
@@ -838,7 +838,7 @@ def show_remote_job(remote, local_key, remote_key):
         except compute.ComputeBackendError as exc:
             st.error(str(exc))
             return
-        backend_label = 'Computer B' if remote.get('backend') == 'kaggle-direct' else 'Computer C'
+        backend_label = 'Kaggle worker' if remote.get('backend') == 'kaggle-direct' else 'GitHub Actions'
         ui.automation_marker(
             st,
             'job-status',
@@ -861,9 +861,9 @@ def show_remote_job(remote, local_key, remote_key):
 
         if current['state'] in active_states:
             if remote.get('backend') == 'kaggle-direct':
-                st.caption('Running on Computer B. Status and log refresh every 2 seconds.')
+                st.caption('Running on Kaggle worker. Status and log refresh every 2 seconds.')
             else:
-                st.caption('Running on Computer C. Status and log refresh every 2 seconds.')
+                st.caption('Running on GitHub Actions. Status and log refresh every 2 seconds.')
             cancel_key = remote['job_id'] + '_cancel_confirm'
             if st.session_state.get(cancel_key):
                 st.warning('Cancel this calculation? Current progress for the active search may be lost.')
@@ -915,7 +915,7 @@ def show_job(directory):
             'job-status',
             state=state['state'],
             value=Path(directory).name,
-            text=f"Computer A {state['state']}",
+            text=f"This app {state['state']}",
         )
         st.info(f"Job: {state['state']} · {Path(directory).name[:8]}")
         if state.get('error'):
@@ -960,18 +960,27 @@ with st.sidebar:
         )
     st.text_input('Experiment name', 'My docking experiment', key='experiment')
     stage = st.radio('Workflow', ['1 · Load complex', '2 · Prepare structures', '3 · Validate docking', '4 · Run experiment', '5 · Explore results'], key='workflow_stage')
+    # Present real backend providers, not opaque numbered computers.
+    # The saved option values stay unchanged for backward-compatible routing.
     st.radio(
-        'Compute',
-        ['Computer A · Fast', 'Computer B · High capacity', 'Computer C · Backup'],
+        'Where calculations run',
+        compute_options.OPTIONS,
         key='compute_mode',
-        help='Choose the compute node for this calculation. Computer A is the fast default, Computer B is the high-capacity node, and Computer C is the backup node.',
+        format_func=compute_options.display_name,
+        help='This app runs jobs in Streamlit. Kaggle and GitHub Actions run jobs remotely; remote services need server configuration.',
     )
+    st.caption(compute_options.description(st.session_state.get('compute_mode', compute_options.STREAMLIT)))
     if kaggle_compute_mode():
         _k_url, _k_key = kaggle_config()
         if _k_url and _k_key:
-            st.caption('Computer B · Connected ✓')
+            st.caption('Kaggle worker credentials configured; connectivity is checked when a job starts.')
         else:
-            st.warning('Computer B is not configured for this session.')
+            st.warning('Kaggle worker is not configured. GitHub Actions can be used if configured.')
+    elif not cloud_compute_mode():
+        if github_backend() is None:
+            st.warning('GitHub Actions is not configured on this server.')
+        else:
+            st.caption('GitHub Actions credentials configured; runner availability is checked at submission.')
     st.toggle('Assistant', key='assistant_open', value=False)
     st.divider()
     st.caption('✓ Complex loaded' if st.session_state.get('pdb') else '○ Load a complex')
@@ -1014,7 +1023,7 @@ with st.sidebar:
     )
     st.caption(
         'Applies reviewed pH 7.4 residue states. Standard profiles prepare in the '
-        'Streamlit session; curated heme profiles are sent to Computer C, where '
+        'Streamlit session; curated heme profiles are sent to GitHub Actions, where '
         'AutoDockTools 1.5.7 is available specifically for heme-preserving receptor preparation.'
     )
     profile_jobs_active = bool(st.session_state.get('profile_remote_jobs'))
@@ -1060,7 +1069,7 @@ with st.sidebar:
                         errors.append({
                             'target': target_name,
                             'error': (
-                                'Curated heme preparation requires Computer C. '
+                                'Curated heme preparation requires GitHub Actions. '
                                 'Configure GITHUB_TOKEN and PANDOC_JOB_KEY.'
                             ),
                         })
@@ -1072,7 +1081,7 @@ with st.sidebar:
                         remote_jobs[target_name] = github.submit_profile_preparation(target_name)
                     st.session_state.profile_remote_jobs = remote_jobs
                     st.info(
-                        'Curated heme profile preparation submitted to Computer C. '
+                        'Curated heme profile preparation submitted to GitHub Actions. '
                         'PanDoc will retrieve and merge the completed receptor automatically.'
                     )
 
@@ -1180,7 +1189,7 @@ with workspace:
                     st.markdown(f"**{item.get('target', 'Unknown target')} failed**")
                     st.code(str(item.get('error', 'No diagnostic message returned.')), language=None)
             elif st.session_state.get('profile_remote_jobs'):
-                st.info('Curated receptor preparation is still running on Computer C.')
+                st.info('Curated receptor preparation is still running on GitHub Actions.')
             else:
                 st.success('All selected reviewed receptor profiles prepared successfully.')
             st.caption(
@@ -1360,7 +1369,7 @@ with workspace:
                                         heme_coordination_residue = None
                                 st.caption(
                                     'This path verifies Fe retention and SG deprotonation. '
-                                    'On Streamlit Cloud, use the Computer C curated-heme '
+                                    'On Streamlit Cloud, use the GitHub Actions curated-heme '
                                     'profile if AutoDockTools is not available locally.'
                                 )
                     show_heme_prep_job()
@@ -1446,7 +1455,7 @@ with workspace:
                                 final = core.repair_heavy_atoms(final)
                         if heme_atoms:
                             # PDBFixer may modify/remove HEM. Restore exactly the
-                            # deposited HEM coordinates before preparing on Computer C.
+                            # deposited HEM coordinates before preparing on GitHub Actions.
                             from pandoc import heme_prep
                             final = heme_prep._merge_prepared_protein_and_heme(
                                 heme_prep._protein_without_component(final, 'HEM'),
@@ -1622,15 +1631,15 @@ with workspace:
                                 except (RuntimeError, MemoryError, OSError) as exc:
                                     backend = github_backend()
                                     if backend is None:
-                                        st.warning(f'Computer A failed and Computer C fallback is unavailable: {exc}')
+                                        st.warning(f'This app failed and GitHub Actions fallback is unavailable: {exc}')
                                     else:
-                                        st.warning('Streamlit Cloud compute was unavailable. Switching to Computer C…')
+                                        st.warning('Streamlit Cloud compute was unavailable. Switching to GitHub Actions…')
                                         st.session_state[task_key] = backend.submit_ligand_microstates(smiles, ligand_ph, 16)
                                         st.rerun()
                             else:
                                 backend = kaggle_backend() if kaggle_compute_mode() else github_backend()
                                 if backend is None:
-                                    st.warning(('Computer B' if kaggle_compute_mode() else 'Computer C') + ' is not configured.')
+                                    st.warning(('Kaggle worker' if kaggle_compute_mode() else 'GitHub Actions') + ' is not configured.')
                                 else:
                                     try:
                                         st.session_state[task_key] = backend.submit_ligand_microstates(smiles, ligand_ph, 16)
@@ -1639,7 +1648,7 @@ with workspace:
                                         if kaggle_compute_mode():
                                             fallback = github_backend()
                                             if fallback is not None:
-                                                st.warning('Computer B could not start ligand-state enumeration. Switching to Computer C…')
+                                                st.warning('Kaggle worker could not start ligand-state enumeration. Switching to GitHub Actions…')
                                                 st.session_state[task_key] = fallback.submit_ligand_microstates(smiles, ligand_ph, 16)
                                                 st.rerun()
                                             else:
@@ -1789,7 +1798,7 @@ with workspace:
                         else:
                             backend = kaggle_backend() if kaggle_compute_mode() else github_backend()
                             if backend is None:
-                                st.warning(('Computer B' if kaggle_compute_mode() else 'Computer C') + ' is not configured.')
+                                st.warning(('Kaggle worker' if kaggle_compute_mode() else 'GitHub Actions') + ' is not configured.')
                             else:
                                 try:
                                     st.session_state[candidate_task_key] = backend.submit_candidate_preparation(
@@ -1800,7 +1809,7 @@ with workspace:
                                     if kaggle_compute_mode():
                                         fallback = github_backend()
                                         if fallback is not None:
-                                            st.warning('Computer B could not start candidate preparation. Switching to Computer C…')
+                                            st.warning('Kaggle worker could not start candidate preparation. Switching to GitHub Actions…')
                                             st.session_state[candidate_task_key] = fallback.submit_candidate_preparation(
                                                 ligand_inputs, candidate_ph, enumerate_states
                                             )
@@ -1837,11 +1846,11 @@ with workspace:
                 busy = bool(remote_busy or cloud_busy)
 
                 if cloud_compute_mode():
-                    st.caption('Compute · Computer A · Computer C fallback enabled' if github else 'Compute · Computer A')
+                    st.caption('Compute · This app · GitHub Actions fallback enabled' if github else 'Compute · This app')
                 elif kaggle_compute_mode():
-                    st.caption('Compute · Computer B · Computer C fallback enabled' if github else 'Compute · Computer B')
+                    st.caption('Compute · Kaggle worker · GitHub Actions fallback enabled' if github else 'Compute · Kaggle worker')
                 else:
-                    st.caption('Compute · Computer C')
+                    st.caption('Compute · GitHub Actions')
 
                 if st.button('Run redocking' if validation else 'Run docking', type='primary', disabled=busy or not config['ligands'], key=prefix+'_run_calculation'):
                     manifest()
@@ -1853,9 +1862,9 @@ with workspace:
                             st.rerun()
                         except (RuntimeError, MemoryError, OSError, subprocess.SubprocessError) as exc:
                             if github is None:
-                                st.error(f'Computer A failed and Computer C fallback is unavailable: {exc}')
+                                st.error(f'This app failed and GitHub Actions fallback is unavailable: {exc}')
                             else:
-                                st.warning('Computer A could not start. Switching to Computer C…')
+                                st.warning('This app could not start. Switching to GitHub Actions…')
                                 try:
                                     remote_job = github.submit(root, config)
                                     st.session_state[prefix+'_github_job'] = remote_job
@@ -1865,11 +1874,11 @@ with workspace:
                                     st.error(str(remote_exc))
                     elif kaggle_compute_mode():
                         if kaggle is None:
-                            problem = kaggle_config_problem() or 'Computer B could not be configured.'
+                            problem = kaggle_config_problem() or 'Kaggle worker could not be configured.'
                             if github is None:
-                                st.error(problem + ' Computer C fallback is not configured.')
+                                st.error(problem + ' GitHub Actions fallback is not configured.')
                             else:
-                                st.warning(problem + ' Switching to Computer C…')
+                                st.warning(problem + ' Switching to GitHub Actions…')
                                 try:
                                     remote_job = github.submit(root, config)
                                     st.session_state[prefix+'_github_job'] = remote_job
@@ -1885,9 +1894,9 @@ with workspace:
                                 st.rerun()
                             except Exception as exc:
                                 if github is None:
-                                    st.error(f'Computer B failed and Computer C fallback is unavailable: {exc}')
+                                    st.error(f'Kaggle worker failed and GitHub Actions fallback is unavailable: {exc}')
                                 else:
-                                    st.warning('Kaggle direct compute failed. Switching to Computer C…')
+                                    st.warning('Kaggle direct compute failed. Switching to GitHub Actions…')
                                     try:
                                         remote_job = github.submit(root, config)
                                         st.session_state[prefix+'_github_job'] = remote_job
@@ -1897,7 +1906,7 @@ with workspace:
                                         st.error(str(remote_exc))
                     else:
                         if github is None:
-                            st.error('Computer C is not configured.')
+                            st.error('GitHub Actions is not configured.')
                         else:
                             try:
                                 remote_job = github.submit(root, config)
