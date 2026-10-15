@@ -18,6 +18,12 @@ LABELS = {
     GITHUB_ACTIONS: "GitHub Actions",
 }
 
+RUNTIME_LABELS = {
+    STREAMLIT: "Computer A · This app",
+    KAGGLE: "Computer B · Kaggle",
+    GITHUB_ACTIONS: "Computer C · GitHub Actions",
+}
+
 DESCRIPTIONS = {
     STREAMLIT: "Runs work in the current Streamlit session. May fall back to GitHub Actions if configured.",
     KAGGLE: "Runs jobs on an external Kaggle worker. Requires a configured, reachable worker; may fall back to GitHub Actions.",
@@ -32,3 +38,8 @@ def display_name(value: str) -> str:
 
 def description(value: str) -> str:
     return DESCRIPTIONS.get(value, "")
+
+
+def runtime_label(value: str) -> str:
+    """Compact labels for the top-right runtime selector."""
+    return RUNTIME_LABELS.get(value, str(value))
