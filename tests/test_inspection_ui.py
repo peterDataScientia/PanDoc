@@ -47,3 +47,27 @@ def test_preparation_requires_protonation_review_and_repair_is_default():
     assert not next(e for e in app.expander if e.label=='Optional receptor settings').proto.expanded
     assert next(t for t in app.toggle if t.label.startswith('Inspect input receptor')).value is False
     assert any(n.label=='Preparation pH' for n in app.number_input)
+
+
+
+def test_receptor_reference_navigation_does_not_lose_saved_ligand():
+    fixture = Path(__file__).parent / 'browser' / 'fixture_complex.pdb'
+    pdb = fixture.read_text()
+    ligand_id = next(core.key(a) for a in core.atoms(pdb) if a['res'] == 'EOH')
+    reference = core.select(pdb, [ligand_id])
+    app = AppTest.from_file(str(Path(__file__).parents[1] / 'app.py')).run()
+    app.session_state['selected_pdb'] = core.select(pdb, ['A:1:ALA'])
+    app.session_state['reference_pdb'] = reference
+    app.session_state['next_stage'] = '2 · Prepare structures'
+    app.run()
+    assert not list(app.exception)
+    nav = next(r for r in app.radio if r.label == 'Preparation workspace')
+    assert nav.value == 'Receptor'
+    nav.set_value('Reference ligand').run()
+    assert not list(app.exception)
+    assert app.session_state['preparation_view'] == 'Reference ligand'
+    assert any(b.label == 'Find ligand chemistry from PDB' for b in app.button)
+    nav = next(r for r in app.radio if r.label == 'Preparation workspace')
+    nav.set_value('Receptor').run()
+    assert not list(app.exception)
+    assert any(b.label == 'Analyze protonation at selected pH' for b in app.button)
