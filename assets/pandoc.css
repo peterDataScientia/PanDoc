@@ -920,7 +920,24 @@ button[aria-disabled="true"] {
 /* The fixed Streamlit header must never cover the first action. */
 [data-testid="stMainBlockContainer"],
 [data-testid="stMain"] .block-container {
-  padding-top:4.75rem!important;
+  padding-top:1.4rem!important;
+}
+/* Leave the scrolled-to control visible under the Streamlit toolbar. */
+.pd-scroll-anchor,.pd-workspace-heading {
+  scroll-margin-top:5.1rem;
+}
+.pd-scroll-anchor {
+  height:0;
+  overflow:hidden;
+}
+@media(max-width:760px){
+  [data-testid="stMainBlockContainer"],
+  [data-testid="stMain"] .block-container {
+    padding-top:1rem!important;
+  }
+  .pd-scroll-anchor,.pd-workspace-heading {
+    scroll-margin-top:4.2rem;
+  }
 }
 
 /* The only workflow navigator is a native, keyboard-accessible popover. */

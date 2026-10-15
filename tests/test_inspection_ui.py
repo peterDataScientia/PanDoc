@@ -25,6 +25,9 @@ def test_alternate_choice_and_issue_panel_reach_preparation():
     assert not any(a['alt'] for a in core.atoms(selected))
     assert app.session_state['workflow_stage']=='2 · Prepare structures'
     assert not list(app.exception)
+    preview = next(t for t in app.toggle if t.label.startswith('Inspect input receptor'))
+    preview.set_value(True).run()
+    assert not list(app.exception)
     assert any(s.label=='Inspect an issue' for s in app.selectbox)
     assert any(i['problem']=='Missing heavy atoms: CB' for i in app.session_state['assistant_structure_checks']['issues'])
     assert app.session_state['preparation_review']['pH_context']==7
@@ -41,5 +44,30 @@ def test_preparation_requires_protonation_review_and_repair_is_default():
     assert any(b.label=='Analyze protonation at selected pH' for b in app.button)
     assert next(c for c in app.checkbox if c.label=='Rebuild missing heavy atoms with PDBFixer').value
     assert not any(c.label=='I reviewed the receptor components and intended protonation states.' for c in app.checkbox)
-    assert not next(e for e in app.expander if e.label=='Advanced preparation').proto.expanded
-    assert not next(e for e in app.expander if e.label=='Structure details').proto.expanded
+    assert not next(e for e in app.expander if e.label=='Optional receptor settings').proto.expanded
+    assert next(t for t in app.toggle if t.label.startswith('Inspect input receptor')).value is False
+    assert any(n.label=='Preparation pH' for n in app.number_input)
+
+
+
+def test_linear_receptor_and_ligand_controls_survive_ph_changes():
+    fixture = Path(__file__).parent / 'browser' / 'fixture_complex.pdb'
+    pdb = fixture.read_text()
+    ligand_id = next(core.key(a) for a in core.atoms(pdb) if a['res'] == 'EOH')
+    reference = core.select(pdb, [ligand_id])
+    app = AppTest.from_file(str(Path(__file__).parents[1] / 'app.py')).run()
+    app.session_state['selected_pdb'] = core.select(pdb, ['A:1:ALA'])
+    app.session_state['reference_pdb'] = reference
+    app.session_state['next_stage'] = '2 · Prepare structures'
+    app.run()
+    assert not list(app.exception)
+    assert app.session_state['workflow_stage'] == '2 · Prepare structures'
+    assert any(b.label == 'Analyze protonation at selected pH' for b in app.button)
+    assert any(b.label == 'Find ligand chemistry from PDB' for b in app.button)
+    assert not any(r.label == 'Preparation workspace' for r in app.radio)
+    ph = next(n for n in app.number_input if n.label == 'Preparation pH')
+    ph.set_value(5.0).run()
+    assert not list(app.exception)
+    assert app.session_state['workflow_stage'] == '2 · Prepare structures'
+    assert app.session_state['preparation_review']['pH_context'] == 5.0
+    assert any(b.label == 'Find ligand chemistry from PDB' for b in app.button)

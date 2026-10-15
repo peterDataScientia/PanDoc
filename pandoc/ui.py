@@ -71,6 +71,56 @@ def current_stage_header(st, current_stage):
     )
 
 
+def scroll_anchor(st, name):
+    """Give a workflow action a stable target, independent of Streamlit widget IDs."""
+    safe = str(name)
+    if not safe.startswith("pd-") or not safe.replace("-", "").replace("_", "").isalnum():
+        raise ValueError("Invalid workflow scroll target")
+    st.markdown(
+        f'<div id="{html.escape(safe, quote=True)}" class="pd-scroll-anchor" aria-hidden="true"></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def auto_scroll(st, name):
+    """Reveal an application-owned anchor after deliberate workflow navigation.
+
+    Streamlit >=1.52 allows JavaScript in st.html without a lazy-loaded iframe.
+    Do not run on ordinary widget changes: only explicit stage transitions or
+    completed scientific actions call this helper. Only hardcoded IDs are accepted.
+    """
+    import json
+
+    allowed = {"pd-ph", "pd-protonation", "pd-ligand",
+               "pd-receptor-ready", "pd-reference-ready", "pd-stage"}
+    safe = str(name)
+    if safe not in allowed:
+        return
+    target_id = json.dumps(safe)
+    st.html(
+        """<script>
+        (function() {
+          const id = """ + target_id + """;
+          let attempts = 0;
+          function reveal() {
+            const node = id === "pd-stage"
+              ? document.querySelector(".pd-workspace-heading")
+              : document.getElementById(id);
+            if (node) {
+              node.scrollIntoView({behavior:"instant",block:"start",inline:"nearest"});
+              document.documentElement.dataset.pandocScrollTarget = id;
+            }
+            // Let Streamlit finish replacing DOM and restoring its previous
+            // scroll position. Reapply briefly after the new content mounts.
+            if (++attempts < 14) setTimeout(reveal, 140);
+          }
+          requestAnimationFrame(reveal);
+        })();
+        </script>""",
+        unsafe_allow_javascript=True,
+    )
+
+
 def status_grid(st, *, complex_loaded=False, receptor_ready=False, reference_ready=False):
     items = [
         ("Complex", "Loaded" if complex_loaded else "Not loaded", "ready" if complex_loaded else "neutral"),

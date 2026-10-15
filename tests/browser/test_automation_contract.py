@@ -51,6 +51,10 @@ def main() -> int:
             assert page.locator(".pd-workspace-title").inner_text() == "Load complex"
             workflow_menu = page.get_by_role("button", name="☰ Workflow menu")
             workflow_menu.wait_for(state="visible")
+            menu_box = workflow_menu.bounding_box()
+            assert menu_box and 0 <= menu_box["y"] < 105, (
+                "Excessive blank space above Workflow menu: " + str(menu_box)
+            )
             workflow_menu.click()
             page.get_by_text("Go to step", exact=True).wait_for(state="visible")
             page.get_by_text("2 · Prepare structures", exact=True).click()
@@ -146,6 +150,46 @@ def main() -> int:
                 }""",
                 timeout=60_000,
             )
+
+            # Preparation is now a forward-flow workspace: pH is immediately
+            # visible; advanced settings and the 3D receptor inspection are optional.
+            # No jumping from the bottom of the receptor tab back to the top
+            # to reach the crystallographic reference ligand.
+            ph_control = page.get_by_role("spinbutton", name="Preparation pH")
+            ph_control.wait_for(state="visible")
+            # Allow asynchronous Streamlit content + one-shot scroll helper to settle.
+            # Do NOT call scroll_into_view_if_needed here: that would conceal the bug.
+            page.wait_for_timeout(1800)
+            ph_box = ph_control.bounding_box()
+            print("AUTO-SCROLL CHECK", ph_box, page.evaluate(
+                """() => ({top:document.querySelector('[data-testid="stMain"]')?.scrollTop,
+                        iframes:Array.from(document.querySelectorAll('iframe')).map(x=>({
+                          srcdoc:(x.getAttribute('srcdoc')||'').slice(0,120)})).slice(0,5)})"""), flush=True)
+            assert ph_box and 40 <= ph_box["y"] < 310, (
+                "After saving selection, pH requires manual scrolling: " + str(ph_box)
+            )
+            page.get_by_role("button", name="Analyze protonation at selected pH").wait_for(state="visible")
+            page.get_by_role("button", name="Prepare receptor").wait_for(state="visible")
+            assert page.locator('[data-testid="stTabs"]').count() == 0
+            # The ligand section is directly below the receptor; no tab or
+            # secondary navigation click is needed.
+            page.get_by_role("button", name="Find ligand chemistry from PDB").wait_for(state="visible")
+            assert page.get_by_text("4. Reference ligand preparation", exact=False).count() >= 1
+            page.get_by_text("Optional receptor settings", exact=True).click()
+            page.get_by_text("Rebuild missing heavy atoms with PDBFixer", exact=True).click()
+            wait_marker_state(page, "pandoc-workflow-stage", "2 · Prepare structures")
+            assert not page.get_by_role("checkbox", name="Rebuild missing heavy atoms with PDBFixer").is_checked()
+            page.wait_for_timeout(550)
+            print("AFTER REPAIR CLICK", page.evaluate("""() => ({
+                stage:document.querySelector('[data-testid="pandoc-workflow-stage"]')?.getAttribute('data-state'),
+                title:document.querySelector('.pd-workspace-title')?.textContent,
+                errors:Array.from(document.querySelectorAll('[data-testid="stException"]'))
+                    .map(x=>x.textContent?.slice(0,350)),
+                ligandFound:document.body.innerText.includes("Find ligand chemistry from PDB"),
+                ligandSection:document.body.innerText.includes("Reference ligand preparation"),
+                tail:document.body.innerText.slice(-700)
+            })"""), flush=True)
+            page.get_by_role("button", name="Find ligand chemistry from PDB").wait_for(state="visible")
 
             # Contract markers must remain present after the Streamlit rerun.
             for testid in (

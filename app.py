@@ -83,18 +83,21 @@ def inspect_structure(pdb, raw=False):
     return structure_checks.check(pdb, raw=raw)
 
 
-def structure_review(pdb, checks, widget_key):
+def structure_review(pdb, checks, widget_key, *, inline_details=False):
+    """Review issues and preview the receptor; optionally avoid nested expanders."""
     issues = checks['issues']
     errors = [i for i in issues if i['severity']=='Error']
     missing = [i for i in issues if i['problem'].startswith('Missing heavy atoms:')]
     st.caption(f"{checks['residue_count']} residues · {checks['heavy_atom_count']} heavy atoms")
     if errors:
-        st.warning(f"{len(errors)} coordinate problems need attention. Open Structure details to inspect them.")
+        st.warning(f"{len(errors)} coordinate problems need attention. Review the structure issues below.")
     elif missing:
         st.info(f"Missing atoms detected in {len(missing)} residues. Prepare receptor will rebuild and check them automatically.")
     focus = None
     show_focus = False
-    with st.expander('Structure details', expanded=bool(errors)):
+
+    def _show_details():
+        nonlocal focus, show_focus
         if issues:
             ordered = errors + [i for i in issues if i['severity']!='Error']
             selected = st.selectbox('Inspect an issue', range(len(ordered)),
@@ -109,6 +112,12 @@ def structure_review(pdb, checks, widget_key):
             st.caption('No issues detected by these checks.')
             st.session_state.pop('assistant_selected_issue', None)
         st.caption(checks['scope'])
+
+    if inline_details:
+        _show_details()
+    else:
+        with st.expander('Structure details', expanded=bool(errors)):
+            _show_details()
     viewer(pdb=pdb, focus=focus if show_focus else None)
 
 
@@ -146,7 +155,8 @@ def load_complex(text, suffix, provenance):
     if newly_loaded:
         for k in ('preparation_id', 'reference_path', 'receptor_path', 'validation_job', 'experiment_job',
                   'candidate_paths', 'selected_pdb', 'reference_pdb', 'selection_id', 'selection_record',
-                  'assistant_diagnostic', 'assistant_structure_checks', 'assistant_selected_issue', 'structure_report', 'preparation_review', 'center', 'size', 'preparation_record', 'reference_id', 'reference_smiles', 'reference_chemistry_source'):
+                  'assistant_diagnostic', 'assistant_structure_checks', 'assistant_selected_issue', 'structure_report', 'preparation_review', 'center', 'size', 'preparation_record', 'reference_id', 'reference_smiles', 'reference_chemistry_source',
+                  'receptor_preparation_ph', 'protonation_prediction', 'protonation_review'):
             st.session_state.pop(k, None)
         for original in root.glob('source_original.*'):
             original.unlink()
@@ -277,10 +287,18 @@ def manifest():
 
 def go_to_selection():
     st.session_state.workflow_stage = '1 · Load complex'
+    st.session_state.pending_scroll = 'pd-stage'
 
 
 def go_to_validation():
     st.session_state.workflow_stage = '3 · Validate docking'
+    st.session_state.pending_scroll = 'pd-stage'
+
+
+def select_workflow_from_menu(target):
+    """Change steps only when an actual menu button is pressed."""
+    st.session_state.workflow_stage = target
+    st.session_state.pending_scroll = 'pd-stage'
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -950,15 +968,25 @@ def show_job(directory):
 if st.session_state.get('next_stage'):
     st.session_state.workflow_stage = st.session_state.pop('next_stage')
 
-# The only workflow navigator. Settings remain in the independent sidebar.
+# Only one authoritative stage. Button actions never replay an old radio value
+# when pH, checkboxes, or ligand settings trigger Streamlit reruns.
+st.session_state.setdefault('workflow_stage', '1 · Load complex')
+
 with st.popover('☰ Workflow menu'):
-    stage = st.radio(
-        'Go to step',
-        ['1 · Load complex', '2 · Prepare structures', '3 · Validate docking',
-         '4 · Run experiment', '5 · Explore results'],
-        key='workflow_stage',
-        help='Choose the stage to work on; no duplicate stepper is shown in the main workspace.',
-    )
+    st.caption('Go to step')
+    for index, destination in enumerate((
+        '1 · Load complex', '2 · Prepare structures', '3 · Validate docking',
+        '4 · Run experiment', '5 · Explore results',
+    ), 1):
+        st.button(
+            destination,
+            key=f'navigate_stage_{index}',
+            on_click=select_workflow_from_menu,
+            args=(destination,),
+            type='primary' if st.session_state.workflow_stage == destination else 'secondary',
+            use_container_width=True,
+        )
+stage = st.session_state.workflow_stage
 
 with st.sidebar:
     if PANDOC_LOGO.exists():
@@ -1155,6 +1183,9 @@ if stage.startswith('3') or stage.startswith('4'):
         st.session_state.assistant_active_job = str(active)
 with workspace:
     ui.current_stage_header(st, stage)
+    requested_scroll = st.session_state.pop('pending_scroll', None)
+    if requested_scroll:
+        ui.auto_scroll(st, requested_scroll)
 
     profile_result = st.session_state.get('profile_prepare_result')
     if profile_result:
@@ -1308,20 +1339,28 @@ with workspace:
                         st.session_state.update(center=center, size=size)
                     manifest()
                     st.session_state.next_stage = '2 · Prepare structures'
+                    st.session_state.pending_scroll = 'pd-ph'
                     st.rerun()
 
         elif stage.startswith('2'):
             if not st.session_state.get('selected_pdb'):
                 st.info('Choose the receptor in Load complex, then select Use selection and continue.')
             else:
-                protein_tab, ligand_tab = st.tabs(['Receptor', 'Reference ligand'])
-                with protein_tab:
+                st.caption('Follow the preparation steps in order. The reference-ligand section is directly below the receptor, with no tab switching.')
+                with st.container():
                     pdb = st.session_state.selected_pdb
                     ui.card(st, 'Receptor preparation', '', badge_text='pH-aware', badge_kind='running')
-                    with st.expander('Advanced preparation', expanded=bool(st.session_state.get('assistant_diagnostic'))):
+                    ui.scroll_anchor(st, 'pd-ph')
+                    st.markdown('#### 1. Set preparation pH')
+                    intended_ph = st.number_input(
+                        'Preparation pH', 0.0, 14.0, 7.0, 0.1,
+                        key='receptor_preparation_ph',
+                        help='Set the experimental pH before running PROPKA. Changing pH requires a new protonation analysis.',
+                    )
+                    ui.automation_marker(st, 'preparation-ph', state=str(intended_ph))
+                    st.caption('PROPKA proposes residue states at this pH. Review the proposed states before preparing the receptor.')
+                    with st.expander('Optional receptor settings', expanded=bool(st.session_state.get('assistant_diagnostic'))):
                         repair = st.checkbox('Rebuild missing heavy atoms with PDBFixer', value=True)
-                        intended_ph = st.number_input('Preparation pH', 0.0, 14.0, 7.0, 0.1)
-                        st.caption('PROPKA predicts structure-dependent residue pKa values at this pH. Review proposed residue states before receptor preparation.')
                         curated = st.file_uploader('Optional curated receptor PDB', type=['pdb'], key='curated')
                         templates = st.text_input('Additional Meeko residue template assignments', placeholder='Optional manual overrides, e.g. A:17=HID,A:32=ASH')
                         notes = st.text_area('Preparation rationale', placeholder='Optional notes about your preparation choices.')
@@ -1383,6 +1422,7 @@ with workspace:
                                 )
                     show_heme_prep_job()
                     ph_prediction_key = core.digest(selected_input, repair, intended_ph)
+                    st.markdown('#### 2. Analyze and review protonation')
                     if st.button('Analyze protonation at selected pH', key='analyze_protonation'):
                         try:
                             ph_input = selected_input
@@ -1397,12 +1437,14 @@ with workspace:
                                 propka_output=str(ph_dir/'propka_input.pka'),
                                 propka_log=str(ph_dir/'propka.log'))
                             st.success(f'Predicted protonation behavior for {len(rows)} titratable residues. Review the table below.')
+                            ui.auto_scroll(st, 'pd-protonation')
                         except (ValueError, RuntimeError) as exc:
                             st.session_state.pop('protonation_prediction', None)
                             st.error(str(exc))
                     prediction = st.session_state.get('protonation_prediction')
                     reviewed_templates = ''
                     if prediction and prediction.get('key') == ph_prediction_key:
+                        ui.scroll_anchor(st, 'pd-protonation')
                         st.markdown('### pH-aware residue-state review')
                         ui.callout(st, 'PROPKA predictions are proposals, not unquestionable assignments. Review residues near their pKa and all neutral histidines.', 'warn')
                         st.caption('Residues within ±1 pH unit of their predicted pKa are flagged for review. Neutral histidines require an explicit HID/HIE choice.')
@@ -1451,8 +1493,16 @@ with workspace:
                         st.info('Run Analyze protonation at selected pH before preparing the receptor.')
                     checks = inspect_structure(selected_input)
                     st.session_state.assistant_structure_checks = checks
+                    st.markdown('#### 3. Prepare receptor')
                     if not st.session_state.get('receptor_path'):
-                        structure_review(selected_input, checks, 'preparation_issue_'+core.digest(selected_input))
+                        issues = checks.get('issues', [])
+                        blocking_issues = [i for i in issues if i.get('severity') == 'Error']
+                        if blocking_issues:
+                            st.warning(f'{len(blocking_issues)} coordinate issue(s) found. Review before preparation; blocking issues must be resolved.')
+                        if st.toggle('Inspect input receptor · structure report and 3D view',
+                                     value=bool(blocking_issues),
+                                     key='show_input_receptor_review_'+core.digest(selected_input)):
+                            structure_review(selected_input, checks, 'preparation_issue_'+core.digest(selected_input))
                     if st.button('Prepare receptor', type='primary', disabled=(not bool(reviewed_templates) or bool(st.session_state.get('heme_prepare_job')) or (bool(heme_atoms) and not heme_coordination_residue)), key='prepare_receptor'):
                         st.session_state.pop('assistant_diagnostic', None)
                         for stale in ('receptor_path', 'preparation_id', 'validation_job', 'experiment_job', 'structure_report'):
@@ -1555,14 +1605,22 @@ with workspace:
                         st.session_state.update(receptor_path=str(path), prepared_pdb=(directory/'receptor_prepared.pdb').read_text(), preparation_id=prep_id,
                             preparation_record=dict(pH=intended_ph, templates=combined_templates, heme_coordination_residue=heme_coordination_residue, protonation_review=st.session_state.get('protonation_review'), repaired_heavy_atoms=repair, curated_upload=curated.name if curated else None, rationale=notes))
                         manifest()
+                        ui.auto_scroll(st, 'pd-ligand' if st.session_state.get('reference_pdb') else 'pd-receptor-ready')
                     if st.session_state.get('receptor_path'):
                         path = Path(st.session_state.receptor_path)
                         prepared = path.parent/'receptor_prepared.pdb'
                         prepared_text=prepared.read_text() if prepared.exists() else st.session_state.prepared_pdb
+                        ui.scroll_anchor(st, 'pd-receptor-ready')
                         st.success('Receptor ready for docking.')
-                        viewer(pdb=prepared_text)
-                        st.download_button('Download receptor PDBQT', path.read_bytes(), 'receptor.pdbqt')
-                        with st.expander('Preparation details'):
+                        if st.session_state.get('reference_pdb'):
+                            st.success('Next: prepare the crystallographic reference ligand below.')
+                        else:
+                            st.info('No reference ligand was selected. You can continue to Run experiment without redocking validation.')
+                        if st.toggle('Inspect prepared receptor · 3D, downloads and report',
+                                     key='show_prepared_receptor_'+st.session_state.preparation_id):
+                            viewer(pdb=prepared_text)
+                            st.download_button('Download receptor PDBQT', path.read_bytes(), 'receptor.pdbqt')
+                            st.markdown('**Preparation details**')
                             comparison=[]
                             for label,text in [('Selected input',st.session_state.selected_pdb),('Prepared receptor',prepared_text)]:
                                 aa=core.atoms(text)
@@ -1585,7 +1643,10 @@ with workspace:
                                 st.download_button('Download structure report', report_path.read_bytes(), 'structure_report.json', 'application/json', on_click='ignore')
                             st.caption('Preparation log')
                             st.code((path.parent/'preparation.log').read_text())
-                with ligand_tab:
+                st.divider()
+                ui.scroll_anchor(st, 'pd-ligand')
+                st.markdown('#### 4. Reference ligand preparation')
+                with st.container():
                     ref = st.session_state.get('reference_pdb')
                     if not ref:
                         st.info('Select a crystallographic reference ligand in Load complex for redocking validation.')
@@ -1717,6 +1778,7 @@ with workspace:
                                 manifest()
                                 ui.automation_marker(st, 'reference-prepared', state='completed', value=ident)
                                 st.success('Reference prepared with original heavy-atom coordinates. Continue to Validate docking.')
+                                ui.auto_scroll(st, 'pd-reference-ready')
                             except (ValueError, RuntimeError) as exc:
                                 st.error('The ligand could not be prepared from this chemical definition. Counts alone do not establish a matching structure.')
                                 st.write('Retrieve the PDB chemistry, verify the selected component, and inspect the crystal ligand for missing atoms or incorrect connectivity.')
@@ -1726,9 +1788,13 @@ with workspace:
                             if selected_smiles.strip()!=st.session_state.get('reference_smiles'):
                                 st.info('The downloaded reference below belongs to previously prepared chemistry. Prepare the edited SMILES before using it for a new validation.')
                             path = Path(st.session_state.reference_path)
-                            viewer(sdf=path.read_text())
-                            st.download_button('Download reference SDF', path.read_bytes(), 'reference.sdf')
-                            st.button('Continue to Validate docking',on_click=go_to_validation)
+                            ui.scroll_anchor(st, 'pd-reference-ready')
+                            st.button('Continue to Validate docking →', type='primary',
+                                      on_click=go_to_validation, key='continue_to_validation')
+                            if st.toggle('Inspect prepared ligand · 3D preview and download',
+                                         key='show_prepared_ligand_'+st.session_state.reference_id):
+                                viewer(sdf=path.read_text())
+                                st.download_button('Download reference SDF', path.read_bytes(), 'reference.sdf')
 
         elif stage.startswith('3') or stage.startswith('4'):
             validation = stage.startswith('3')
