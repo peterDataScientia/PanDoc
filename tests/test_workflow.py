@@ -9,7 +9,7 @@ from pandoc import core
 from pandoc.worker import run
 
 
-def test_small_real_docking_workflow(tmp_path,monkeypatch):
+def test_small_real_docking_workflow(tmp_path,monkeypatch,capsys):
     peptide=Chem.AddHs(Chem.MolFromSequence('AG'))
     assert AllChem.EmbedMolecule(peptide,randomSeed=2026)==0
     AllChem.MMFFOptimizeMolecule(peptide)
@@ -23,8 +23,12 @@ def test_small_real_docking_workflow(tmp_path,monkeypatch):
                 reference=str(tmp_path/'ethanol.sdf'),ligands=[dict(id='ethanol',name='Ethanol',path=str(tmp_path/'ethanol.pdbqt'))])
     (job/'config.json').write_text(json.dumps(config))
     run(job)
+    log = capsys.readouterr().out
+    assert "Vina search returned; exporting docked PDBQT poses" in log
+    assert "Scores retrieved; reconstructing RDKit conformers" in log
     state=json.loads((job/'status.json').read_text())
     assert state['state']=='completed',state
+    assert state['stage']=='completed'
     assert state['completed']==state['total']==1
     rows=json.loads((job/'results.json').read_text())
     assert len(rows)>=1
