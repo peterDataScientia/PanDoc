@@ -319,35 +319,38 @@ class GitHubCompute:
             return {"state": run.get("status", "queued"), "steps": []}
 
     def logs(self, job: dict, tail: int = 80) -> str:
-        run = self._run(job)
-        if run is None:
-            return "Waiting for Computer C to register the job."
+        """Return encrypted live *scientific* output, not GitHub runner steps.
+
+        GitHub's /actions/jobs/{id}/logs is unavailable for many in-progress
+        jobs (404). Computer C publishes encrypted Vina output into a
+        branch-scoped blob every ~12 seconds instead.
+        """
+        relative = f".pandoc_jobs/live/{job['job_id']}.bin"
         try:
-            jobs_data = _request(
+            snapshot = _request(
                 self.token,
                 "GET",
-                _repo_url(self.repository, f"/actions/runs/{run['id']}/jobs"),
-            ).json().get("jobs", [])
-            if not jobs_data:
-                return "Waiting for the compute job to start."
-            active = next(
-                (j for j in jobs_data if j.get("status") == "in_progress"),
-                jobs_data[-1],
-            )
-            response = _request(
-                self.token,
-                "GET",
-                _repo_url(self.repository, f"/actions/jobs/{active['id']}/logs"),
-            )
-            lines = []
-            for line in response.text.splitlines():
-                line = re.sub(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s*", "", line)
-                line = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", line)
-                if line.strip():
-                    lines.append(line.rstrip())
-            return "\n".join(lines[-max(1, int(tail)):]) or "Waiting for compute output."
-        except Exception:
-            return "Live log is not available yet."
+                _repo_url(self.repository, f"/contents/{relative}"),
+                params={"ref": job["branch"]},
+            ).json()
+            if snapshot.get("encoding") != "base64" or not snapshot.get("content"):
+                return "Waiting for AutoDock Vina docking output..."
+            encrypted = base64.b64decode(snapshot["content"])
+            raw = Fernet(self.job_key.encode()).decrypt(encrypted)
+            text = raw.decode("utf-8", errors="replace")
+            # A scientific log can contain \r-style progress and ANSI formatting.
+            text = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", text).replace("\r", "\n")
+            lines = text.splitlines()
+            return "\n".join(lines[-max(1, int(tail)):]) or "Waiting for AutoDock Vina docking output..."
+        except GitHubComputeError as exc:
+            if "GitHub API 404:" in str(exc):
+                return (
+                    "Waiting for AutoDock Vina output from Computer C. "
+                    "Encrypted live output will appear after the docking process starts."
+                )
+            return "Docking log could not be retrieved; the computation may still be running."
+        except (InvalidToken, ValueError, KeyError, UnicodeError, TypeError):
+            return "Encrypted docking output could not be decoded. Check job-key configuration."
 
     def cancel(self, job: dict):
         run = self._run(job)
