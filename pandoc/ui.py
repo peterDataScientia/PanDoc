@@ -71,6 +71,63 @@ def current_stage_header(st, current_stage):
     )
 
 
+def scroll_anchor(st, name):
+    """Give a workflow action a stable target, independent of Streamlit widget IDs."""
+    safe = str(name)
+    if not safe.startswith("pd-") or not safe.replace("-", "").replace("_", "").isalnum():
+        raise ValueError("Invalid workflow scroll target")
+    st.markdown(
+        f'<div id="{html.escape(safe, quote=True)}" class="pd-scroll-anchor" aria-hidden="true"></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def auto_scroll(st, name):
+    """After a workflow transition, reveal the new step without a manual page hunt.
+
+    Streamlit has no native scroll-to-widget action. This zero-height component
+    scrolls the *parent Streamlit page* to a trusted application-owned anchor,
+    with retries while the new Streamlit DOM is being mounted. It is called
+    only on explicit transitions, not on every widget rerun.
+    """
+    import json
+    import streamlit.components.v1 as components
+
+    safe = str(name)
+    allowed = {"pd-ph", "pd-protonation", "pd-ligand", "pd-receptor-ready",
+               "pd-reference-ready", "pd-stage"}
+    if safe not in allowed:
+        return
+    target = json.dumps(safe)
+    components.html(
+        """<script>
+        (function() {
+          const targetId = """ + target + """;
+          let tries = 0;
+          let scrolled = false;
+          function reveal() {
+            try {
+              const doc = window.parent.document;
+              const target = targetId === "pd-stage"
+                ? doc.querySelector(".pd-workspace-heading")
+                : doc.getElementById(targetId);
+              if (target && target.getBoundingClientRect().height >= 0) {
+                target.scrollIntoView({behavior:"instant",block:"start",inline:"nearest"});
+                scrolled = true;
+              }
+            } catch (_) { /* Parent access can be restricted by deployment. */ }
+            if (++tries < 10 && (!scrolled || tries < 3)) {
+              setTimeout(reveal, 140);
+            }
+          }
+          setTimeout(reveal, 90);
+        })();
+        </script>""",
+        height=0,
+        scrolling=False,
+    )
+
+
 def status_grid(st, *, complex_loaded=False, receptor_ready=False, reference_ready=False):
     items = [
         ("Complex", "Loaded" if complex_loaded else "Not loaded", "ready" if complex_loaded else "neutral"),
