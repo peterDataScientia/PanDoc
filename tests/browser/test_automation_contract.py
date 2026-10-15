@@ -46,6 +46,16 @@ def main() -> int:
             page.goto(BASE_URL, wait_until="domcontentloaded")
             wait_marker_state(page, "pandoc-app-ready", "ready")
 
+            # One workflow navigation, tucked inside the native hamburger menu.
+            # The main canvas displays only the current stage heading.
+            assert page.locator(".pd-stepper").count() == 0
+            assert page.locator(".pd-workspace-title").inner_text() == "Load complex"
+            menu = page.get_by_test_id("stSidebarCollapsedControl").get_by_role("button")
+            menu.wait_for(state="visible")
+            menu.click()
+            page.get_by_text("Workflow navigation", exact=True).wait_for(state="visible")
+            assert page.locator('[data-testid="stSidebar"] [role="radiogroup"]').count() >= 1
+
             # Buttons must be readable BEFORE hover. Regression for white-on-white
             # actions seen in the high-contrast theme.
             def style_snapshot(name):
@@ -81,6 +91,12 @@ def main() -> int:
 
             # The external client uses accessible names for controls.
             page.get_by_role("radio", name=re.compile(r"1 .* Load complex")).check()
+            page.get_by_text("2 · Prepare structures", exact=True).click()
+            wait_marker_state(page, "pandoc-workflow-stage", "2 · Prepare structures")
+            assert page.locator(".pd-workspace-title").inner_text() == "Prepare structures"
+            page.get_by_text("1 · Load complex", exact=True).click()
+            wait_marker_state(page, "pandoc-workflow-stage", "1 · Load complex")
+            assert page.locator(".pd-workspace-title").inner_text() == "Load complex"
             # The user selects real providers; stored values remain legacy IDs.
             page.get_by_text("This app (default)", exact=True).click()
             page.get_by_role("radio", name="Kaggle worker").wait_for(state="visible")
@@ -138,6 +154,11 @@ def main() -> int:
                 "pandoc-reference",
             ):
                 marker(page, testid).wait_for(state="attached")
+
+            # Users can close the navigation after choosing their step.
+            page.get_by_test_id("stSidebarCollapseButton").get_by_role("button").click()
+            page.get_by_test_id("stSidebarCollapsedControl").wait_for(state="visible")
+            assert page.locator(".pd-workspace-title").inner_text() == "Prepare structures"
 
             page.screenshot(path=str(ARTIFACT_DIR / "contract-pass.png"), full_page=True)
             print("PASS: PanDoc browser-automation contract survived upload, selection and rerun.")
