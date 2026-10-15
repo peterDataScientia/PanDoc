@@ -28,9 +28,9 @@ def test_protonation_pH_is_visible_before_analysis():
 
 
 def test_receptor_review_is_not_a_large_default_preview():
-    assert "with st.expander('Inspect input receptor · structure report and 3D view'" in APP_SOURCE
-    assert "inline_details=True" in APP_SOURCE
-    assert "with st.expander('Inspect prepared receptor · 3D, downloads and report')" in APP_SOURCE
+    assert "if st.toggle('Inspect input receptor · structure report and 3D view'" in APP_SOURCE
+    assert "if st.toggle('Inspect prepared receptor · 3D, downloads and report'" in APP_SOURCE
+    assert "key='show_input_receptor_review_'" in APP_SOURCE
 
 
 def test_next_button_switches_preparation_view_using_callback():
@@ -44,5 +44,5 @@ def test_next_button_switches_preparation_view_using_callback():
 def test_ligand_continuation_precedes_optional_3D_preview():
     start = APP_SOURCE.index("if st.session_state.get('reference_path'):", APP_SOURCE.index("st.markdown('### Reference ligand: '"))
     continue_pos = APP_SOURCE.index("st.button('Continue to Validate docking →'", start)
-    preview_pos = APP_SOURCE.index("with st.expander('Inspect prepared ligand · 3D preview and download')", start)
+    preview_pos = APP_SOURCE.index("if st.toggle('Inspect prepared ligand · 3D preview and download'", start)
     assert start < continue_pos < preview_pos
