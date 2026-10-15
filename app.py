@@ -983,20 +983,22 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
     # One workflow navigator, inside Streamlit's collapsible sidebar.
-    # Unlike a radio, these buttons cannot replay a stale selection on rerun.
-    st.markdown('<div class="pd-sidebar-workflow-title">Workflow</div>', unsafe_allow_html=True)
-    for index, destination in enumerate((
-        '1 · Load complex', '2 · Prepare structures', '3 · Validate docking',
-        '4 · Run experiment', '5 · Explore results',
-    ), 1):
-        st.button(
-            destination,
-            key=f'navigate_stage_{index}',
-            on_click=select_workflow_from_menu,
-            args=(destination,),
-            type='primary' if st.session_state.workflow_stage == destination else 'secondary',
-            use_container_width=True,
-        )
+    # Scope the menu styling: other sidebar primary actions keep their design.
+    # Buttons cannot replay a stale selection during scientific widget reruns.
+    with st.container(key='workflow_navigation'):
+        st.markdown('<div class="pd-sidebar-workflow-title">Workflow</div>', unsafe_allow_html=True)
+        for index, destination in enumerate((
+            '1 · Load complex', '2 · Prepare structures', '3 · Validate docking',
+            '4 · Run experiment', '5 · Explore results',
+        ), 1):
+            st.button(
+                destination,
+                key=f'navigate_stage_{index}',
+                on_click=select_workflow_from_menu,
+                args=(destination,),
+                type='primary' if st.session_state.workflow_stage == destination else 'secondary',
+                use_container_width=True,
+            )
     st.divider()
     st.text_input('Experiment name', 'My docking experiment', key='experiment')
     # Present real backend providers, not opaque numbered computers.
