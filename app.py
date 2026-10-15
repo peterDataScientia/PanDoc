@@ -938,6 +938,26 @@ def show_job(directory):
         st.info(f"Job: {state['state']} · {Path(directory).name[:8]}")
         if state.get('error'):
             st.error(state['error'])
+        stage_labels = {
+            'preparing_vina_maps': 'Preparing Vina affinity maps',
+            'starting_search': 'Starting search',
+            'vina_search': 'Vina search',
+            'writing_poses': 'Exporting PDBQT poses',
+            'reading_scores': 'Reading Vina scores',
+            'reconstructing_poses': 'Reconstructing molecular conformers',
+            'loading_reference': 'Loading reference ligand',
+            'computing_rmsd': 'Calculating pose RMSD',
+            'writing_sdf': 'Writing SDF poses',
+            'search_completed': 'Saving search results',
+            'completed': 'All docking searches completed',
+            'failed': 'Docking stopped with an error',
+        }
+        stage = state.get('stage')
+        if stage:
+            detail = stage_labels.get(stage, stage.replace('_', ' '))
+            if state.get('pose_rank') and state.get('poses_total'):
+                detail += f" · pose {state['pose_rank']}/{state['poses_total']}"
+            st.caption(f"Current operation: {detail}")
         total = state.get('total', 0)
         if total:
             completed = state.get('completed', 0)
@@ -959,7 +979,7 @@ def show_job(directory):
                 st.session_state[cancel_key] = True
                 st.rerun()
         log = Path(directory)/'worker.log'
-        with st.expander('Calculation log', expanded=polling):
+        with st.expander('Calculation log', expanded=polling or state['state'] == 'failed'):
             st.code(log.read_text(errors='replace')[-16000:] if log.exists() else 'Waiting for worker.')
     live_job()
     return initial
