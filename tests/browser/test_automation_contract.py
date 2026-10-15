@@ -72,7 +72,7 @@ def main() -> int:
             wait_marker_state(page, "pandoc-workflow-stage", "1 · Load complex")
             page.get_by_text("Structure source", exact=True).wait_for(state="visible")
             assert sidebar.get_by_text("Where calculations run", exact=True).count() == 0
-            runtime_button = page.get_by_role("button", name="Runtime")
+            runtime_button = page.locator('.st-key-runtime_toolbar [data-testid="stPopoverButton"]')
             runtime_button.wait_for(state="visible")
             runtime_button.click()
             page.get_by_role("radio", name="Computer A · This app").wait_for(state="visible")
