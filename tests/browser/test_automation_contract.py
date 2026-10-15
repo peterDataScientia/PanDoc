@@ -90,7 +90,7 @@ def main() -> int:
             wait_marker_state(page, "pandoc-compute-node", "Computer B · High capacity")
             page.get_by_text("GitHub Actions", exact=True).click()
             wait_marker_state(page, "pandoc-compute-node", "Computer C · Backup")
-            page.get_by_role("radio", name="This app (default)").check()
+            page.get_by_text("This app (default)", exact=True).click()
             wait_marker_state(page, "pandoc-compute-node", "Computer A · Fast")
 
             # Upload through the user-facing accessible label. Do not depend on
