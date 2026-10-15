@@ -56,3 +56,13 @@ def test_molecular_viewer_uses_chain_palette_instead_of_one_cartoon_color():
     assert "structure_view.style_protein_chains(view, pdb)" in APP
     assert "structure_view.chain_legend(chain_colors)" in APP
     assert "color': '#7b94ad'" not in APP
+
+
+def test_runtime_launcher_is_viewport_fixed_for_long_pages():
+    # This must not be a relative element in Streamlit's scrollable block.
+    toolbar = CSS.split(".st-key-runtime_toolbar {", 1)[1].split("}", 1)[0]
+    assert "position:fixed!important" in toolbar
+    assert "top:4.3rem!important" in toolbar
+    assert "z-index:9999!important" in toolbar
+    assert "pointer-events:none" in toolbar
+    assert 'button[data-testid="stPopoverButton"]' in CSS

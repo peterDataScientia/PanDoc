@@ -213,6 +213,38 @@ def main() -> int:
             assert page.locator(".pd-workspace-heading, .pd-status-grid").count() == 0
             wait_marker_state(page, "pandoc-workflow-stage", "2 · Prepare structures")
 
+            # Runtime must stay pinned to the viewport even when users scroll
+            # through long receptor-preparation / PDB workflows.
+            runtime_button = page.get_by_role("button", name="memory Runtime", exact=True)
+            main_scroll = page.get_by_test_id("stMain")
+            main_scroll.evaluate("(el) => { el.scrollTop = 0; }")
+            page.wait_for_timeout(180)
+            top_box = runtime_button.bounding_box()
+            assert top_box, "Runtime launcher is missing"
+            main_scroll.evaluate(
+                "(el) => { el.scrollTop = Math.min(el.scrollHeight - el.clientHeight, 900); }"
+            )
+            page.wait_for_timeout(180)
+            scrolled = main_scroll.evaluate("(el) => el.scrollTop")
+            bottom_box = runtime_button.bounding_box()
+            assert scrolled > 80, f"Scroll test did not exercise a long page: {scrolled}"
+            assert bottom_box and abs(bottom_box["y"] - top_box["y"]) < 3, (
+                "Runtime selector scrolled away with page content: "
+                + str((top_box, bottom_box))
+            )
+            header_bottom = page.get_by_test_id("stHeader").evaluate(
+                "(el) => el.getBoundingClientRect().bottom"
+            )
+            assert bottom_box["y"] >= header_bottom - 2, (
+                "Runtime button sits under fixed Streamlit header: "
+                + str((bottom_box, header_bottom))
+            )
+            assert bottom_box["y"] + bottom_box["height"] <= page.viewport_size["height"]
+            runtime_button.click()
+            page.get_by_role("radio", name="Computer A · This app").wait_for(state="visible")
+            runtime_button.click()
+            main_scroll.evaluate("(el) => { el.scrollTop = 0; }")
+
             page.screenshot(path=str(ARTIFACT_DIR / "contract-pass.png"), full_page=True)
             print("PASS: PanDoc browser-automation contract survived upload, selection and rerun.")
             return 0
