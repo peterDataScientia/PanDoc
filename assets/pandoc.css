@@ -1010,46 +1010,69 @@ button[aria-disabled="true"] {
   .pd-scroll-anchor,.pd-workspace-heading { scroll-margin-top:4rem; }
 }
 
-/* ---------- Top-right compute runtime launcher ---------- */
-/* This is deliberately separate from the workflow menu in the sidebar. */
+/* ---------- Always-visible compute runtime launcher ---------- */
+/* The picker belongs to the viewport, not the scrollable workflow content.
+   Keep it BELOW Streamlit's fixed header and clear of its toolbar. */
 .st-key-runtime_toolbar {
-  /* Keep the selector on the right without pushing the first work control down. */
-  margin:-.25rem 0 -1.35rem;
-  position:relative;
-  top:3.6rem; /* Below Streamlit's fixed header; keep toolbar out of layout flow. */
-  z-index:5;
+  position:fixed!important;
+  top:4.3rem!important;
+  right:clamp(12px,2vw,32px)!important;
+  left:auto!important;
+  width:158px!important;
+  max-width:calc(100vw - 24px)!important;
+  height:auto!important;
+  margin:0!important;
+  padding:0!important;
+  z-index:9999!important;
+  background:transparent!important;
+  pointer-events:none;
 }
 .st-key-runtime_toolbar [data-testid="stHorizontalBlock"] {
-  align-items:center;
+  display:flex!important;
+  flex-wrap:nowrap!important;
+  align-items:center!important;
+  width:100%!important;
+  gap:0!important;
 }
-.st-key-runtime_toolbar [data-testid="stPopover"] button {
+.st-key-runtime_toolbar [data-testid="stColumn"]:first-child {
+  display:none!important;
+}
+.st-key-runtime_toolbar [data-testid="stColumn"]:last-child {
+  display:block!important;
+  flex:1 1 100%!important;
+  min-width:0!important;
+  width:100%!important;
+}
+.st-key-runtime_toolbar [data-testid="stPopover"] {
+  width:100%!important;
+  pointer-events:auto;
+}
+.st-key-runtime_toolbar [data-testid="stPopover"] button[data-testid="stPopoverButton"] {
+  display:flex!important;
+  justify-content:center!important;
+  width:100%!important;
   min-height:40px!important;
   border-radius:11px!important;
   padding:7px 12px!important;
   background:#143c55!important;
   color:#ffffff!important;
   border:1.5px solid #0b6672!important;
-  box-shadow:0 3px 12px rgba(14,41,65,.14)!important;
+  box-shadow:0 3px 12px rgba(14,41,65,.18)!important;
   font-size:.87rem!important;
   font-weight:750!important;
+  pointer-events:auto!important;
 }
-.st-key-runtime_toolbar [data-testid="stPopover"] button:hover {
+.st-key-runtime_toolbar [data-testid="stPopover"] button[data-testid="stPopoverButton"]:hover {
   background:#0b6672!important;
 }
-.st-key-runtime_toolbar [data-testid="stPopover"] button:focus-visible {
+.st-key-runtime_toolbar [data-testid="stPopover"] button[data-testid="stPopoverButton"]:focus-visible {
   outline:3px solid #0b6672!important;
   outline-offset:3px!important;
 }
 @media(max-width:760px) {
-  .st-key-runtime_toolbar [data-testid="stHorizontalBlock"] {
-    flex-wrap:nowrap!important;
-    justify-content:flex-end!important;
-  }
-  .st-key-runtime_toolbar [data-testid="stColumn"]:first-child {
-    display:none!important;
-  }
-  .st-key-runtime_toolbar [data-testid="stColumn"]:last-child {
-    width:auto!important;
-    min-width:128px!important;
+  .st-key-runtime_toolbar {
+    top:4.2rem!important;
+    right:12px!important;
+    width:132px!important;
   }
 }
