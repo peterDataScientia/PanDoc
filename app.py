@@ -293,6 +293,11 @@ def go_to_validation():
     st.session_state.workflow_stage = '3 · Validate docking'
 
 
+def go_to_reference_preparation():
+    # Callbacks execute before widgets are created on the next Streamlit rerun.
+    st.session_state.preparation_view = 'Reference ligand'
+
+
 @st.cache_data(ttl=86400, show_spinner=False)
 def lookup_chemistry(component):
     return core.fetch_ccd(component)
@@ -1591,10 +1596,9 @@ with workspace:
                         prepared_text=prepared.read_text() if prepared.exists() else st.session_state.prepared_pdb
                         st.success('Receptor ready for docking.')
                         if st.session_state.get('reference_pdb'):
-                            if st.button('Continue to reference ligand →', type='primary',
-                                         key='continue_to_reference_preparation'):
-                                st.session_state.preparation_view = 'Reference ligand'
-                                st.rerun()
+                            st.button('Continue to reference ligand →', type='primary',
+                                      key='continue_to_reference_preparation',
+                                      on_click=go_to_reference_preparation)
                         else:
                             st.info('No reference ligand was selected. You can continue to Run experiment without redocking validation.')
                         with st.expander('Inspect prepared receptor · 3D, downloads and report'):
