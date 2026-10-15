@@ -1485,9 +1485,10 @@ with workspace:
                         blocking_issues = [i for i in issues if i.get('severity') == 'Error']
                         if blocking_issues:
                             st.warning(f'{len(blocking_issues)} coordinate issue(s) found. Review before preparation; blocking issues must be resolved.')
-                        with st.expander('Inspect input receptor · structure report and 3D view',
-                                         expanded=bool(blocking_issues)):
-                            structure_review(selected_input, checks, 'preparation_issue_'+core.digest(selected_input), inline_details=True)
+                        if st.toggle('Inspect input receptor · structure report and 3D view',
+                                     value=bool(blocking_issues),
+                                     key='show_input_receptor_review_'+core.digest(selected_input)):
+                            structure_review(selected_input, checks, 'preparation_issue_'+core.digest(selected_input))
                     if st.button('Prepare receptor', type='primary', disabled=(not bool(reviewed_templates) or bool(st.session_state.get('heme_prepare_job')) or (bool(heme_atoms) and not heme_coordination_residue)), key='prepare_receptor'):
                         st.session_state.pop('assistant_diagnostic', None)
                         for stale in ('receptor_path', 'preparation_id', 'validation_job', 'experiment_job', 'structure_report'):
@@ -1601,7 +1602,8 @@ with workspace:
                                       on_click=go_to_reference_preparation)
                         else:
                             st.info('No reference ligand was selected. You can continue to Run experiment without redocking validation.')
-                        with st.expander('Inspect prepared receptor · 3D, downloads and report'):
+                        if st.toggle('Inspect prepared receptor · 3D, downloads and report',
+                                     key='show_prepared_receptor_'+st.session_state.preparation_id):
                             viewer(pdb=prepared_text)
                             st.download_button('Download receptor PDBQT', path.read_bytes(), 'receptor.pdbqt')
                             st.markdown('**Preparation details**')
@@ -1770,7 +1772,8 @@ with workspace:
                             path = Path(st.session_state.reference_path)
                             st.button('Continue to Validate docking →', type='primary',
                                       on_click=go_to_validation, key='continue_to_validation')
-                            with st.expander('Inspect prepared ligand · 3D preview and download'):
+                            if st.toggle('Inspect prepared ligand · 3D preview and download',
+                                         key='show_prepared_ligand_'+st.session_state.reference_id):
                                 viewer(sdf=path.read_text())
                                 st.download_button('Download reference SDF', path.read_bytes(), 'reference.sdf')
 
