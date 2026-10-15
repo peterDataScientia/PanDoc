@@ -10,13 +10,13 @@ from pathlib import Path
 APP_SOURCE = (Path(__file__).resolve().parents[1] / "app.py").read_text(encoding="utf-8")
 
 
-def test_app_compiles_and_has_single_preparation_view():
+def test_app_compiles_and_has_linear_preparation_flow():
     ast.parse(APP_SOURCE)
-    assert "preparation_view = st.radio(" in APP_SOURCE
-    assert "horizontal=True" in APP_SOURCE
-    assert "key='preparation_view'" in APP_SOURCE
     assert "protein_tab, ligand_tab = st.tabs" not in APP_SOURCE
-    assert "if preparation_view == 'Receptor':" in APP_SOURCE
+    assert "key='preparation_view'" not in APP_SOURCE
+    assert "preparation_view = st.radio(" not in APP_SOURCE
+    assert "st.markdown('#### 4. Reference ligand preparation')" in APP_SOURCE
+    assert "Next: prepare the crystallographic reference ligand below." in APP_SOURCE
 
 
 def test_protonation_pH_is_visible_before_analysis():
@@ -34,11 +34,11 @@ def test_receptor_review_is_not_a_large_default_preview():
     assert "key='show_input_receptor_review_'" in APP_SOURCE
 
 
-def test_next_button_switches_preparation_view_using_callback():
-    assert "def go_to_reference_preparation():" in APP_SOURCE
-    assert "st.session_state.preparation_view = 'Reference ligand'" in APP_SOURCE
-    assert "on_click=go_to_reference_preparation" in APP_SOURCE
-    assert "st.session_state.preparation_view = 'Receptor'" in APP_SOURCE
+def test_receptor_and_ligand_are_sequential_in_one_workspace():
+    receptor = APP_SOURCE.index("ui.card(st, 'Receptor preparation'")
+    ligand = APP_SOURCE.index("st.markdown('#### 4. Reference ligand preparation')", receptor)
+    assert receptor < ligand
+    assert "go_to_reference_preparation" not in APP_SOURCE
     assert "st.button('Continue to Validate docking →'" in APP_SOURCE
 
 
