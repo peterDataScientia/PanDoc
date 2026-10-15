@@ -51,10 +51,10 @@ def test_ligand_continuation_precedes_optional_3D_preview():
 
 
 def test_workflow_menu_cannot_overwrite_stage_during_preparation():
-    assert "def select_workflow_from_menu():" in APP_SOURCE
-    assert "st.session_state.workflow_stage = st.session_state.workflow_menu_choice" in APP_SOURCE
-    assert "st.session_state.workflow_menu_choice = st.session_state.workflow_stage" in APP_SOURCE
-    assert "key='workflow_menu_choice'" in APP_SOURCE
-    assert "on_change=select_workflow_from_menu" in APP_SOURCE
+    assert "def select_workflow_from_menu(target):" in APP_SOURCE
+    assert "st.session_state.workflow_stage = target" in APP_SOURCE
+    assert "on_click=select_workflow_from_menu" in APP_SOURCE
+    assert "args=(destination,)" in APP_SOURCE
     assert "stage = st.session_state.workflow_stage" in APP_SOURCE
-    assert "key='workflow_stage'" not in APP_SOURCE
+    assert "key='workflow_menu_choice'" not in APP_SOURCE
+    assert "on_change=select_workflow_from_menu" not in APP_SOURCE
