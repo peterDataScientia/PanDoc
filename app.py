@@ -83,18 +83,21 @@ def inspect_structure(pdb, raw=False):
     return structure_checks.check(pdb, raw=raw)
 
 
-def structure_review(pdb, checks, widget_key):
+def structure_review(pdb, checks, widget_key, *, inline_details=False):
+    """Review issues and preview the receptor; optionally avoid nested expanders."""
     issues = checks['issues']
     errors = [i for i in issues if i['severity']=='Error']
     missing = [i for i in issues if i['problem'].startswith('Missing heavy atoms:')]
     st.caption(f"{checks['residue_count']} residues · {checks['heavy_atom_count']} heavy atoms")
     if errors:
-        st.warning(f"{len(errors)} coordinate problems need attention. Open Structure details to inspect them.")
+        st.warning(f"{len(errors)} coordinate problems need attention. Review the structure issues below.")
     elif missing:
         st.info(f"Missing atoms detected in {len(missing)} residues. Prepare receptor will rebuild and check them automatically.")
     focus = None
     show_focus = False
-    with st.expander('Structure details', expanded=bool(errors)):
+
+    def _show_details():
+        nonlocal focus, show_focus
         if issues:
             ordered = errors + [i for i in issues if i['severity']!='Error']
             selected = st.selectbox('Inspect an issue', range(len(ordered)),
@@ -109,6 +112,12 @@ def structure_review(pdb, checks, widget_key):
             st.caption('No issues detected by these checks.')
             st.session_state.pop('assistant_selected_issue', None)
         st.caption(checks['scope'])
+
+    if inline_details:
+        _show_details()
+    else:
+        with st.expander('Structure details', expanded=bool(errors)):
+            _show_details()
     viewer(pdb=pdb, focus=focus if show_focus else None)
 
 
@@ -1471,7 +1480,7 @@ with workspace:
                             st.warning(f'{len(blocking_issues)} coordinate issue(s) found. Review before preparation; blocking issues must be resolved.')
                         with st.expander('Inspect input receptor · structure report and 3D view',
                                          expanded=bool(blocking_issues)):
-                            structure_review(selected_input, checks, 'preparation_issue_'+core.digest(selected_input))
+                            structure_review(selected_input, checks, 'preparation_issue_'+core.digest(selected_input), inline_details=True)
                     if st.button('Prepare receptor', type='primary', disabled=(not bool(reviewed_templates) or bool(st.session_state.get('heme_prepare_job')) or (bool(heme_atoms) and not heme_coordination_residue)), key='prepare_receptor'):
                         st.session_state.pop('assistant_diagnostic', None)
                         for stale in ('receptor_path', 'preparation_id', 'validation_job', 'experiment_job', 'structure_report'):
@@ -1589,7 +1598,7 @@ with workspace:
                         with st.expander('Inspect prepared receptor · 3D, downloads and report'):
                             viewer(pdb=prepared_text)
                             st.download_button('Download receptor PDBQT', path.read_bytes(), 'receptor.pdbqt')
-                            st.markdown('**Preparation details**'):
+                            st.markdown('**Preparation details**')
                             comparison=[]
                             for label,text in [('Selected input',st.session_state.selected_pdb),('Prepared receptor',prepared_text)]:
                                 aa=core.atoms(text)
