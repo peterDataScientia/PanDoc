@@ -1013,7 +1013,10 @@ button[aria-disabled="true"] {
 /* ---------- Top-right compute runtime launcher ---------- */
 /* This is deliberately separate from the workflow menu in the sidebar. */
 .st-key-runtime_toolbar {
-  margin:-.25rem 0 .35rem;
+  /* Keep the selector on the right without pushing the first work control down. */
+  margin:-.25rem 0 -1.35rem;
+  position:relative;
+  z-index:5;
 }
 .st-key-runtime_toolbar [data-testid="stHorizontalBlock"] {
   align-items:center;
