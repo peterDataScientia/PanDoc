@@ -52,20 +52,24 @@ def shell_header(st, title, subtitle, kicker="PanDoc docking workbench"):
         unsafe_allow_html=True,
     )
 
-def workflow_stepper(st, current_stage):
+def current_stage_header(st, current_stage):
+    """Show just the active step title; navigation lives in the sidebar menu."""
+    stage = str(current_stage)
     try:
-        current = int(str(current_stage).split(" · ", 1)[0]) - 1
-    except Exception:
-        current = 0
-    pieces = []
-    for i, label in enumerate(STAGES):
-        state = "done" if i < current else "active" if i == current else ""
-        index = "✓" if i < current else str(i + 1)
-        pieces.append(
-            f'<div class="pd-step {state}"><div class="pd-step-index">{index}</div>'
-            f'<div class="pd-step-label">{html.escape(label)}</div></div>'
-        )
-    st.markdown('<div class="pd-stepper">' + "".join(pieces) + "</div>", unsafe_allow_html=True)
+        index, title = stage.split(" · ", 1)
+        number = int(index)
+        if number < 1 or number > len(STAGES):
+            raise ValueError("Invalid stage")
+    except (ValueError, TypeError):
+        number, title = 1, STAGES[0]
+    st.markdown(
+        '<div class="pd-workspace-heading">'
+        f'<div class="pd-workspace-eyebrow">STEP {number} OF {len(STAGES)}</div>'
+        f'<h1 class="pd-workspace-title">{html.escape(title)}</h1>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
 
 def status_grid(st, *, complex_loaded=False, receptor_ready=False, reference_ready=False):
     items = [

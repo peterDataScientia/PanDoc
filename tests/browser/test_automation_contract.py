@@ -46,6 +46,26 @@ def main() -> int:
             page.goto(BASE_URL, wait_until="domcontentloaded")
             wait_marker_state(page, "pandoc-app-ready", "ready")
 
+            # A single, visible hamburger popover is the only workflow menu.
+            assert page.locator(".pd-stepper").count() == 0
+            assert page.locator(".pd-workspace-title").inner_text() == "Load complex"
+            workflow_menu = page.get_by_role("button", name="☰ Workflow menu")
+            workflow_menu.wait_for(state="visible")
+            workflow_menu.click()
+            page.get_by_text("Go to step", exact=True).wait_for(state="visible")
+            page.get_by_text("2 · Prepare structures", exact=True).click()
+            wait_marker_state(page, "pandoc-workflow-stage", "2 · Prepare structures")
+            assert page.locator(".pd-workspace-title").inner_text() == "Prepare structures"
+            if not page.get_by_text("1 · Load complex", exact=True).is_visible():
+                workflow_menu.click()
+            page.get_by_text("1 · Load complex", exact=True).click()
+            wait_marker_state(page, "pandoc-workflow-stage", "1 · Load complex")
+            assert page.locator(".pd-workspace-title").inner_text() == "Load complex"
+
+            # Settings can still be opened separately using Streamlit's native control.
+            page.get_by_test_id("stExpandSidebarButton").click()
+            page.get_by_text("Where calculations run", exact=True).wait_for(state="visible")
+
             # Buttons must be readable BEFORE hover. Regression for white-on-white
             # actions seen in the high-contrast theme.
             def style_snapshot(name):
@@ -79,8 +99,7 @@ def main() -> int:
             assert secondary_hover["color"] == secondary["color"], secondary_hover
             assert secondary_hover["labelColor"] == secondary_hover["color"]
 
-            # The external client uses accessible names for controls.
-            page.get_by_role("radio", name=re.compile(r"1 .* Load complex")).check()
+            # The user selects real compute providers; their stored values stay stable.
             # The user selects real providers; stored values remain legacy IDs.
             page.get_by_text("This app (default)", exact=True).click()
             page.get_by_role("radio", name="Kaggle worker").wait_for(state="visible")
@@ -138,6 +157,10 @@ def main() -> int:
                 "pandoc-reference",
             ):
                 marker(page, testid).wait_for(state="attached")
+
+            # The independent hamburger remains usable after upload and rerun.
+            assert page.get_by_role("button", name="☰ Workflow menu").is_visible()
+            assert page.locator(".pd-workspace-title").inner_text() == "Prepare structures"
 
             page.screenshot(path=str(ARTIFACT_DIR / "contract-pass.png"), full_page=True)
             print("PASS: PanDoc browser-automation contract survived upload, selection and rerun.")
