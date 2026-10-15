@@ -1330,12 +1330,12 @@ with workspace:
             if not st.session_state.get('selected_pdb'):
                 st.info('Choose the receptor in Load complex, then select Use selection and continue.')
             else:
-                preparation_view = st.segmented_control(
+                preparation_view = st.radio(
                     'Preparation workspace',
                     ['Receptor', 'Reference ligand'],
+                    horizontal=True,
                     key='preparation_view',
-                    default='Receptor',
-                    help='Work on one preparation at a time. Use Continue to reference ligand after completing the receptor.',
+                    help='Complete receptor preparation, then select Continue to reference ligand. You can switch between the two views at any time.',
                 )
                 if preparation_view == 'Receptor':
                     pdb = st.session_state.selected_pdb
