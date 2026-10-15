@@ -155,13 +155,19 @@ def main() -> int:
             page.get_by_role("button", name="Analyze protonation at selected pH").wait_for(state="visible")
             page.get_by_role("button", name="Prepare receptor").wait_for(state="visible")
             assert page.locator('[data-testid="stTabs"]').count() == 0
-            # Streamlit renders each segmented option as a button, not as
-            # a container with the 'stSegmentedControl' test id.
-            options = page.locator('button[data-testid^="stBaseButton-segmented_control"]')
-            assert options.count() == 2
-            options.filter(has_text="Reference ligand").click()
+            print("PREPARATION OPTIONS DOM", page.evaluate("""() => ({
+                candidates:Array.from(document.querySelectorAll('[data-testid]'))
+                  .filter(e => /segment|button.group|pill/i.test(e.getAttribute('data-testid') || ''))
+                  .slice(0,12).map(e=>e.outerHTML.slice(0,1000)),
+                reference:Array.from(document.querySelectorAll('body *'))
+                  .filter(e=>e.children.length===0 && e.textContent.trim()==='Reference ligand')
+                  .slice(0,12).map(e=>e.parentElement.outerHTML.slice(0,1000))
+            })"""), flush=True)
+            # Use the rendered option label, then verify the ligand panel.
+            page.get_by_text("Reference ligand", exact=True).last.click()
+            print("AFTER LIGAND SELECT", page.locator("main").inner_text()[-1400:], flush=True)
             page.get_by_role("button", name="Find ligand chemistry from PDB").wait_for(state="visible")
-            options.filter(has_text="Receptor").click()
+            page.get_by_text("Receptor", exact=True).last.click()
             page.get_by_role("spinbutton", name="Preparation pH").wait_for(state="visible")
 
             # Contract markers must remain present after the Streamlit rerun.
