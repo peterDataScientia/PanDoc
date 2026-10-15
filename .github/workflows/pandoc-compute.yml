@@ -16,7 +16,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write # encrypted, ephemeral live-log snapshots on the job branch
   packages: read
 
 jobs:
@@ -41,14 +41,40 @@ jobs:
       - name: Run encrypted PanDoc job
         env:
           PANDOC_JOB_KEY: ${{ secrets.PANDOC_JOB_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           test -n "$PANDOC_JOB_KEY" || { echo "PANDOC_JOB_KEY repository secret is not configured."; exit 1; }
+
+          # GitHub cannot reliably download in-progress job logs via REST.
+          # Relay the actual Docker/Vina stdout to an encrypted snapshot on
+          # this temporary job branch, not to a public/plaintext endpoint.
+          mkdir -p ".pandoc_action_runs/${{ inputs.job_id }}"
+          LIVE_OUTPUT=".pandoc_action_runs/${{ inputs.job_id }}/vina-live.log"
+          : > "$LIVE_OUTPUT"
+          python -m pip install --quiet cryptography
+          python -u -m pandoc.live_log_bridge \
+            --job-id "${{ inputs.job_id }}" \
+            --branch "$GITHUB_REF_NAME" \
+            --repository "$GITHUB_REPOSITORY" \
+            --log-path "$LIVE_OUTPUT" \
+            --interval 12 &
+          BRIDGE_PID=$!
+          stop_live_bridge() {
+            kill "$BRIDGE_PID" 2>/dev/null || true
+            wait "$BRIDGE_PID" 2>/dev/null || true
+          }
+          trap stop_live_bridge EXIT
+
+          # tee captures native C++ AutoDock Vina stdout as well as Python output.
           docker run --rm \
             -e PANDOC_JOB_KEY="$PANDOC_JOB_KEY" \
+            -e PYTHONUNBUFFERED=1 \
             -v "$GITHUB_WORKSPACE:/workspace" \
             -w /workspace \
             ghcr.io/peterdatascientia/pandoc-compute:latest \
-            python -m pandoc.github_action_worker "${{ inputs.job_id }}" "${{ inputs.operation }}"
+            python -u -m pandoc.github_action_worker "${{ inputs.job_id }}" "${{ inputs.operation }}" \
+            2>&1 | tee "$LIVE_OUTPUT"
 
       - name: Upload PanDoc results
         if: always()
