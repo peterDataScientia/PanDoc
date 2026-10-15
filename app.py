@@ -155,7 +155,8 @@ def load_complex(text, suffix, provenance):
     if newly_loaded:
         for k in ('preparation_id', 'reference_path', 'receptor_path', 'validation_job', 'experiment_job',
                   'candidate_paths', 'selected_pdb', 'reference_pdb', 'selection_id', 'selection_record',
-                  'assistant_diagnostic', 'assistant_structure_checks', 'assistant_selected_issue', 'structure_report', 'preparation_review', 'center', 'size', 'preparation_record', 'reference_id', 'reference_smiles', 'reference_chemistry_source'):
+                  'assistant_diagnostic', 'assistant_structure_checks', 'assistant_selected_issue', 'structure_report', 'preparation_review', 'center', 'size', 'preparation_record', 'reference_id', 'reference_smiles', 'reference_chemistry_source',
+                  'preparation_view', 'receptor_preparation_ph', 'protonation_prediction', 'protonation_review'):
             st.session_state.pop(k, None)
         for original in root.glob('source_original.*'):
             original.unlink()
@@ -1316,6 +1317,7 @@ with workspace:
                         center, size = core.box(reference)
                         st.session_state.update(center=center, size=size)
                     manifest()
+                    st.session_state.preparation_view = 'Receptor'
                     st.session_state.next_stage = '2 · Prepare structures'
                     st.rerun()
 
