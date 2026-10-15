@@ -46,29 +46,31 @@ def main() -> int:
             page.goto(BASE_URL, wait_until="domcontentloaded")
             wait_marker_state(page, "pandoc-app-ready", "ready")
 
-            # A single, visible hamburger popover is the only workflow menu.
+            # Workflow navigation lives ONLY in the collapsible sidebar.
+            # The main page must start with a compact active-stage heading.
             assert page.locator(".pd-stepper").count() == 0
-            assert page.locator(".pd-workspace-title").inner_text() == "Load complex"
-            workflow_menu = page.get_by_role("button", name="☰ Workflow menu")
-            workflow_menu.wait_for(state="visible")
-            menu_box = workflow_menu.bounding_box()
-            assert menu_box and 0 <= menu_box["y"] < 105, (
-                "Excessive blank space above Workflow menu: " + str(menu_box)
+            assert page.get_by_role("button", name="☰ Workflow menu").count() == 0
+            heading = page.locator(".pd-workspace-heading")
+            heading.wait_for(state="visible")
+            heading_box = heading.bounding_box()
+            assert heading_box and 0 <= heading_box["y"] < 150, (
+                "Excessive whitespace above STEP 1 OF 5: " + str(heading_box)
             )
-            workflow_menu.click()
-            page.get_by_text("Go to step", exact=True).wait_for(state="visible")
-            page.get_by_text("2 · Prepare structures", exact=True).click()
-            wait_marker_state(page, "pandoc-workflow-stage", "2 · Prepare structures")
-            assert page.locator(".pd-workspace-title").inner_text() == "Prepare structures"
-            if not page.get_by_text("1 · Load complex", exact=True).is_visible():
-                workflow_menu.click()
-            page.get_by_text("1 · Load complex", exact=True).click()
-            wait_marker_state(page, "pandoc-workflow-stage", "1 · Load complex")
             assert page.locator(".pd-workspace-title").inner_text() == "Load complex"
 
-            # Settings can still be opened separately using Streamlit's native control.
-            page.get_by_test_id("stExpandSidebarButton").click()
-            page.get_by_text("Where calculations run", exact=True).wait_for(state="visible")
+            # The standard hamburger opens sidebar navigation and settings.
+            hamburger = page.get_by_test_id("stExpandSidebarButton")
+            hamburger.wait_for(state="visible")
+            hamburger.click()
+            sidebar = page.get_by_test_id("stSidebar")
+            sidebar.get_by_text("Workflow", exact=True).wait_for(state="visible")
+            sidebar.get_by_role("button", name="2 · Prepare structures").click()
+            wait_marker_state(page, "pandoc-workflow-stage", "2 · Prepare structures")
+            assert page.locator(".pd-workspace-title").inner_text() == "Prepare structures"
+            sidebar.get_by_role("button", name="1 · Load complex").click()
+            wait_marker_state(page, "pandoc-workflow-stage", "1 · Load complex")
+            assert page.locator(".pd-workspace-title").inner_text() == "Load complex"
+            sidebar.get_by_text("Where calculations run", exact=True).wait_for(state="visible")
 
             # Buttons must be readable BEFORE hover. Regression for white-on-white
             # actions seen in the high-contrast theme.
@@ -202,8 +204,9 @@ def main() -> int:
             ):
                 marker(page, testid).wait_for(state="attached")
 
-            # The independent hamburger remains usable after upload and rerun.
-            assert page.get_by_role("button", name="☰ Workflow menu").is_visible()
+            # The workflow stays in the sidebar after upload and rerun.
+            assert sidebar.get_by_role("button", name="2 · Prepare structures").is_visible()
+            assert page.get_by_role("button", name="☰ Workflow menu").count() == 0
             assert page.locator(".pd-workspace-title").inner_text() == "Prepare structures"
 
             page.screenshot(path=str(ARTIFACT_DIR / "contract-pass.png"), full_page=True)

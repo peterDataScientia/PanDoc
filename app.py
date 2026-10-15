@@ -972,20 +972,6 @@ if st.session_state.get('next_stage'):
 # when pH, checkboxes, or ligand settings trigger Streamlit reruns.
 st.session_state.setdefault('workflow_stage', '1 · Load complex')
 
-with st.popover('☰ Workflow menu'):
-    st.caption('Go to step')
-    for index, destination in enumerate((
-        '1 · Load complex', '2 · Prepare structures', '3 · Validate docking',
-        '4 · Run experiment', '5 · Explore results',
-    ), 1):
-        st.button(
-            destination,
-            key=f'navigate_stage_{index}',
-            on_click=select_workflow_from_menu,
-            args=(destination,),
-            type='primary' if st.session_state.workflow_stage == destination else 'secondary',
-            use_container_width=True,
-        )
 stage = st.session_state.workflow_stage
 
 with st.sidebar:
@@ -996,6 +982,24 @@ with st.sidebar:
             '<div style="font-size:1.7rem;font-weight:850;color:#0f2a43;letter-spacing:-.03em">Pan<span style="color:#0f8f91">Doc</span></div>',
             unsafe_allow_html=True,
         )
+    # One workflow navigator, inside Streamlit's collapsible sidebar.
+    # Scope the menu styling: other sidebar primary actions keep their design.
+    # Buttons cannot replay a stale selection during scientific widget reruns.
+    with st.container(key='workflow_navigation'):
+        st.markdown('<div class="pd-sidebar-workflow-title">Workflow</div>', unsafe_allow_html=True)
+        for index, destination in enumerate((
+            '1 · Load complex', '2 · Prepare structures', '3 · Validate docking',
+            '4 · Run experiment', '5 · Explore results',
+        ), 1):
+            st.button(
+                destination,
+                key=f'navigate_stage_{index}',
+                on_click=select_workflow_from_menu,
+                args=(destination,),
+                type='primary' if st.session_state.workflow_stage == destination else 'secondary',
+                use_container_width=True,
+            )
+    st.divider()
     st.text_input('Experiment name', 'My docking experiment', key='experiment')
     # Present real backend providers, not opaque numbered computers.
     # The saved option values stay unchanged for backward-compatible routing.

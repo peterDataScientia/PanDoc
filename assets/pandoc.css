@@ -916,80 +916,96 @@ button[aria-disabled="true"] {
 /* Keep icon-only Streamlit toolbar/navigation controls untouched. */
 
 
-/* ---------- Single-navigation hamburger workspace ---------- */
-/* The fixed Streamlit header must never cover the first action. */
+/* ---------- Compact main workspace and sidebar navigation ---------- */
+/* Native Streamlit hamburger is the only menu opener: visible even collapsed. */
+[data-testid="stExpandSidebarButton"] {
+  background:#153d55!important;
+  border:1.5px solid #0b6672!important;
+  border-radius:10px!important;
+  box-shadow:0 3px 12px rgba(14,41,65,.20)!important;
+  color:#ffffff!important;
+  padding:8px 11px!important;
+  min-height:42px!important;
+  width:auto!important;
+  min-width:96px!important;
+  cursor:pointer!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  gap:6px!important;
+}
+[data-testid="stExpandSidebarButton"] svg,
+[data-testid="stExpandSidebarButton"] span {
+  color:#ffffff!important;
+  stroke:currentColor!important;
+}
+[data-testid="stExpandSidebarButton"]::after {
+  content:"Menu";
+  font:750 .87rem Inter,system-ui,sans-serif;
+  color:#ffffff!important;
+}
+[data-testid="stExpandSidebarButton"]:hover {
+  background:#0b6672!important;
+}
+[data-testid="stExpandSidebarButton"]:focus-visible {
+  outline:3px solid #0b6672!important;
+  outline-offset:3px!important;
+}
+
+/* Workflow is only in the sidebar; no popover or second progress list. */
+.pd-sidebar-workflow-title {
+  font-size:.92rem;
+  font-weight:850;
+  color:var(--pd-navy);
+  margin:.3rem 0 .25rem;
+}
+[data-testid="stSidebar"] .st-key-workflow_navigation [data-testid="stButton"] button {
+  min-height:39px!important;
+  text-align:left!important;
+  justify-content:flex-start!important;
+}
+[data-testid="stSidebar"] .st-key-workflow_navigation [data-testid="stButton"] button[kind="primary"] {
+  background:#123d55!important;
+  background-image:none!important;
+  color:#ffffff!important;
+  border:1.5px solid #0b6672!important;
+  box-shadow:0 3px 12px rgba(14,41,65,.17)!important;
+}
+
+/* Remove the artificial gap formerly separating Workflow popover and heading. */
 [data-testid="stMainBlockContainer"],
 [data-testid="stMain"] .block-container {
-  padding-top:1.4rem!important;
+  padding-top:.9rem!important;
 }
-/* Leave the scrolled-to control visible under the Streamlit toolbar. */
-.pd-scroll-anchor,.pd-workspace-heading {
-  scroll-margin-top:5.1rem;
+.pd-workspace-heading {
+  padding:.05rem 0 .45rem;
+  margin:0 0 9px;
+  border-bottom:1.5px solid var(--pd-border);
+  scroll-margin-top:4.8rem;
+}
+.pd-workspace-eyebrow {
+  color:var(--pd-teal-dark);
+  font-size:.72rem;
+  font-weight:830;
+  line-height:1.2;
+  letter-spacing:.10em;
+}
+.pd-workspace-title {
+  margin:1px 0 0!important;
+  color:var(--pd-navy)!important;
+  font-size:1.48rem!important;
+  font-weight:830!important;
+  line-height:1.15!important;
 }
 .pd-scroll-anchor {
   height:0;
   overflow:hidden;
+  scroll-margin-top:4.8rem;
 }
-@media(max-width:760px){
+@media(max-width:760px) {
   [data-testid="stMainBlockContainer"],
   [data-testid="stMain"] .block-container {
-    padding-top:1rem!important;
+    padding-top:.65rem!important;
   }
-  .pd-scroll-anchor,.pd-workspace-heading {
-    scroll-margin-top:4.2rem;
-  }
-}
-
-/* The only workflow navigator is a native, keyboard-accessible popover. */
-[data-testid="stPopoverButton"],
-[data-testid="stPopover"] button[kind="secondary"] {
-  background:#123d55!important;
-  border:1.5px solid #0b6672!important;
-  color:#ffffff!important;
-  min-height:44px!important;
-  padding:9px 18px!important;
-  border-radius:11px!important;
-  box-shadow:0 5px 16px rgba(16,40,63,.22)!important;
-  font-weight:790!important;
-}
-[data-testid="stPopoverButton"] :is(p,span,svg),
-[data-testid="stPopover"] button[kind="secondary"] :is(p,span,svg){
-  color:#ffffff!important;
-}
-[data-testid="stPopoverButton"]:hover,
-[data-testid="stPopover"] button[kind="secondary"]:hover {
-  background:#0b6672!important;
-  color:#ffffff!important;
-  border-color:#084c57!important;
-}
-[data-testid="stPopoverButton"]:focus-visible,
-[data-testid="stPopover"] button[kind="secondary"]:focus-visible {
-  outline:3px solid #0b6672!important;
-  outline-offset:3px!important;
-}
-/* The main workspace shows only the active stage, not five duplicate cards. */
-.pd-workspace-heading {
-  padding:.35rem 0 1rem;
-  margin:0 0 16px;
-  border-bottom:2px solid var(--pd-border);
-}
-.pd-workspace-eyebrow {
-  color:var(--pd-teal-dark);
-  font-size:.74rem;
-  font-weight:830;
-  letter-spacing:.12em;
-}
-.pd-workspace-title {
-  margin:3px 0 0!important;
-  color:var(--pd-navy)!important;
-  font-size:1.55rem!important;
-  font-weight:830!important;
-  line-height:1.2!important;
-}
-@media(max-width:760px){
-  [data-testid="stPopoverButton"],
-  [data-testid="stPopover"] button[kind="secondary"]{
-    min-height:44px!important;
-  }
-  .pd-workspace-title {font-size:1.3rem!important;}
+  .pd-workspace-title { font-size:1.3rem!important; }
+  .pd-scroll-anchor,.pd-workspace-heading { scroll-margin-top:4rem; }
 }
