@@ -83,48 +83,41 @@ def scroll_anchor(st, name):
 
 
 def auto_scroll(st, name):
-    """After a workflow transition, reveal the new step without a manual page hunt.
+    """Reveal an application-owned anchor after deliberate workflow navigation.
 
-    Streamlit has no native scroll-to-widget action. This zero-height component
-    scrolls the *parent Streamlit page* to a trusted application-owned anchor,
-    with retries while the new Streamlit DOM is being mounted. It is called
-    only on explicit transitions, not on every widget rerun.
+    Streamlit >=1.52 allows JavaScript in st.html without a lazy-loaded iframe.
+    Do not run on ordinary widget changes: only explicit stage transitions or
+    completed scientific actions call this helper. Only hardcoded IDs are accepted.
     """
     import json
-    import streamlit.components.v1 as components
 
+    allowed = {"pd-ph", "pd-protonation", "pd-ligand",
+               "pd-receptor-ready", "pd-reference-ready", "pd-stage"}
     safe = str(name)
-    allowed = {"pd-ph", "pd-protonation", "pd-ligand", "pd-receptor-ready",
-               "pd-reference-ready", "pd-stage"}
     if safe not in allowed:
         return
-    target = json.dumps(safe)
-    components.html(
+    target_id = json.dumps(safe)
+    st.html(
         """<script>
         (function() {
-          const targetId = """ + target + """;
-          let tries = 0;
-          let scrolled = false;
+          const id = """ + target_id + """;
+          let attempts = 0;
           function reveal() {
-            try {
-              const doc = window.parent.document;
-              const target = targetId === "pd-stage"
-                ? doc.querySelector(".pd-workspace-heading")
-                : doc.getElementById(targetId);
-              if (target && target.getBoundingClientRect().height >= 0) {
-                target.scrollIntoView({behavior:"instant",block:"start",inline:"nearest"});
-                scrolled = true;
-              }
-            } catch (_) { /* Parent access can be restricted by deployment. */ }
-            if (++tries < 10 && (!scrolled || tries < 3)) {
-              setTimeout(reveal, 140);
+            const node = id === "pd-stage"
+              ? document.querySelector(".pd-workspace-heading")
+              : document.getElementById(id);
+            if (node) {
+              node.scrollIntoView({behavior:"instant",block:"start",inline:"nearest"});
+              document.documentElement.dataset.pandocScrollTarget = id;
             }
+            // Let Streamlit finish replacing DOM and restoring its previous
+            // scroll position. Reapply briefly after the new content mounts.
+            if (++attempts < 14) setTimeout(reveal, 140);
           }
-          setTimeout(reveal, 90);
+          requestAnimationFrame(reveal);
         })();
         </script>""",
-        height=0,
-        scrolling=False,
+        unsafe_allow_javascript=True,
     )
 
 
