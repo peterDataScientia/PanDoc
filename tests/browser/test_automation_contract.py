@@ -157,8 +157,11 @@ def main() -> int:
             assert page.locator('[data-testid="stTabs"]').count() == 0
             prep_nav = page.get_by_test_id("stRadio").filter(has_text="Preparation workspace")
             prep_nav.get_by_text("Reference ligand", exact=True).click()
+            wait_marker_state(page, "pandoc-preparation-view", "Reference ligand")
+            assert marker(page, "pandoc-preparation-view").get_attribute("data-value") == "reference_selected"
             page.get_by_role("button", name="Find ligand chemistry from PDB").wait_for(state="visible")
             prep_nav.get_by_text("Receptor", exact=True).click()
+            wait_marker_state(page, "pandoc-preparation-view", "Receptor")
             page.get_by_role("spinbutton", name="Preparation pH").wait_for(state="visible")
 
             # Contract markers must remain present after the Streamlit rerun.
