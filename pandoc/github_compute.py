@@ -339,9 +339,9 @@ class GitHubCompute:
             raw = Fernet(self.job_key.encode()).decrypt(encrypted)
             text = raw.decode("utf-8", errors="replace")
             # A scientific log can contain \r-style progress and ANSI formatting.
-            text = re.sub(r"\\x1b\\[[0-9;]*[A-Za-z]", "", text).replace("\\r", "\\n")
+            text = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", text).replace("\r", "\n")
             lines = text.splitlines()
-            return "\\n".join(lines[-max(1, int(tail)):]) or "Waiting for AutoDock Vina docking output..."
+            return "\n".join(lines[-max(1, int(tail)):]) or "Waiting for AutoDock Vina docking output..."
         except GitHubComputeError as exc:
             if "GitHub API 404:" in str(exc):
                 return (
