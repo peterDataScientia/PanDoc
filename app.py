@@ -298,6 +298,11 @@ def go_to_reference_preparation():
     st.session_state.preparation_view = 'Reference ligand'
 
 
+def select_workflow_from_menu():
+    """Persist deliberate menu changes separately from the workflow radio widget."""
+    st.session_state.workflow_stage = st.session_state.workflow_menu_choice
+
+
 @st.cache_data(ttl=86400, show_spinner=False)
 def lookup_chemistry(component):
     return core.fetch_ccd(component)
@@ -965,15 +970,23 @@ def show_job(directory):
 if st.session_state.get('next_stage'):
     st.session_state.workflow_stage = st.session_state.pop('next_stage')
 
-# The only workflow navigator. Settings remain in the independent sidebar.
+# The authoritative stage is distinct from the ephemeral Streamlit radio state.
+# After a programmatic Continue action, synchronize the navigation widget BEFORE
+# it renders so another widget interaction cannot revert to Load complex.
+st.session_state.setdefault('workflow_stage', '1 · Load complex')
+if st.session_state.get('workflow_menu_choice') != st.session_state.workflow_stage:
+    st.session_state.workflow_menu_choice = st.session_state.workflow_stage
+
 with st.popover('☰ Workflow menu'):
-    stage = st.radio(
+    st.radio(
         'Go to step',
         ['1 · Load complex', '2 · Prepare structures', '3 · Validate docking',
          '4 · Run experiment', '5 · Explore results'],
-        key='workflow_stage',
+        key='workflow_menu_choice',
+        on_change=select_workflow_from_menu,
         help='Choose the stage to work on; no duplicate stepper is shown in the main workspace.',
     )
+stage = st.session_state.workflow_stage
 
 with st.sidebar:
     if PANDOC_LOGO.exists():
