@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review, profile_engine, profile_quality, compute, compute_options
+from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review, profile_engine, profile_quality, compute, compute_options, structure_view
 
 PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.png'
 PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
@@ -48,9 +48,10 @@ def viewer(pdb=None, sdf=None, reference=None, center=None, size=None, focus=Non
     import py3Dmol
     view = py3Dmol.view(width='100%', height=430)
     view.setBackgroundColor('#ffffff')
+    chain_colors = []
     if pdb:
         view.addModel(pdb, 'pdb')
-        view.setStyle({'model': 0}, {'cartoon': {'color': '#7b94ad'}})
+        chain_colors = structure_view.style_protein_chains(view, pdb)
         view.addStyle({'model': 0, 'hetflag': True}, {'stick': {'colorscheme': 'cyanCarbon'}})
     if reference:
         view.addModel(reference, 'sdf')
@@ -74,7 +75,8 @@ def viewer(pdb=None, sdf=None, reference=None, center=None, size=None, focus=Non
     controls = f"""<div style='padding:6px'><button onclick='viewer_{view.uniqueid}.zoom(1.2);viewer_{view.uniqueid}.render()'>Zoom +</button>
 <button onclick='viewer_{view.uniqueid}.zoom(0.8);viewer_{view.uniqueid}.render()'>Zoom −</button>
 <button onclick='viewer_{view.uniqueid}.zoomTo();viewer_{view.uniqueid}.render()'>Fit structure</button></div>"""
-    components.html(html + controls, height=490, scrolling=False)
+    legend = structure_view.chain_legend(chain_colors)
+    components.html(html + controls + legend, height=510, scrolling=False)
 
 
 
@@ -1021,27 +1023,6 @@ with st.sidebar:
             )
     st.divider()
     st.text_input('Experiment name', 'My docking experiment', key='experiment')
-    # Present real backend providers, not opaque numbered computers.
-    # The saved option values stay unchanged for backward-compatible routing.
-    st.radio(
-        'Where calculations run',
-        compute_options.OPTIONS,
-        key='compute_mode',
-        format_func=compute_options.display_name,
-        help='This app runs jobs in Streamlit. Kaggle and GitHub Actions run jobs remotely; remote services need server configuration.',
-    )
-    st.caption(compute_options.description(st.session_state.get('compute_mode', compute_options.STREAMLIT)))
-    if kaggle_compute_mode():
-        _k_url, _k_key = kaggle_config()
-        if _k_url and _k_key:
-            st.caption('Kaggle worker credentials configured; connectivity is checked when a job starts.')
-        else:
-            st.warning('Kaggle worker is not configured. GitHub Actions can be used if configured.')
-    elif not cloud_compute_mode():
-        if github_backend() is None:
-            st.warning('GitHub Actions is not configured on this server.')
-        else:
-            st.caption('GitHub Actions credentials configured; runner availability is checked at submission.')
     st.toggle('Assistant', key='assistant_open', value=False)
     st.divider()
     st.caption('✓ Complex loaded' if st.session_state.get('pdb') else '○ Load a complex')
@@ -1177,6 +1158,30 @@ with st.sidebar:
             'application/zip',
             key='profile_bundle_download_sidebar',
         )
+
+# Runtime selector stays at the top-right of the workspace, not in the sidebar.
+# Preserve the original session-state values used by existing compute routing.
+with st.container(key='runtime_toolbar'):
+    _runtime_spacer, _runtime_column = st.columns([8, 1.5], gap='small')
+    with _runtime_column:
+        with st.popover('Runtime', icon=':material/memory:', help='Choose where new calculations run'):
+            st.radio(
+                'Compute runtime',
+                compute_options.OPTIONS,
+                key='compute_mode',
+                format_func=compute_options.runtime_label,
+                help='Computer A runs in this app; B on Kaggle; C on GitHub Actions.',
+            )
+            _selected_runtime = st.session_state.get('compute_mode', compute_options.STREAMLIT)
+            st.caption(compute_options.description(_selected_runtime))
+            if _selected_runtime == compute_options.KAGGLE:
+                _k_url, _k_key = kaggle_config()
+                if not (_k_url and _k_key):
+                    st.warning('Kaggle is not configured. GitHub Actions fallback requires separate configuration.')
+            elif _selected_runtime == compute_options.GITHUB_ACTIONS:
+                if github_backend() is None:
+                    st.warning('GitHub Actions is not configured on this server.')
+            st.caption('Runtime changes apply to new calculations; active jobs keep their original backend.')
 
 ui.automation_snapshot(
     st,
