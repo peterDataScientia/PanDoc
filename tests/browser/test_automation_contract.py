@@ -147,6 +147,19 @@ def main() -> int:
                 timeout=60_000,
             )
 
+            # Preparation is now a forward-flow workspace: pH is immediately
+            # visible; advanced settings and the 3D receptor inspection are optional.
+            # No jumping from the bottom of the receptor tab back to the top
+            # to reach the crystallographic reference ligand.
+            page.get_by_role("spinbutton", name="Preparation pH").wait_for(state="visible")
+            page.get_by_role("button", name="Analyze protonation at selected pH").wait_for(state="visible")
+            page.get_by_role("button", name="Prepare receptor").wait_for(state="visible")
+            assert page.locator('[data-testid="stTabs"]').count() == 0
+            page.get_by_text("Reference ligand", exact=True).first.click()
+            page.get_by_role("button", name="Find ligand chemistry from PDB").wait_for(state="visible")
+            page.get_by_text("Receptor", exact=True).first.click()
+            page.get_by_role("spinbutton", name="Preparation pH").wait_for(state="visible")
+
             # Contract markers must remain present after the Streamlit rerun.
             for testid in (
                 "pandoc-app-ready",
