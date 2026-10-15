@@ -204,8 +204,9 @@ def main() -> int:
             ):
                 marker(page, testid).wait_for(state="attached")
 
-            # The independent hamburger remains usable after upload and rerun.
-            assert page.get_by_role("button", name="☰ Workflow menu").is_visible()
+            # The workflow stays in the sidebar after upload and rerun.
+            assert sidebar.get_by_role("button", name="2 · Prepare structures").is_visible()
+            assert page.get_by_role("button", name="☰ Workflow menu").count() == 0
             assert page.locator(".pd-workspace-title").inner_text() == "Prepare structures"
 
             page.screenshot(path=str(ARTIFACT_DIR / "contract-pass.png"), full_page=True)
