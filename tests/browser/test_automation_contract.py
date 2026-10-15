@@ -159,11 +159,10 @@ def main() -> int:
             # secondary navigation click is needed.
             page.get_by_role("button", name="Find ligand chemistry from PDB").wait_for(state="visible")
             assert page.get_by_text("4. Reference ligand preparation", exact=False).count() >= 1
-            ph_input = page.get_by_role("spinbutton", name="Preparation pH")
-            ph_input.fill("5.0")
-            ph_input.press("Tab")
-            wait_marker_state(page, "pandoc-preparation-ph", "5.0")
+            page.get_by_text("Optional receptor settings", exact=True).click()
+            page.get_by_text("Rebuild missing heavy atoms with PDBFixer", exact=True).click()
             wait_marker_state(page, "pandoc-workflow-stage", "2 · Prepare structures")
+            assert not page.get_by_role("checkbox", name="Rebuild missing heavy atoms with PDBFixer").is_checked()
             page.get_by_role("button", name="Find ligand chemistry from PDB").wait_for(state="visible")
 
             # Contract markers must remain present after the Streamlit rerun.
