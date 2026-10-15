@@ -958,12 +958,12 @@ button[aria-disabled="true"] {
   color:var(--pd-navy);
   margin:.3rem 0 .25rem;
 }
-[data-testid="stSidebar"] [data-testid="stButton"] button {
+[data-testid="stSidebar"] .st-key-workflow_navigation [data-testid="stButton"] button {
   min-height:39px!important;
   text-align:left!important;
   justify-content:flex-start!important;
 }
-[data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"] {
+[data-testid="stSidebar"] .st-key-workflow_navigation [data-testid="stButton"] button[kind="primary"] {
   background:#123d55!important;
   background-image:none!important;
   color:#ffffff!important;
