@@ -50,7 +50,7 @@ def test_preparation_requires_protonation_review_and_repair_is_default():
 
 
 
-def test_receptor_reference_navigation_does_not_lose_saved_ligand():
+def test_linear_receptor_and_ligand_controls_survive_ph_changes():
     fixture = Path(__file__).parent / 'browser' / 'fixture_complex.pdb'
     pdb = fixture.read_text()
     ligand_id = next(core.key(a) for a in core.atoms(pdb) if a['res'] == 'EOH')
@@ -61,13 +61,13 @@ def test_receptor_reference_navigation_does_not_lose_saved_ligand():
     app.session_state['next_stage'] = '2 · Prepare structures'
     app.run()
     assert not list(app.exception)
-    nav = next(r for r in app.radio if r.label == 'Preparation workspace')
-    assert nav.value == 'Receptor'
-    nav.set_value('Reference ligand').run()
-    assert not list(app.exception)
-    assert app.session_state['preparation_view'] == 'Reference ligand'
-    assert any(b.label == 'Find ligand chemistry from PDB' for b in app.button)
-    nav = next(r for r in app.radio if r.label == 'Preparation workspace')
-    nav.set_value('Receptor').run()
-    assert not list(app.exception)
+    assert app.session_state['workflow_stage'] == '2 · Prepare structures'
     assert any(b.label == 'Analyze protonation at selected pH' for b in app.button)
+    assert any(b.label == 'Find ligand chemistry from PDB' for b in app.button)
+    assert not any(r.label == 'Preparation workspace' for r in app.radio)
+    ph = next(n for n in app.number_input if n.label == 'Preparation pH')
+    ph.set_value(5.0).run()
+    assert not list(app.exception)
+    assert app.session_state['workflow_stage'] == '2 · Prepare structures'
+    assert app.session_state['preparation_review']['pH_context'] == 5.0
+    assert any(b.label == 'Find ligand chemistry from PDB' for b in app.button)
