@@ -71,7 +71,13 @@ def main() -> int:
             sidebar.get_by_role("button", name="1 · Load complex").click()
             wait_marker_state(page, "pandoc-workflow-stage", "1 · Load complex")
             page.get_by_text("Structure source", exact=True).wait_for(state="visible")
-            sidebar.get_by_text("Where calculations run", exact=True).wait_for(state="visible")
+            assert sidebar.get_by_text("Where calculations run", exact=True).count() == 0
+            runtime_button = page.get_by_role("button", name="memory Runtime", exact=True)
+            runtime_button.wait_for(state="visible")
+            runtime_button.click()
+            page.get_by_role("radio", name="Computer A · This app").wait_for(state="visible")
+            page.get_by_role("radio", name="Computer B · Kaggle").wait_for(state="visible")
+            page.get_by_role("radio", name="Computer C · GitHub Actions").wait_for(state="visible")
 
             # Buttons must be readable BEFORE hover. Regression for white-on-white
             # actions seen in the high-contrast theme.
@@ -106,18 +112,14 @@ def main() -> int:
             assert secondary_hover["color"] == secondary["color"], secondary_hover
             assert secondary_hover["labelColor"] == secondary_hover["color"]
 
-            # The user selects real compute providers; their stored values stay stable.
-            # The user selects real providers; stored values remain legacy IDs.
-            page.get_by_text("This app (default)", exact=True).click()
-            page.get_by_role("radio", name="Kaggle worker").wait_for(state="visible")
-            page.get_by_role("radio", name="GitHub Actions").wait_for(state="visible")
-
-            page.get_by_text("Kaggle worker", exact=True).click()
+            # New top-right runtime picker retains the original backend state keys.
+            page.get_by_text("Computer B · Kaggle", exact=True).click()
             wait_marker_state(page, "pandoc-compute-node", "Computer B · High capacity")
-            page.get_by_text("GitHub Actions", exact=True).click()
+            page.get_by_text("Computer C · GitHub Actions", exact=True).click()
             wait_marker_state(page, "pandoc-compute-node", "Computer C · Backup")
-            page.get_by_text("This app (default)", exact=True).click()
+            page.get_by_text("Computer A · This app", exact=True).click()
             wait_marker_state(page, "pandoc-compute-node", "Computer A · Fast")
+            runtime_button.click()  # Close the picker before manipulating the complex.
 
             # Upload through the user-facing accessible label. Do not depend on
             # Streamlit-generated CSS classes, framework data-testid values, or DOM position.

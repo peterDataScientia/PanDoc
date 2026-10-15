@@ -1009,3 +1009,47 @@ button[aria-disabled="true"] {
   .pd-workspace-title { font-size:1.3rem!important; }
   .pd-scroll-anchor,.pd-workspace-heading { scroll-margin-top:4rem; }
 }
+
+/* ---------- Top-right compute runtime launcher ---------- */
+/* This is deliberately separate from the workflow menu in the sidebar. */
+.st-key-runtime_toolbar {
+  /* Keep the selector on the right without pushing the first work control down. */
+  margin:-.25rem 0 -1.35rem;
+  position:relative;
+  top:3.6rem; /* Below Streamlit's fixed header; keep toolbar out of layout flow. */
+  z-index:5;
+}
+.st-key-runtime_toolbar [data-testid="stHorizontalBlock"] {
+  align-items:center;
+}
+.st-key-runtime_toolbar [data-testid="stPopover"] button {
+  min-height:40px!important;
+  border-radius:11px!important;
+  padding:7px 12px!important;
+  background:#143c55!important;
+  color:#ffffff!important;
+  border:1.5px solid #0b6672!important;
+  box-shadow:0 3px 12px rgba(14,41,65,.14)!important;
+  font-size:.87rem!important;
+  font-weight:750!important;
+}
+.st-key-runtime_toolbar [data-testid="stPopover"] button:hover {
+  background:#0b6672!important;
+}
+.st-key-runtime_toolbar [data-testid="stPopover"] button:focus-visible {
+  outline:3px solid #0b6672!important;
+  outline-offset:3px!important;
+}
+@media(max-width:760px) {
+  .st-key-runtime_toolbar [data-testid="stHorizontalBlock"] {
+    flex-wrap:nowrap!important;
+    justify-content:flex-end!important;
+  }
+  .st-key-runtime_toolbar [data-testid="stColumn"]:first-child {
+    display:none!important;
+  }
+  .st-key-runtime_toolbar [data-testid="stColumn"]:last-child {
+    width:auto!important;
+    min-width:128px!important;
+  }
+}
