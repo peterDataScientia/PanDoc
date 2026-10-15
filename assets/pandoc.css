@@ -1016,6 +1016,7 @@ button[aria-disabled="true"] {
   /* Keep the selector on the right without pushing the first work control down. */
   margin:-.25rem 0 -1.35rem;
   position:relative;
+  top:3.6rem; /* Below Streamlit's fixed header; keep toolbar out of layout flow. */
   z-index:5;
 }
 .st-key-runtime_toolbar [data-testid="stHorizontalBlock"] {
