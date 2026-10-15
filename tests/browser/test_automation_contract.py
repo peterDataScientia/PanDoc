@@ -156,7 +156,14 @@ def main() -> int:
             page.get_by_role("button", name="Prepare receptor").wait_for(state="visible")
             assert page.locator('[data-testid="stTabs"]').count() == 0
             prep_nav = page.get_by_test_id("stRadio").filter(has_text="Preparation workspace")
+            print("PREP BEFORE", prep_nav.evaluate("el => el.outerHTML.slice(0,2400)"), flush=True)
             prep_nav.get_by_text("Reference ligand", exact=True).click()
+            page.wait_for_timeout(1500)
+            print("PREP AFTER", marker(page, "pandoc-preparation-view").get_attribute("data-state"),
+                  prep_nav.evaluate("el => el.outerHTML.slice(0,2400)"),
+                  page.locator('[data-testid="stException"]').all_text_contents(),
+                  page.locator('[data-testid="stAlert"]').all_text_contents()[-5:],
+                  flush=True)
             wait_marker_state(page, "pandoc-preparation-view", "Reference ligand")
             assert marker(page, "pandoc-preparation-view").get_attribute("data-value") == "reference_selected"
             page.get_by_role("button", name="Find ligand chemistry from PDB").wait_for(state="visible")
