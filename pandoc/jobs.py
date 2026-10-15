@@ -21,17 +21,57 @@ def launch(root, config):
     return str(directory)
 
 
+def _worker_alive(pid):
+    """A Linux zombie is not a live worker, even though os.kill(pid, 0) succeeds."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass
+
+    proc_root = Path('/proc')
+    if proc_root.is_dir():
+        try:
+            # The command name in /proc/PID/stat can contain spaces and ')'.
+            state = (proc_root / str(pid) / 'stat').read_text().rsplit(')', 1)[1].split()[0]
+        except FileNotFoundError:
+            return False
+        except (OSError, IndexError):
+            return True
+        if state in ('Z', 'X', 'x'):
+            return False
+    return True
+
+
 def status(directory):
     root = Path(directory)
     try:
         data = json.loads((root/'status.json').read_text())
     except (FileNotFoundError, json.JSONDecodeError):
         return {'state': 'starting', 'completed': 0}
-    if data['state'] in ('running', 'queued') and (root/'worker.pid').exists():
+
+    pid_file = root / 'worker.pid'
+    if data.get('state') in ('running', 'queued') and pid_file.exists():
         try:
-            os.kill(int((root/'worker.pid').read_text()), 0)
-        except ProcessLookupError:
-            data = {'state': 'failed', 'error': 'Worker exited before completion. Inspect worker.log.', 'completed': data.get('completed', 0)}
+            alive = _worker_alive(int(pid_file.read_text()))
+        except (OSError, ValueError):
+            alive = False
+        if not alive:
+            last_stage = data.get('stage') or data.get('current') or 'unknown'
+            data.update(
+                state='failed',
+                stage='failed',
+                error=(
+                    'Worker exited unexpectedly during ' + str(last_stage) +
+                    '. The operating system may have terminated the process, or a '
+                    'native docking library may have crashed. Inspect worker.log.'
+                ),
+            )
+            # Persist the failure so repeated Streamlit reruns show the same state.
+            tmp = root / 'status_monitor.tmp'
+            tmp.write_text(json.dumps(data))
+            tmp.replace(root / 'status.json')
     return data
 
 
