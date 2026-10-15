@@ -1186,7 +1186,8 @@ if stage.startswith('3') or stage.startswith('4'):
     if active:
         st.session_state.assistant_active_job = str(active)
 with workspace:
-    ui.current_stage_header(st, stage)
+    # Keep a stable scroll destination without a redundant stage heading.
+    ui.scroll_anchor(st, 'pd-stage')
     requested_scroll = st.session_state.pop('pending_scroll', None)
     if requested_scroll:
         ui.auto_scroll(st, requested_scroll)
@@ -1270,10 +1271,6 @@ with workspace:
                 'application/zip',
                 key='batch_review_download_main',
             )
-    ui.status_grid(st,
-        complex_loaded=bool(st.session_state.get('pdb')),
-        receptor_ready=bool(st.session_state.get('preparation_id')),
-        reference_ready=bool(st.session_state.get('reference_path')))
     try:
         if stage.startswith('1'):
             st.write('Upload a complex, inspect its components and select the receptor and crystallographic reference ligand.')
