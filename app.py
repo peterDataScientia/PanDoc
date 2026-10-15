@@ -1337,6 +1337,9 @@ with workspace:
                     key='preparation_view',
                     help='Complete receptor preparation, then select Continue to reference ligand. You can switch between the two views at any time.',
                 )
+                ui.automation_marker(st, 'preparation-view',
+                                     state=str(preparation_view),
+                                     value='reference_selected' if st.session_state.get('reference_pdb') else 'no_reference')
                 if preparation_view == 'Receptor':
                     pdb = st.session_state.selected_pdb
                     ui.card(st, 'Receptor preparation', '', badge_text='pH-aware', badge_kind='running')
