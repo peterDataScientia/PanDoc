@@ -31,8 +31,9 @@ def test_current_step_title_is_escaped():
 
 def test_native_sidebar_button_has_visible_menu_label():
     css = (Path(__file__).resolve().parents[1] / "assets" / "pandoc.css").read_text(encoding="utf-8")
-    assert '[data-testid="stPopoverButton"]' in css
-    assert 'padding-top:1.4rem!important' in css
-    assert 'scroll-margin-top:5.1rem' in css
-    assert 'Single-navigation hamburger workspace' in css
-    assert ".pd-workspace-title" in css
+    assert '[data-testid="stExpandSidebarButton"]' in css
+    assert 'content:"Menu"' in css
+    assert 'padding-top:.9rem!important' in css
+    assert 'Single-navigation hamburger workspace' not in css
+    assert '.pd-sidebar-workflow-title' in css
+    assert '.pd-workspace-title' in css
