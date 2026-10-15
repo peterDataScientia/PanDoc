@@ -173,6 +173,9 @@ def load_complex(text, suffix, provenance):
     # Rerun once after a NEW source is loaded so visible state and DOM markers
     # agree immediately; a persisted upload must not create a rerun loop.
     if newly_loaded:
+        # The newly visible inspection/components section is below the input.
+        # Reveal it instead of leaving the user at the search/upload controls.
+        st.session_state.pending_scroll = 'pd-pdb-components'
         st.rerun()
 
 
@@ -208,12 +211,18 @@ def pdb_discovery():
             with st.spinner('Searching RCSB PDB…'):
                 result = search_pdb(options, 0)
             st.session_state.update(pdb_search_options=options, pdb_search_start=0, pdb_search_result=result)
+            st.session_state.pop('pdb_review', None)
+            st.session_state.pending_scroll = 'pd-pdb-results'
+            st.rerun()
         except (ValueError, RuntimeError) as exc:
             st.session_state.pop('pdb_search_result', None)
             st.warning(str(exc))
     result = st.session_state.get('pdb_search_result')
     if not result:
         return
+    # Search results appear BELOW the search form; scroll only after explicit
+    # search/pagination, never on arbitrary Streamlit widget reruns.
+    ui.scroll_anchor(st, 'pd-pdb-results')
     if not result['ids']:
         st.info('No matching structures. Try a broader keyword or relax the filters.')
         return
@@ -229,6 +238,8 @@ def pdb_discovery():
             with st.spinner('Loading results…'):
                 next_result = search_pdb(st.session_state.pdb_search_options, new_start)
             st.session_state.update(pdb_search_start=new_start, pdb_search_result=next_result)
+            st.session_state.pop('pdb_review', None)
+            st.session_state.pending_scroll = 'pd-pdb-results'
             st.rerun()
         except (ValueError, RuntimeError) as exc:
             st.warning(str(exc))
@@ -238,11 +249,14 @@ def pdb_discovery():
             with st.spinner('Reading structure metadata…'):
                 detail = pdb_details(selected)
             st.session_state.pdb_review = dict(id=selected, detail=detail)
+            st.session_state.pending_scroll = 'pd-pdb-details'
+            st.rerun()
         except (ValueError, RuntimeError) as exc:
             st.warning(str(exc))
     review = st.session_state.get('pdb_review')
     if not review or review['id'] != selected:
         return
+    ui.scroll_anchor(st, 'pd-pdb-details')
     detail = review['detail']
     entry = detail['entry']
     st.markdown('**'+selected+' · '+entry.get('struct', {}).get('title', '')+'**')
@@ -276,7 +290,9 @@ def pdb_discovery():
                 source.update(search_options=st.session_state.pdb_search_options, query=result['query'],
                               selection_rationale=rationale, metadata=detail)
                 load_complex(text, '.cif', source)
-            st.success('Structure loaded. Inspect the complex below and save your component selection.')
+            # Also handle loading the same structure again (no new source hash).
+            st.session_state.pending_scroll = 'pd-pdb-components'
+            st.rerun()
         except (ValueError, RuntimeError) as exc:
             st.warning(str(exc))
 
@@ -1308,6 +1324,7 @@ with workspace:
             else:
                 pdb_discovery()
             if st.session_state.get('pdb'):
+                ui.scroll_anchor(st, 'pd-pdb-components')
                 pdb = st.session_state.pdb
                 source = st.session_state.get('structure_source', {})
                 st.caption('Loaded structure: '+str(source.get('pdb_id', source.get('filename', 'Local structure'))))
