@@ -73,7 +73,8 @@ def auto_scroll(st, name):
     import json
 
     allowed = {"pd-ph", "pd-protonation", "pd-ligand",
-               "pd-receptor-ready", "pd-reference-ready", "pd-stage"}
+               "pd-receptor-ready", "pd-reference-ready", "pd-stage",
+               "pd-pdb-results", "pd-pdb-details", "pd-pdb-components"}
     safe = str(name)
     if safe not in allowed:
         return
