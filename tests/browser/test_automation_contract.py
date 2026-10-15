@@ -157,8 +157,15 @@ def main() -> int:
             # to reach the crystallographic reference ligand.
             ph_control = page.get_by_role("spinbutton", name="Preparation pH")
             ph_control.wait_for(state="visible")
+            # Allow asynchronous Streamlit content + one-shot scroll helper to settle.
+            # Do NOT call scroll_into_view_if_needed here: that would conceal the bug.
+            page.wait_for_timeout(1800)
             ph_box = ph_control.bounding_box()
-            assert ph_box and 0 <= ph_box["y"] < 310, (
+            print("AUTO-SCROLL CHECK", ph_box, page.evaluate(
+                """() => ({top:document.querySelector('[data-testid="stMain"]')?.scrollTop,
+                        iframes:Array.from(document.querySelectorAll('iframe')).map(x=>({
+                          srcdoc:(x.getAttribute('srcdoc')||'').slice(0,120)})).slice(0,5)})"""), flush=True)
+            assert ph_box and 40 <= ph_box["y"] < 310, (
                 "After saving selection, pH requires manual scrolling: " + str(ph_box)
             )
             page.get_by_role("button", name="Analyze protonation at selected pH").wait_for(state="visible")
