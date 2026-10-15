@@ -914,3 +914,79 @@ button[aria-disabled="true"] {
 }
 
 /* Keep icon-only Streamlit toolbar/navigation controls untouched. */
+
+
+/* ---------- Single-navigation hamburger workspace ---------- */
+/* Use Streamlit's own accessible sidebar toggle instead of a duplicate
+   JavaScript drawer. Closed is the default on first visit. */
+[data-testid="stSidebarCollapsedControl"] {
+  z-index:1000!important;
+}
+[data-testid="stSidebarCollapsedControl"] button {
+  min-width:110px!important;
+  min-height:42px!important;
+  padding:8px 15px!important;
+  background:#123d55!important;
+  border:1.5px solid #0b6672!important;
+  border-radius:11px!important;
+  box-shadow:0 5px 16px rgba(16,40,63,.20)!important;
+  color:#ffffff!important;
+  cursor:pointer!important;
+}
+[data-testid="stSidebarCollapsedControl"] button svg {
+  display:none!important;
+}
+[data-testid="stSidebarCollapsedControl"] button::after {
+  content:"☰  Menu";
+  color:#ffffff!important;
+  font-family:Inter,ui-sans-serif,system-ui,sans-serif;
+  font-weight:780;
+  font-size:.94rem;
+  letter-spacing:.015em;
+  white-space:nowrap;
+}
+[data-testid="stSidebarCollapsedControl"] button:hover {
+  background:#0b6672!important;
+  border-color:#084c57!important;
+}
+[data-testid="stSidebarCollapsedControl"] button:focus-visible {
+  outline:3px solid #0b6672!important;
+  outline-offset:2px!important;
+}
+[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button {
+  background:#dfebf6!important;
+  border:1px solid #91a7bc!important;
+  border-radius:9px!important;
+  color:#10283f!important;
+}
+/* The workspace has one current-stage heading, never a second five-step nav. */
+.pd-workspace-heading {
+  padding:.35rem 0 1rem;
+  margin:0 0 16px;
+  border-bottom:2px solid var(--pd-border);
+}
+.pd-workspace-eyebrow {
+  color:var(--pd-teal-dark);
+  font-size:.74rem;
+  font-weight:830;
+  letter-spacing:.12em;
+}
+.pd-workspace-title {
+  margin:3px 0 0!important;
+  color:var(--pd-navy)!important;
+  font-size:1.55rem!important;
+  font-weight:830!important;
+  line-height:1.2!important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"][aria-label="Workflow navigation"] {
+  border-bottom:1px solid var(--pd-border);
+  padding-bottom:.5rem;
+}
+/* Keep the menu button comfortably touch-sized on narrow screens. */
+@media(max-width:760px){
+  [data-testid="stSidebarCollapsedControl"] button {
+    min-width:104px!important;
+    min-height:44px!important;
+  }
+  .pd-workspace-title {font-size:1.3rem!important;}
+}
