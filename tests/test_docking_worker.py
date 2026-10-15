@@ -8,9 +8,7 @@ from pandoc import core
 from pandoc.worker import run
 
 
-def test_vina_search_finishes_postprocessing_and_saves_results(tmp_path, capsys, monkeypatch):
-    # Isolate shared-map deserialization from the actual search and pose pipeline.
-    monkeypatch.setattr('pandoc.worker._prepare_shared_maps', lambda *args: None)
+def test_vina_search_finishes_postprocessing_and_saves_results(tmp_path, capsys):
     peptide = Chem.AddHs(Chem.MolFromSequence("AG"))
     assert AllChem.EmbedMolecule(peptide, randomSeed=2026) == 0
     AllChem.MMFFOptimizeMolecule(peptide)
@@ -46,3 +44,4 @@ def test_vina_search_finishes_postprocessing_and_saves_results(tmp_path, capsys,
     assert "Scores retrieved; reconstructing RDKit conformers" in log
     assert "Completed docking search 1/1" in log
     assert "Computer B performance mode" not in log
+    assert "serialized shared-map reuse disabled" in log
