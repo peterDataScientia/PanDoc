@@ -287,15 +287,18 @@ def manifest():
 
 def go_to_selection():
     st.session_state.workflow_stage = '1 · Load complex'
+    st.session_state.pending_scroll = 'pd-stage'
 
 
 def go_to_validation():
     st.session_state.workflow_stage = '3 · Validate docking'
+    st.session_state.pending_scroll = 'pd-stage'
 
 
 def select_workflow_from_menu():
     """Persist deliberate menu changes separately from the workflow radio widget."""
     st.session_state.workflow_stage = st.session_state.workflow_menu_choice
+    st.session_state.pending_scroll = 'pd-stage'
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -1178,6 +1181,9 @@ if stage.startswith('3') or stage.startswith('4'):
         st.session_state.assistant_active_job = str(active)
 with workspace:
     ui.current_stage_header(st, stage)
+    requested_scroll = st.session_state.pop('pending_scroll', None)
+    if requested_scroll:
+        ui.auto_scroll(st, requested_scroll)
 
     profile_result = st.session_state.get('profile_prepare_result')
     if profile_result:
@@ -1331,6 +1337,7 @@ with workspace:
                         st.session_state.update(center=center, size=size)
                     manifest()
                     st.session_state.next_stage = '2 · Prepare structures'
+                    st.session_state.pending_scroll = 'pd-ph'
                     st.rerun()
 
         elif stage.startswith('2'):
@@ -1341,6 +1348,7 @@ with workspace:
                 with st.container():
                     pdb = st.session_state.selected_pdb
                     ui.card(st, 'Receptor preparation', '', badge_text='pH-aware', badge_kind='running')
+                    ui.scroll_anchor(st, 'pd-ph')
                     st.markdown('#### 1. Set preparation pH')
                     intended_ph = st.number_input(
                         'Preparation pH', 0.0, 14.0, 7.0, 0.1,
@@ -1427,12 +1435,14 @@ with workspace:
                                 propka_output=str(ph_dir/'propka_input.pka'),
                                 propka_log=str(ph_dir/'propka.log'))
                             st.success(f'Predicted protonation behavior for {len(rows)} titratable residues. Review the table below.')
+                            ui.auto_scroll(st, 'pd-protonation')
                         except (ValueError, RuntimeError) as exc:
                             st.session_state.pop('protonation_prediction', None)
                             st.error(str(exc))
                     prediction = st.session_state.get('protonation_prediction')
                     reviewed_templates = ''
                     if prediction and prediction.get('key') == ph_prediction_key:
+                        ui.scroll_anchor(st, 'pd-protonation')
                         st.markdown('### pH-aware residue-state review')
                         ui.callout(st, 'PROPKA predictions are proposals, not unquestionable assignments. Review residues near their pKa and all neutral histidines.', 'warn')
                         st.caption('Residues within ±1 pH unit of their predicted pKa are flagged for review. Neutral histidines require an explicit HID/HIE choice.')
@@ -1593,10 +1603,12 @@ with workspace:
                         st.session_state.update(receptor_path=str(path), prepared_pdb=(directory/'receptor_prepared.pdb').read_text(), preparation_id=prep_id,
                             preparation_record=dict(pH=intended_ph, templates=combined_templates, heme_coordination_residue=heme_coordination_residue, protonation_review=st.session_state.get('protonation_review'), repaired_heavy_atoms=repair, curated_upload=curated.name if curated else None, rationale=notes))
                         manifest()
+                        ui.auto_scroll(st, 'pd-ligand' if st.session_state.get('reference_pdb') else 'pd-receptor-ready')
                     if st.session_state.get('receptor_path'):
                         path = Path(st.session_state.receptor_path)
                         prepared = path.parent/'receptor_prepared.pdb'
                         prepared_text=prepared.read_text() if prepared.exists() else st.session_state.prepared_pdb
+                        ui.scroll_anchor(st, 'pd-receptor-ready')
                         st.success('Receptor ready for docking.')
                         if st.session_state.get('reference_pdb'):
                             st.success('Next: prepare the crystallographic reference ligand below.')
@@ -1630,6 +1642,7 @@ with workspace:
                             st.caption('Preparation log')
                             st.code((path.parent/'preparation.log').read_text())
                 st.divider()
+                ui.scroll_anchor(st, 'pd-ligand')
                 st.markdown('#### 4. Reference ligand preparation')
                 with st.container():
                     ref = st.session_state.get('reference_pdb')
@@ -1763,6 +1776,7 @@ with workspace:
                                 manifest()
                                 ui.automation_marker(st, 'reference-prepared', state='completed', value=ident)
                                 st.success('Reference prepared with original heavy-atom coordinates. Continue to Validate docking.')
+                                ui.auto_scroll(st, 'pd-reference-ready')
                             except (ValueError, RuntimeError) as exc:
                                 st.error('The ligand could not be prepared from this chemical definition. Counts alone do not establish a matching structure.')
                                 st.write('Retrieve the PDB chemistry, verify the selected component, and inspect the crystal ligand for missing atoms or incorrect connectivity.')
@@ -1772,6 +1786,7 @@ with workspace:
                             if selected_smiles.strip()!=st.session_state.get('reference_smiles'):
                                 st.info('The downloaded reference below belongs to previously prepared chemistry. Prepare the edited SMILES before using it for a new validation.')
                             path = Path(st.session_state.reference_path)
+                            ui.scroll_anchor(st, 'pd-reference-ready')
                             st.button('Continue to Validate docking →', type='primary',
                                       on_click=go_to_validation, key='continue_to_validation')
                             if st.toggle('Inspect prepared ligand · 3D preview and download',
