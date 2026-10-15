@@ -155,14 +155,16 @@ def main() -> int:
             page.get_by_role("button", name="Analyze protonation at selected pH").wait_for(state="visible")
             page.get_by_role("button", name="Prepare receptor").wait_for(state="visible")
             assert page.locator('[data-testid="stTabs"]').count() == 0
-            prep_nav = page.get_by_test_id("stRadio").filter(has_text="Preparation workspace")
-            prep_nav.get_by_text("Reference ligand", exact=True).click()
-            wait_marker_state(page, "pandoc-preparation-view", "Reference ligand")
-            assert marker(page, "pandoc-preparation-view").get_attribute("data-value") == "reference_selected"
+            # The ligand section is directly below the receptor; no tab or
+            # secondary navigation click is needed.
             page.get_by_role("button", name="Find ligand chemistry from PDB").wait_for(state="visible")
-            prep_nav.get_by_text("Receptor", exact=True).click()
-            wait_marker_state(page, "pandoc-preparation-view", "Receptor")
-            page.get_by_role("spinbutton", name="Preparation pH").wait_for(state="visible")
+            assert page.get_by_text("4. Reference ligand preparation", exact=False).count() >= 1
+            ph_input = page.get_by_role("spinbutton", name="Preparation pH")
+            ph_input.fill("5.0")
+            ph_input.press("Tab")
+            wait_marker_state(page, "pandoc-preparation-ph", "5.0")
+            wait_marker_state(page, "pandoc-workflow-stage", "2 · Prepare structures")
+            page.get_by_role("button", name="Find ligand chemistry from PDB").wait_for(state="visible")
 
             # Contract markers must remain present after the Streamlit rerun.
             for testid in (
