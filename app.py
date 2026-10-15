@@ -950,6 +950,16 @@ def show_job(directory):
 if st.session_state.get('next_stage'):
     st.session_state.workflow_stage = st.session_state.pop('next_stage')
 
+# The only workflow navigator. Settings remain in the independent sidebar.
+with st.popover('☰ Workflow menu'):
+    stage = st.radio(
+        'Go to step',
+        ['1 · Load complex', '2 · Prepare structures', '3 · Validate docking',
+         '4 · Run experiment', '5 · Explore results'],
+        key='workflow_stage',
+        help='Choose the stage to work on; no duplicate stepper is shown in the main workspace.',
+    )
+
 with st.sidebar:
     if PANDOC_LOGO.exists():
         st.image(str(PANDOC_LOGO), width=250)
@@ -959,7 +969,6 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
     st.text_input('Experiment name', 'My docking experiment', key='experiment')
-    stage = st.radio('Workflow navigation', ['1 · Load complex', '2 · Prepare structures', '3 · Validate docking', '4 · Run experiment', '5 · Explore results'], key='workflow_stage', help='Choose a workflow stage here. Close the menu to return to the workspace.')
     # Present real backend providers, not opaque numbered computers.
     # The saved option values stay unchanged for backward-compatible routing.
     st.radio(
