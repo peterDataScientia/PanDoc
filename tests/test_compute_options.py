@@ -23,3 +23,11 @@ def test_descriptions_are_honest_about_remote_requirements():
     assert "configured" in options.description(options.KAGGLE)
     assert "administrator" in options.description(options.GITHUB_ACTIONS)
     assert options.display_name("Future backend") == "Future backend"
+
+
+def test_runtime_picker_names_all_three_computers_without_changing_routing_values():
+    assert options.runtime_label(options.STREAMLIT) == "Computer A · This app"
+    assert options.runtime_label(options.KAGGLE) == "Computer B · Kaggle"
+    assert options.runtime_label(options.GITHUB_ACTIONS) == "Computer C · GitHub Actions"
+    assert all(options.runtime_label(value).startswith(f"Computer {letter}")
+               for value, letter in zip(options.OPTIONS, "ABC"))
