@@ -769,3 +769,148 @@ button:disabled,button[aria-disabled="true"] {
     font-size:.82rem;
   }
 }
+
+
+/* ---------- Always-visible actions (all interaction states) ---------- */
+/* Default Streamlit secondary buttons were white/low-emphasis and some
+   labels inherited a light color. Every actionable surface is now legible
+   before hover, not only while the pointer is over it. */
+:is(
+  [data-testid="stButton"],
+  [data-testid="stDownloadButton"],
+  [data-testid="stFormSubmitButton"],
+  [data-testid="stPopover"],
+  [data-testid="stLinkButton"],
+  [data-testid="stFileUploaderDropzone"]
+) :is(button, a[role="button"]):not([kind="primary"]),
+button[kind="secondary"],
+button[kind="tertiary"] {
+  background:#dfebf6!important;
+  background-image:none!important;
+  color:#10283f!important;
+  border:1.5px solid #7c96b0!important;
+  border-radius:10px!important;
+  box-shadow:0 2px 5px rgba(14,41,65,.13)!important;
+  opacity:1!important;
+  font-weight:740!important;
+  text-decoration:none!important;
+  transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease!important;
+}
+
+/* Force nested Streamlit Markdown labels to inherit their own button color.
+   A white <p> inside a pale secondary button was effectively invisible. */
+:is(
+  [data-testid="stButton"],
+  [data-testid="stDownloadButton"],
+  [data-testid="stFormSubmitButton"],
+  [data-testid="stPopover"],
+  [data-testid="stLinkButton"],
+  [data-testid="stFileUploaderDropzone"]
+) :is(button, a[role="button"]) :is(p,span,small,strong,svg),
+button[kind="primary"] :is(p,span,small,strong,svg),
+button[kind="secondary"] :is(p,span,small,strong,svg),
+button[kind="tertiary"] :is(p,span,small,strong,svg) {
+  color:inherit!important;
+}
+
+:is(
+  [data-testid="stButton"],
+  [data-testid="stDownloadButton"],
+  [data-testid="stFormSubmitButton"],
+  [data-testid="stPopover"],
+  [data-testid="stLinkButton"],
+  [data-testid="stFileUploaderDropzone"]
+) :is(button, a[role="button"]):not([kind="primary"]):hover,
+button[kind="secondary"]:hover,
+button[kind="tertiary"]:hover {
+  background:#c7ddeb!important;
+  color:#10283f!important;
+  border-color:#0b6672!important;
+  box-shadow:0 4px 11px rgba(14,41,65,.17)!important;
+}
+
+:is(
+  [data-testid="stButton"],
+  [data-testid="stDownloadButton"],
+  [data-testid="stFormSubmitButton"],
+  [data-testid="stPopover"],
+  [data-testid="stLinkButton"],
+  [data-testid="stFileUploaderDropzone"]
+) :is(button, a[role="button"]):not([kind="primary"]):active,
+button[kind="secondary"]:active,
+button[kind="tertiary"]:active {
+  background:#b6d2e5!important;
+  color:#10283f!important;
+  border-color:#0a5967!important;
+}
+
+/* Primary actions retain a solid, dark, immediately recognizable fill. */
+:is(
+  [data-testid="stButton"],
+  [data-testid="stDownloadButton"],
+  [data-testid="stFormSubmitButton"],
+  [data-testid="stPopover"],
+  [data-testid="stLinkButton"]
+) :is(button, a[role="button"])[kind="primary"],
+button[kind="primary"] {
+  background:#135269!important;
+  background-image:linear-gradient(125deg,#153550,#0a6571)!important;
+  color:#ffffff!important;
+  border:1.5px solid #123e59!important;
+  box-shadow:0 4px 13px rgba(10,58,77,.23)!important;
+  opacity:1!important;
+  font-weight:760!important;
+}
+:is(
+  [data-testid="stButton"],
+  [data-testid="stDownloadButton"],
+  [data-testid="stFormSubmitButton"],
+  [data-testid="stPopover"],
+  [data-testid="stLinkButton"]
+) :is(button, a[role="button"])[kind="primary"]:hover,
+button[kind="primary"]:hover {
+  background:#0e3c55!important;
+  background-image:linear-gradient(125deg,#102a43,#07505b)!important;
+  color:#ffffff!important;
+  border-color:#102a43!important;
+}
+button[kind="primary"]:active {
+  background:#102a43!important;
+  background-image:none!important;
+  color:#ffffff!important;
+}
+
+/* Disabled must be visibly disabled, not become white-on-white. */
+:is(
+  [data-testid="stButton"],
+  [data-testid="stDownloadButton"],
+  [data-testid="stFormSubmitButton"],
+  [data-testid="stPopover"],
+  [data-testid="stLinkButton"],
+  [data-testid="stFileUploaderDropzone"]
+) :is(button, a[role="button"]):disabled,
+:is(button[kind="primary"],button[kind="secondary"],button[kind="tertiary"]):disabled,
+button[aria-disabled="true"] {
+  background:#e0e6ed!important;
+  background-image:none!important;
+  color:#465b70!important;
+  border:1.5px solid #a2b2c1!important;
+  box-shadow:none!important;
+  opacity:1!important;
+  cursor:not-allowed!important;
+  transform:none!important;
+}
+:is(
+  [data-testid="stButton"],
+  [data-testid="stDownloadButton"],
+  [data-testid="stFormSubmitButton"],
+  [data-testid="stPopover"],
+  [data-testid="stLinkButton"],
+  [data-testid="stFileUploaderDropzone"]
+) :is(button, a[role="button"]):focus-visible,
+:is(button[kind="primary"],button[kind="secondary"],button[kind="tertiary"]):focus-visible {
+  outline:3px solid #0b6672!important;
+  outline-offset:3px!important;
+}
+
+/* Keep icon-only Streamlit toolbar/navigation controls untouched. */

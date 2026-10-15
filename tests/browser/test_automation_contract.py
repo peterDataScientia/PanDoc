@@ -46,6 +46,39 @@ def main() -> int:
             page.goto(BASE_URL, wait_until="domcontentloaded")
             wait_marker_state(page, "pandoc-app-ready", "ready")
 
+            # Buttons must be readable BEFORE hover. Regression for white-on-white
+            # actions seen in the high-contrast theme.
+            def style_snapshot(name):
+                return page.get_by_role("button", name=name, exact=True).evaluate(
+                    """el => {
+                        const computed = getComputedStyle(el);
+                        const label = el.querySelector('p, span');
+                        return {
+                            color:computed.color,
+                            background:computed.backgroundColor,
+                            gradient:computed.backgroundImage,
+                            border:computed.borderColor,
+                            labelColor:label ? getComputedStyle(label).color : computed.color,
+                            opacity:Number(computed.opacity)
+                        };
+                    }"""
+                )
+
+            secondary = style_snapshot("Start a new experiment")
+            primary = style_snapshot("Run 4-receptor batch review")
+            assert secondary["background"] == "rgb(223, 235, 246)", secondary
+            assert secondary["color"] == "rgb(16, 40, 63)", secondary
+            assert secondary["labelColor"] == secondary["color"], secondary
+            assert secondary["opacity"] >= 0.95, secondary
+            assert primary["color"] == "rgb(255, 255, 255)", primary
+            assert primary["labelColor"] == primary["color"], primary
+            assert "gradient" in primary["gradient"], primary
+
+            page.get_by_role("button", name="Start a new experiment").hover()
+            secondary_hover = style_snapshot("Start a new experiment")
+            assert secondary_hover["color"] == secondary["color"], secondary_hover
+            assert secondary_hover["labelColor"] == secondary_hover["color"]
+
             # The external client uses accessible names for controls.
             page.get_by_role("radio", name=re.compile(r"1 .* Load complex")).check()
             page.get_by_role("radio", name="Computer A · Fast").check()
