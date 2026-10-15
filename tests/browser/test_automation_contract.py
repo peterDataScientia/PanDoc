@@ -46,30 +46,25 @@ def main() -> int:
             page.goto(BASE_URL, wait_until="domcontentloaded")
             wait_marker_state(page, "pandoc-app-ready", "ready")
 
-            # One workflow navigation, tucked inside the native hamburger menu.
-            # The main canvas displays only the current stage heading.
+            # A single, visible hamburger popover is the only workflow menu.
             assert page.locator(".pd-stepper").count() == 0
             assert page.locator(".pd-workspace-title").inner_text() == "Load complex"
-            print("SIDEBAR DEBUG", page.evaluate("""() => ({
-                candidates:Array.from(document.querySelectorAll('[data-testid]'))
-                  .filter(el => /sidebar|collapsed|toolbar|menu/i.test(el.getAttribute('data-testid')||''))
-                  .slice(0,30).map(el => ({id:el.getAttribute('data-testid'),
-                    tag:el.tagName,display:getComputedStyle(el).display,
-                    aria:el.getAttribute('aria-label'),
-                    html:el.outerHTML.slice(0,500)})),
-                buttons:Array.from(document.querySelectorAll('button'))
-                  .filter(el => /sidebar|menu|collapse|open/i.test(
-                    [el.getAttribute('aria-label'),el.title,el.textContent].join(' ')))
-                  .slice(0,15).map(el=>el.outerHTML.slice(0,400))
-              })"""), flush=True)
-            menu = page.get_by_test_id("stSidebarCollapsedControl")
-            menu.wait_for(state="visible")
-            print("SIDEBAR CONTROL DOM:", menu.evaluate(
-                "el => ({tag:el.tagName,html:el.outerHTML.slice(0,800)})"
-            ))
-            menu.click()
-            page.get_by_text("Workflow navigation", exact=True).wait_for(state="visible")
-            assert page.locator('[data-testid="stSidebar"] [role="radiogroup"]').count() >= 1
+            workflow_menu = page.get_by_role("button", name="☰ Workflow menu")
+            workflow_menu.wait_for(state="visible")
+            workflow_menu.click()
+            page.get_by_text("Go to step", exact=True).wait_for(state="visible")
+            page.get_by_text("2 · Prepare structures", exact=True).click()
+            wait_marker_state(page, "pandoc-workflow-stage", "2 · Prepare structures")
+            assert page.locator(".pd-workspace-title").inner_text() == "Prepare structures"
+            if not page.get_by_text("1 · Load complex", exact=True).is_visible():
+                workflow_menu.click()
+            page.get_by_text("1 · Load complex", exact=True).click()
+            wait_marker_state(page, "pandoc-workflow-stage", "1 · Load complex")
+            assert page.locator(".pd-workspace-title").inner_text() == "Load complex"
+
+            # Settings can still be opened separately using Streamlit's native control.
+            page.get_by_test_id("stExpandSidebarButton").click()
+            page.get_by_text("Where calculations run", exact=True).wait_for(state="visible")
 
             # Buttons must be readable BEFORE hover. Regression for white-on-white
             # actions seen in the high-contrast theme.
@@ -104,14 +99,7 @@ def main() -> int:
             assert secondary_hover["color"] == secondary["color"], secondary_hover
             assert secondary_hover["labelColor"] == secondary_hover["color"]
 
-            # The external client uses accessible names for controls.
-            page.get_by_role("radio", name=re.compile(r"1 .* Load complex")).check()
-            page.get_by_text("2 · Prepare structures", exact=True).click()
-            wait_marker_state(page, "pandoc-workflow-stage", "2 · Prepare structures")
-            assert page.locator(".pd-workspace-title").inner_text() == "Prepare structures"
-            page.get_by_text("1 · Load complex", exact=True).click()
-            wait_marker_state(page, "pandoc-workflow-stage", "1 · Load complex")
-            assert page.locator(".pd-workspace-title").inner_text() == "Load complex"
+            # The user selects real compute providers; their stored values stay stable.
             # The user selects real providers; stored values remain legacy IDs.
             page.get_by_text("This app (default)", exact=True).click()
             page.get_by_role("radio", name="Kaggle worker").wait_for(state="visible")
@@ -172,7 +160,7 @@ def main() -> int:
 
             # Users can close the navigation after choosing their step.
             page.get_by_test_id("stSidebarCollapseButton").get_by_role("button").click()
-            page.get_by_test_id("stSidebarCollapsedControl").wait_for(state="visible")
+            page.get_by_test_id("stExpandSidebarButton").wait_for(state="visible")
             assert page.locator(".pd-workspace-title").inner_text() == "Prepare structures"
 
             page.screenshot(path=str(ARTIFACT_DIR / "contract-pass.png"), full_page=True)
