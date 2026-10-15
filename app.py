@@ -867,7 +867,11 @@ def show_remote_job(remote, local_key, remote_key):
     active_states = ('queued', 'running', 'starting')
     polling = state['state'] in active_states
 
-    @st.fragment(run_every=2 if polling else None)
+    # Computer C snapshots are published every ~12s; poll every 5s to avoid
+    # exhausting GitHub API quota without compromising meaningful freshness.
+    refresh_seconds = 5 if remote.get('backend') != 'kaggle-direct' else 2
+
+    @st.fragment(run_every=refresh_seconds if polling else None)
     def live_remote_job():
         try:
             current = backend.status(remote)
@@ -882,24 +886,24 @@ def show_remote_job(remote, local_key, remote_key):
             value=remote['job_id'],
             text=f"{backend_label} {current['state']}",
         )
-        st.info(f"{backend_label} job: {current['state']} · {remote['job_id'][:8]}")
-        with st.expander('Compute progress', expanded=True):
-            show_compute_progress(backend, remote)
+        st.info(f"{backend_label} · {current['state']} · job {remote['job_id'][:8]}")
+        # A workflow step list is infrastructure metadata, NOT docking progress.
+        # Keep the primary view dedicated to the real Vina/Meeko worker stdout.
+        if current['state'] == 'queued':
+            st.caption('Docking is queued; AutoDock Vina output appears after the worker starts.')
 
-        # Surface the worker output directly in PanDoc so the user can watch
-        # Vina/worker progress without opening Kaggle or GitHub.
         try:
-            live_log = backend.logs(remote, tail=160)
-        except Exception as exc:
-            live_log = f'Waiting for calculation log…\n{exc}'
-        with st.expander('Live calculation log', expanded=True):
-            st.code(live_log or 'Waiting for worker.', language=None)
+            live_log = backend.logs(remote, tail=220)
+        except Exception:
+            live_log = 'Docking output is temporarily unavailable. The computation may still be running.'
+        st.markdown('#### AutoDock Vina · Live docking output')
+        st.code(live_log or 'Waiting for docking worker output.', language=None)
 
         if current['state'] in active_states:
             if remote.get('backend') == 'kaggle-direct':
                 st.caption('Running on Kaggle worker. Status and log refresh every 2 seconds.')
             else:
-                st.caption('Running on GitHub Actions. Status and log refresh every 2 seconds.')
+                st.caption('Computer C: encrypted Vina output is published approximately every 12 seconds; this panel checks every 5 seconds.')
             cancel_key = remote['job_id'] + '_cancel_confirm'
             if st.session_state.get(cancel_key):
                 st.warning('Cancel this calculation? Current progress for the active search may be lost.')
