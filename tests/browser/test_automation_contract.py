@@ -50,6 +50,18 @@ def main() -> int:
             # The main canvas displays only the current stage heading.
             assert page.locator(".pd-stepper").count() == 0
             assert page.locator(".pd-workspace-title").inner_text() == "Load complex"
+            print("SIDEBAR DEBUG", page.evaluate("""() => ({
+                candidates:Array.from(document.querySelectorAll('[data-testid]'))
+                  .filter(el => /sidebar|collapsed|toolbar|menu/i.test(el.getAttribute('data-testid')||''))
+                  .slice(0,30).map(el => ({id:el.getAttribute('data-testid'),
+                    tag:el.tagName,display:getComputedStyle(el).display,
+                    aria:el.getAttribute('aria-label'),
+                    html:el.outerHTML.slice(0,500)})),
+                buttons:Array.from(document.querySelectorAll('button'))
+                  .filter(el => /sidebar|menu|collapse|open/i.test(
+                    [el.getAttribute('aria-label'),el.title,el.textContent].join(' ')))
+                  .slice(0,15).map(el=>el.outerHTML.slice(0,400))
+              })"""), flush=True)
             menu = page.get_by_test_id("stSidebarCollapsedControl")
             menu.wait_for(state="visible")
             print("SIDEBAR CONTROL DOM:", menu.evaluate(
