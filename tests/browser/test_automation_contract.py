@@ -82,13 +82,13 @@ def main() -> int:
             # The external client uses accessible names for controls.
             page.get_by_role("radio", name=re.compile(r"1 .* Load complex")).check()
             # The user selects real providers; stored values remain legacy IDs.
-            page.get_by_role("radio", name="This app (default)").check()
+            page.get_by_text("This app (default)", exact=True).click()
             page.get_by_role("radio", name="Kaggle worker").wait_for(state="visible")
             page.get_by_role("radio", name="GitHub Actions").wait_for(state="visible")
 
-            page.get_by_role("radio", name="Kaggle worker").check()
+            page.get_by_text("Kaggle worker", exact=True).click()
             wait_marker_state(page, "pandoc-compute-node", "Computer B · High capacity")
-            page.get_by_role("radio", name="GitHub Actions").check()
+            page.get_by_text("GitHub Actions", exact=True).click()
             wait_marker_state(page, "pandoc-compute-node", "Computer C · Backup")
             page.get_by_role("radio", name="This app (default)").check()
             wait_marker_state(page, "pandoc-compute-node", "Computer A · Fast")
