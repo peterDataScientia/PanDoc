@@ -1347,6 +1347,7 @@ with workspace:
                         key='receptor_preparation_ph',
                         help='Set the experimental pH before running PROPKA. Changing pH requires a new protonation analysis.',
                     )
+                    ui.automation_marker(st, 'preparation-ph', state=str(intended_ph))
                     st.caption('PROPKA proposes residue states at this pH. Review the proposed states before preparing the receptor.')
                     with st.expander('Optional receptor settings', expanded=bool(st.session_state.get('assistant_diagnostic'))):
                         repair = st.checkbox('Rebuild missing heavy atoms with PDBFixer', value=True)
