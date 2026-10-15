@@ -31,6 +31,6 @@ def test_current_step_title_is_escaped():
 
 def test_native_sidebar_button_has_visible_menu_label():
     css = (Path(__file__).resolve().parents[1] / "assets" / "pandoc.css").read_text(encoding="utf-8")
-    assert '[data-testid="stSidebarCollapsedControl"] button::after' in css
-    assert 'content:"☰  Menu"' in css
+    assert '[data-testid="stPopover"] > button' in css
+    assert 'Single-navigation hamburger workspace' in css
     assert ".pd-workspace-title" in css
