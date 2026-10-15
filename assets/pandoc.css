@@ -811,7 +811,6 @@ button[kind="primary"] :is(p,span,small,strong,svg),
 button[kind="secondary"] :is(p,span,small,strong,svg),
 button[kind="tertiary"] :is(p,span,small,strong,svg) {
   color:inherit!important;
-  fill:currentColor;
 }
 
 :is(
