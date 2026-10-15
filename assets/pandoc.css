@@ -917,8 +917,14 @@ button[aria-disabled="true"] {
 
 
 /* ---------- Single-navigation hamburger workspace ---------- */
+/* The fixed Streamlit header must never cover the first action. */
+[data-testid="stMainBlockContainer"],
+[data-testid="stMain"] .block-container {
+  padding-top:4.75rem!important;
+}
+
 /* The only workflow navigator is a native, keyboard-accessible popover. */
-[data-testid="stPopover"] > button,
+[data-testid="stPopoverButton"],
 [data-testid="stPopover"] button[kind="secondary"] {
   background:#123d55!important;
   border:1.5px solid #0b6672!important;
@@ -929,17 +935,17 @@ button[aria-disabled="true"] {
   box-shadow:0 5px 16px rgba(16,40,63,.22)!important;
   font-weight:790!important;
 }
-[data-testid="stPopover"] > button :is(p,span,svg),
+[data-testid="stPopoverButton"] :is(p,span,svg),
 [data-testid="stPopover"] button[kind="secondary"] :is(p,span,svg){
   color:#ffffff!important;
 }
-[data-testid="stPopover"] > button:hover,
+[data-testid="stPopoverButton"]:hover,
 [data-testid="stPopover"] button[kind="secondary"]:hover {
   background:#0b6672!important;
   color:#ffffff!important;
   border-color:#084c57!important;
 }
-[data-testid="stPopover"] > button:focus-visible,
+[data-testid="stPopoverButton"]:focus-visible,
 [data-testid="stPopover"] button[kind="secondary"]:focus-visible {
   outline:3px solid #0b6672!important;
   outline-offset:3px!important;
@@ -964,7 +970,7 @@ button[aria-disabled="true"] {
   line-height:1.2!important;
 }
 @media(max-width:760px){
-  [data-testid="stPopover"] > button,
+  [data-testid="stPopoverButton"],
   [data-testid="stPopover"] button[kind="secondary"]{
     min-height:44px!important;
   }
