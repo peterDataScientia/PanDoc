@@ -7,43 +7,7 @@ from pathlib import Path
 from .core import reference_rmsd, validate_config
 
 
-def _prepare_shared_maps(directory, config, cpu_threads):
-    """Precompute receptor affinity maps once for the whole job.
-
-    Vina 1.2 supports external map reuse. Computing the maps before loading a
-    ligand creates the full atom-type map set, so the same maps can be reused
-    across seeds and candidate ligands that share the receptor and grid box.
-    """
-    from vina import Vina
-
-    prefix = directory / "vina_maps" / "receptor"
-    prefix.parent.mkdir(parents=True, exist_ok=True)
-
-    try:
-        v = Vina(
-            sf_name="vina",
-            cpu=max(1, int(cpu_threads)),
-            seed=int(config["seeds"][0]),
-            verbosity=1,
-        )
-        v.set_receptor(config["receptor"])
-        # No ligand loaded here: Vina computes the full atom-type map set.
-        v.compute_vina_maps(
-            center=config["center"],
-            box_size=config["size"],
-            force_even_voxels=True,
-        )
-        v.write_maps(str(prefix), overwrite=True)
-        print("Shared Vina affinity maps prepared once for this job.", flush=True)
-        return str(prefix)
-    except Exception as exc:
-        # Map reuse is a speed optimization only. Docking remains valid if a
-        # particular Vina build cannot write/load maps.
-        print(f"Shared-map optimization unavailable: {exc}", flush=True)
-        return None
-
-
-def _run_search(directory, config, ligand, seed, cpu_threads, map_prefix=None, stage_callback=None):
+def _run_search(directory, config, ligand, seed, cpu_threads, stage_callback=None):
     from rdkit import Chem
     from meeko import PDBQTMolecule, RDKitMolCreate
     from vina import Vina
@@ -69,15 +33,11 @@ def _run_search(directory, config, ligand, seed, cpu_threads, map_prefix=None, s
     vina.set_receptor(config["receptor"])
     vina.set_ligand_from_file(ligand["path"])
 
-    if map_prefix:
-        try:
-            vina.load_maps(map_prefix)
-            print("Loaded shared Vina affinity maps.", flush=True)
-        except Exception as exc:
-            print(f"Shared maps could not be loaded; recomputing maps: {exc}", flush=True)
-            vina.compute_vina_maps(center=config["center"], box_size=config["size"])
-    else:
-        vina.compute_vina_maps(center=config["center"], box_size=config["size"])
+    # Compute the affinity maps in the same Vina object used for docking.
+    # Reloading serialized shared maps caused a reproducible native Vina crash
+    # in our real docking smoke test, even though the map files loaded cleanly.
+    checkpoint("preparing_vina_maps", "Computing Vina affinity maps for this search...")
+    vina.compute_vina_maps(center=config["center"], box_size=config["size"])
 
     print(f"=== AutoDock Vina live output · {ligand['name']} · seed {seed} ===", flush=True)
     print(vina, flush=True)
@@ -198,8 +158,11 @@ def run(directory):
             flush=True,
         )
 
-        update("running", total=total, stage="preparing_vina_maps", cpu_threads=vina_threads)
-        map_prefix = _prepare_shared_maps(directory, config, vina_threads)
+        print(
+            "Per-search Vina affinity maps enabled; serialized shared-map reuse "
+            "disabled to avoid native docking crashes.",
+            flush=True,
+        )
 
         for ligand, seed in tasks:
             if (directory / "cancel.request").exists():
@@ -230,7 +193,6 @@ def run(directory):
                 ligand,
                 seed,
                 vina_threads,
-                map_prefix=map_prefix,
                 stage_callback=report_stage,
             )
             results.extend(rows)
