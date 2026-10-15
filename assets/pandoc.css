@@ -917,49 +917,34 @@ button[aria-disabled="true"] {
 
 
 /* ---------- Single-navigation hamburger workspace ---------- */
-/* Use Streamlit's own accessible sidebar toggle instead of a duplicate
-   JavaScript drawer. Closed is the default on first visit. */
-[data-testid="stSidebarCollapsedControl"] {
-  z-index:1000!important;
-}
-[data-testid="stSidebarCollapsedControl"] button {
-  min-width:110px!important;
-  min-height:42px!important;
-  padding:8px 15px!important;
+/* The only workflow navigator is a native, keyboard-accessible popover. */
+[data-testid="stPopover"] > button,
+[data-testid="stPopover"] button[kind="secondary"] {
   background:#123d55!important;
   border:1.5px solid #0b6672!important;
+  color:#ffffff!important;
+  min-height:44px!important;
+  padding:9px 18px!important;
   border-radius:11px!important;
-  box-shadow:0 5px 16px rgba(16,40,63,.20)!important;
+  box-shadow:0 5px 16px rgba(16,40,63,.22)!important;
+  font-weight:790!important;
+}
+[data-testid="stPopover"] > button :is(p,span,svg),
+[data-testid="stPopover"] button[kind="secondary"] :is(p,span,svg){
   color:#ffffff!important;
-  cursor:pointer!important;
 }
-[data-testid="stSidebarCollapsedControl"] button svg {
-  display:none!important;
-}
-[data-testid="stSidebarCollapsedControl"] button::after {
-  content:"☰  Menu";
-  color:#ffffff!important;
-  font-family:Inter,ui-sans-serif,system-ui,sans-serif;
-  font-weight:780;
-  font-size:.94rem;
-  letter-spacing:.015em;
-  white-space:nowrap;
-}
-[data-testid="stSidebarCollapsedControl"] button:hover {
+[data-testid="stPopover"] > button:hover,
+[data-testid="stPopover"] button[kind="secondary"]:hover {
   background:#0b6672!important;
+  color:#ffffff!important;
   border-color:#084c57!important;
 }
-[data-testid="stSidebarCollapsedControl"] button:focus-visible {
+[data-testid="stPopover"] > button:focus-visible,
+[data-testid="stPopover"] button[kind="secondary"]:focus-visible {
   outline:3px solid #0b6672!important;
-  outline-offset:2px!important;
+  outline-offset:3px!important;
 }
-[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button {
-  background:#dfebf6!important;
-  border:1px solid #91a7bc!important;
-  border-radius:9px!important;
-  color:#10283f!important;
-}
-/* The workspace has one current-stage heading, never a second five-step nav. */
+/* The main workspace shows only the active stage, not five duplicate cards. */
 .pd-workspace-heading {
   padding:.35rem 0 1rem;
   margin:0 0 16px;
@@ -978,14 +963,9 @@ button[aria-disabled="true"] {
   font-weight:830!important;
   line-height:1.2!important;
 }
-[data-testid="stSidebar"] [data-testid="stRadio"][aria-label="Workflow navigation"] {
-  border-bottom:1px solid var(--pd-border);
-  padding-bottom:.5rem;
-}
-/* Keep the menu button comfortably touch-sized on narrow screens. */
 @media(max-width:760px){
-  [data-testid="stSidebarCollapsedControl"] button {
-    min-width:104px!important;
+  [data-testid="stPopover"] > button,
+  [data-testid="stPopover"] button[kind="secondary"]{
     min-height:44px!important;
   }
   .pd-workspace-title {font-size:1.3rem!important;}
