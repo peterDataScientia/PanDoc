@@ -16,7 +16,7 @@ from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui
 PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.png'
 PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
 
-st.set_page_config(page_title='PanDoc · Docking workbench', page_icon='🧬', layout='wide')
+st.set_page_config(page_title='PanDoc · Docking workbench', page_icon='🧬', layout='wide', initial_sidebar_state='collapsed')
 ui.load_css(st, PANDOC_CSS)
 
 # Isolated publication-export demonstration for browser regression checks.
@@ -959,7 +959,7 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
     st.text_input('Experiment name', 'My docking experiment', key='experiment')
-    stage = st.radio('Workflow', ['1 · Load complex', '2 · Prepare structures', '3 · Validate docking', '4 · Run experiment', '5 · Explore results'], key='workflow_stage')
+    stage = st.radio('Workflow navigation', ['1 · Load complex', '2 · Prepare structures', '3 · Validate docking', '4 · Run experiment', '5 · Explore results'], key='workflow_stage', help='Choose a workflow stage here. Close the menu to return to the workspace.')
     # Present real backend providers, not opaque numbered computers.
     # The saved option values stay unchanged for backward-compatible routing.
     st.radio(
@@ -1145,7 +1145,7 @@ if stage.startswith('3') or stage.startswith('4'):
     if active:
         st.session_state.assistant_active_job = str(active)
 with workspace:
-    ui.workflow_stepper(st, stage)
+    ui.current_stage_header(st, stage)
 
     profile_result = st.session_state.get('profile_prepare_result')
     if profile_result:
