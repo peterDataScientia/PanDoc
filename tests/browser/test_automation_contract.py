@@ -155,13 +155,13 @@ def main() -> int:
             page.get_by_role("button", name="Analyze protonation at selected pH").wait_for(state="visible")
             page.get_by_role("button", name="Prepare receptor").wait_for(state="visible")
             assert page.locator('[data-testid="stTabs"]').count() == 0
-            selector = page.get_by_test_id("stSegmentedControl")
-            selector.wait_for(state="visible")
-            selector.get_by_text("Reference ligand", exact=True).click()
-            print("PREP VIEW AFTER SELECT", marker(page, "pandoc-workflow-stage").get_attribute("data-state"),
-                  selector.inner_text(), page.locator("main").inner_text()[-1200:], flush=True)
+            # Streamlit renders each segmented option as a button, not as
+            # a container with the 'stSegmentedControl' test id.
+            options = page.locator('button[data-testid^="stBaseButton-segmented_control"]')
+            assert options.count() == 2
+            options.filter(has_text="Reference ligand").click()
             page.get_by_role("button", name="Find ligand chemistry from PDB").wait_for(state="visible")
-            selector.get_by_text("Receptor", exact=True).click()
+            options.filter(has_text="Receptor").click()
             page.get_by_role("spinbutton", name="Preparation pH").wait_for(state="visible")
 
             # Contract markers must remain present after the Streamlit rerun.
