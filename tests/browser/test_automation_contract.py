@@ -179,6 +179,16 @@ def main() -> int:
             page.get_by_text("Rebuild missing heavy atoms with PDBFixer", exact=True).click()
             wait_marker_state(page, "pandoc-workflow-stage", "2 · Prepare structures")
             assert not page.get_by_role("checkbox", name="Rebuild missing heavy atoms with PDBFixer").is_checked()
+            page.wait_for_timeout(550)
+            print("AFTER REPAIR CLICK", page.evaluate("""() => ({
+                stage:document.querySelector('[data-testid="pandoc-workflow-stage"]')?.getAttribute('data-state'),
+                title:document.querySelector('.pd-workspace-title')?.textContent,
+                errors:Array.from(document.querySelectorAll('[data-testid="stException"]'))
+                    .map(x=>x.textContent?.slice(0,350)),
+                ligandFound:document.body.innerText.includes("Find ligand chemistry from PDB"),
+                ligandSection:document.body.innerText.includes("Reference ligand preparation"),
+                tail:document.body.innerText.slice(-700)
+            })"""), flush=True)
             page.get_by_role("button", name="Find ligand chemistry from PDB").wait_for(state="visible")
 
             # Contract markers must remain present after the Streamlit rerun.
