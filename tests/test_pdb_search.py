@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from rdkit import Chem
 from streamlit.testing.v1 import AppTest
-from pandoc import pdb_search
+from pandoc import pdb_search, ui
 
 
 def test_search_filters_and_empty_result(monkeypatch):
@@ -46,6 +46,8 @@ def test_entity_details_keep_chain_specific_organisms(monkeypatch):
 
 
 def test_search_review_load_workflow(tmp_path, monkeypatch):
+    revealed = []
+    monkeypatch.setattr(ui, 'auto_scroll', lambda st, name: revealed.append(name))
     monkeypatch.setattr(pdb_search, 'search', lambda **kwargs: dict(ids=['1LF2'], total=1, query={'fixture': True}))
     monkeypatch.setattr(pdb_search, 'summaries', lambda ids: [dict(PDB='1LF2', Title='Test complex')])
     monkeypatch.setattr(pdb_search, 'details', lambda _: dict(entry={'struct': {'title': 'Test complex'}}, proteins=[], ligands=[], warnings=[]))
@@ -63,10 +65,13 @@ def test_search_review_load_workflow(tmp_path, monkeypatch):
     next(t for t in app.text_input if t.label == 'Search term').set_value('plasmepsin')
     next(b for b in app.button if b.label == 'Search PDB').click().run()
     assert not list(app.exception)
+    assert 'pd-pdb-results' in revealed, 'Search should reveal results below the form'
     next(b for b in app.button if b.label == 'View structure details').click().run()
+    assert 'pd-pdb-details' in revealed, 'Structure review should reveal details below the results'
     next(t for t in app.text_area if t.label == 'Why choose this structure?').set_value('Reviewed target identity')
     next(b for b in app.button if b.label == 'Load this structure').click().run()
     assert not list(app.error) and not list(app.exception)
+    assert 'pd-pdb-components' in revealed, 'Loading should reveal receptor/ligand controls'
     assert app.session_state.structure_source['selection_rationale'] == 'Reviewed target identity'
     assert (tmp_path/'source_original.cif').read_text() == cif
     manifest = json.loads((tmp_path/'experiment.json').read_text())
