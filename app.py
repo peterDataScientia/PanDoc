@@ -156,7 +156,7 @@ def load_complex(text, suffix, provenance):
         for k in ('preparation_id', 'reference_path', 'receptor_path', 'validation_job', 'experiment_job',
                   'candidate_paths', 'selected_pdb', 'reference_pdb', 'selection_id', 'selection_record',
                   'assistant_diagnostic', 'assistant_structure_checks', 'assistant_selected_issue', 'structure_report', 'preparation_review', 'center', 'size', 'preparation_record', 'reference_id', 'reference_smiles', 'reference_chemistry_source',
-                  'preparation_view', 'receptor_preparation_ph', 'protonation_prediction', 'protonation_review'):
+                  'receptor_preparation_ph', 'protonation_prediction', 'protonation_review'):
             st.session_state.pop(k, None)
         for original in root.glob('source_original.*'):
             original.unlink()
@@ -291,11 +291,6 @@ def go_to_selection():
 
 def go_to_validation():
     st.session_state.workflow_stage = '3 · Validate docking'
-
-
-def go_to_reference_preparation():
-    # Callbacks execute before widgets are created on the next Streamlit rerun.
-    st.session_state.preparation_view = 'Reference ligand'
 
 
 def select_workflow_from_menu():
@@ -1335,7 +1330,6 @@ with workspace:
                         center, size = core.box(reference)
                         st.session_state.update(center=center, size=size)
                     manifest()
-                    st.session_state.preparation_view = 'Receptor'
                     st.session_state.next_stage = '2 · Prepare structures'
                     st.rerun()
 
@@ -1343,17 +1337,8 @@ with workspace:
             if not st.session_state.get('selected_pdb'):
                 st.info('Choose the receptor in Load complex, then select Use selection and continue.')
             else:
-                preparation_view = st.radio(
-                    'Preparation workspace',
-                    ['Receptor', 'Reference ligand'],
-                    horizontal=True,
-                    key='preparation_view',
-                    help='Complete receptor preparation, then select Continue to reference ligand. You can switch between the two views at any time.',
-                )
-                ui.automation_marker(st, 'preparation-view',
-                                     state=str(preparation_view),
-                                     value='reference_selected' if st.session_state.get('reference_pdb') else 'no_reference')
-                if preparation_view == 'Receptor':
+                st.caption('Follow the preparation steps in order. The reference-ligand section is directly below the receptor, with no tab switching.')
+                with st.container():
                     pdb = st.session_state.selected_pdb
                     ui.card(st, 'Receptor preparation', '', badge_text='pH-aware', badge_kind='running')
                     st.markdown('#### 1. Set preparation pH')
@@ -1613,9 +1598,7 @@ with workspace:
                         prepared_text=prepared.read_text() if prepared.exists() else st.session_state.prepared_pdb
                         st.success('Receptor ready for docking.')
                         if st.session_state.get('reference_pdb'):
-                            st.button('Continue to reference ligand →', type='primary',
-                                      key='continue_to_reference_preparation',
-                                      on_click=go_to_reference_preparation)
+                            st.success('Next: prepare the crystallographic reference ligand below.')
                         else:
                             st.info('No reference ligand was selected. You can continue to Run experiment without redocking validation.')
                         if st.toggle('Inspect prepared receptor · 3D, downloads and report',
@@ -1645,7 +1628,9 @@ with workspace:
                                 st.download_button('Download structure report', report_path.read_bytes(), 'structure_report.json', 'application/json', on_click='ignore')
                             st.caption('Preparation log')
                             st.code((path.parent/'preparation.log').read_text())
-                else:
+                st.divider()
+                st.markdown('#### 4. Reference ligand preparation')
+                with st.container():
                     ref = st.session_state.get('reference_pdb')
                     if not ref:
                         st.info('Select a crystallographic reference ligand in Load complex for redocking validation.')
