@@ -1,5 +1,6 @@
 """Regression tests for distinct protein-chain colors and viewer legend."""
-from pandoc import structure_view
+from pandoc import structure_view, viewer_runtime
+import py3Dmol
 
 
 def atom(serial, chain, record="ATOM  ", residue="ALA"):
@@ -58,3 +59,45 @@ def test_missing_chain_id_and_large_assemblies_are_handled():
     palette = structure_view.protein_chain_colors(big)
     assert len(palette) == len(ids)
     assert len(set(dict(palette).values())) == len(ids)
+
+
+
+def test_desktop_viewer_tries_backup_3dmol_sources_and_reports_failure():
+    view = py3Dmol.view(width="100%", height=430)
+    view.addModel(atom(1, "A") + "\\n" + atom(2, "B"), "pdb")
+    view.setStyle({"chain": "A"}, {"cartoon": {"color": "#1356ae"}})
+    view.zoomTo()
+    html = viewer_runtime.render_viewer_html(
+        view, controls="<button>Zoom +</button>", legend="<div>Chain A</div>"
+    )
+    assert "https://3Dmol.org/build/3Dmol-min.js" in html
+    assert "https://cdnjs.cloudflare.com/ajax/libs/3Dmol/2.5.5/3Dmol-min.js" in html
+    assert "script.onerror" in html
+    assert "setTimeout(function()" in html
+    assert "return attempt(index + 1)" in html
+    assert "3D view unavailable:" in html
+    assert "role=\\\"alert\\\"" in html
+    assert "ResizeObserver" in html
+    assert "Zoom +" in html
+    assert "Chain A" in html
+    assert "viewer_" + view.uniqueid in html
+    assert ".addModel(" in html
+    assert ".setStyle(" in html
+    assert ".zoomTo(" in html
+    assert ".render(" in html
+    assert html.count("3dmolviewer_" + view.uniqueid) >= 2
+
+
+def test_py3dmol_scene_wrapper_never_silently_drops_loader_contract():
+    class UnsupportedVersion:
+        uniqueid = "1234"
+
+        def _make_html(self):
+            return '<div id="fake"></div>'
+
+    try:
+        viewer_runtime.render_viewer_html(UnsupportedVersion())
+    except RuntimeError as exc:
+        assert "loader template changed" in str(exc)
+    else:
+        raise AssertionError("Unsupported py3Dmol HTML must fail explicitly")
