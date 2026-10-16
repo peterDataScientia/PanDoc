@@ -69,6 +69,9 @@ def test_pan_doc_decodes_live_docking_log_with_real_vina_progress(monkeypatch):
         "Computing Vina grid ... done.\n"
         "Performing docking ... 40%\rPerforming docking ... 100%\n"
         "Vina search returned; exporting docked PDBQT poses...\n"
+        "Mode    Affinity (kcal/mol)\n"
+        "   1        -7.126\n"
+        "Best affinity: -7.126 kcal/mol (mode 1)\n"
         "Completed docking search 1/1\n"
     )
     contents = base64.b64encode(
