@@ -138,6 +138,9 @@ def main() -> int:
             # render in a detached portal rather than a stable ARIA option.
             # Drive it with the accessible keyboard interaction instead.
             combo.click()
+            # Filter to the actual ligand rather than depending on the default
+            # option ordering (which starts with "None").
+            combo.fill("EOH")
             combo.press("ArrowDown")
             combo.press("Enter")
             assert "EOH" in combo.input_value(), (
