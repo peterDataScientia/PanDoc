@@ -65,7 +65,7 @@ def test_vina_energy_table_uses_actual_pose_energies_and_correct_units():
     assert "   2        -6.438" in output
     assert "   3        -8.213" in output
     assert "Best affinity: -8.213 kcal/mol (mode 3)" in output
-    assert output.count("\\n") == 5
+    assert len(output.splitlines()) == 6
     assert "RMSD" not in output  # No fabricated pose-to-pose RMSDs.
 
 def test_vina_score_formatter_has_no_fake_default_score():
