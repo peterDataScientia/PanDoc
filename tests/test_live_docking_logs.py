@@ -19,6 +19,10 @@ def test_live_bridge_encrypts_native_vina_output_on_temporary_branch(tmp_path, m
         "Starting docking: Reference ligand / seed 2026\n"
         "Performing docking (random seed: 2026) ... 100% ... done.\n"
         "Vina search returned; exporting docked PDBQT poses...\n"
+        "=== Vina docking scores | Reference ligand | seed 2026 ===\n"
+        "Mode    Affinity (kcal/mol)\n"
+        "   1        -7.126\n"
+        "Best affinity: -7.126 kcal/mol (mode 1)\n"
         "Writing SDF pose 1/2...\n"
     )
     source = tmp_path / "vina-live.log"
@@ -81,6 +85,7 @@ def test_pan_doc_decodes_live_docking_log_with_real_vina_progress(monkeypatch):
     monkeypatch.setattr(github_compute, "_request", fake_request)
     output = client.logs({"job_id": "job123", "branch": "pandoc-job-job123"})
     assert "Performing docking ... 100%" in output
+    assert "Best affinity: -7.126 kcal/mol (mode 1)" in output
     assert "Completed docking search 1/1" in output
     assert "\r" not in output
     assert "Log in to GitHub Container Registry" not in output
