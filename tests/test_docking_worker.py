@@ -5,7 +5,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from pandoc import core
-from pandoc.worker import run
+from pandoc.worker import run, format_vina_affinities
 
 
 def test_vina_search_finishes_postprocessing_and_saves_results(tmp_path, capsys):
@@ -43,5 +43,32 @@ def test_vina_search_finishes_postprocessing_and_saves_results(tmp_path, capsys)
     assert "Vina search returned; exporting docked PDBQT poses" in log
     assert "Scores retrieved; reconstructing RDKit conformers" in log
     assert "Completed docking search 1/1" in log
+    assert "=== Vina docking scores | Ethanol | seed 2026 ===" in log
+    assert "Affinity (kcal/mol)" in log
+    assert "Best affinity:" in log
+    assert "Best docking score across all searches:" in log
+    assert f"{float(rows[0]['score_kcal_mol']):.3f}" in log
     assert "Computer B performance mode" not in log
     assert "serialized shared-map reuse disabled" in log
+
+
+def test_vina_energy_table_uses_actual_pose_energies_and_correct_units():
+    energies = [
+        [-7.126, -8.0, 0.0, 0.0, 0.0],
+        [-6.438, -7.2, 0.0, 0.0, 0.0],
+        [-8.213, -8.8, 0.0, 0.0, 0.0],
+    ]
+    output = format_vina_affinities(energies, "Reference ligand", 2026)
+    assert "Reference ligand | seed 2026" in output
+    assert "Affinity (kcal/mol)" in output
+    assert "   1        -7.126" in output
+    assert "   2        -6.438" in output
+    assert "   3        -8.213" in output
+    assert "Best affinity: -8.213 kcal/mol (mode 3)" in output
+    assert output.count("\\n") == 5
+    assert "RMSD" not in output  # No fabricated pose-to-pose RMSDs.
+
+def test_vina_score_formatter_has_no_fake_default_score():
+    output = format_vina_affinities([], "Ligand A", 2027)
+    assert "returned no pose affinities" in output
+    assert "Best affinity" not in output
