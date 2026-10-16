@@ -7,6 +7,21 @@ from pathlib import Path
 from .core import reference_rmsd, validate_config
 
 
+def format_vina_affinities(energies, ligand_name, seed):
+    """Format the energies returned by the SAME Vina search; never estimate scores."""
+    scored = [(rank, float(energy[0])) for rank, energy in enumerate(energies, 1)]
+    if not scored:
+        return f"Vina returned no pose affinities for {ligand_name} / seed {seed}."
+    best_rank, best_score = min(scored, key=lambda item: item[1])
+    lines = [
+        f"=== Vina docking scores | {ligand_name} | seed {seed} ===",
+        "Mode    Affinity (kcal/mol)",
+        *[f"{rank:>4}    {score:>10.3f}" for rank, score in scored],
+        f"Best affinity: {best_score:.3f} kcal/mol (mode {best_rank})",
+    ]
+    return "\\n".join(lines)
+
+
 def _run_search(directory, config, ligand, seed, cpu_threads, stage_callback=None):
     from rdkit import Chem
     from meeko import PDBQTMolecule, RDKitMolCreate
@@ -53,6 +68,10 @@ def _run_search(directory, config, ligand, seed, cpu_threads, stage_callback=Non
     vina.write_poses(output, n_poses=config["poses"], overwrite=True)
     checkpoint("reading_scores", "PDBQT poses saved; retrieving Vina scores...")
     scores = vina.energies(n_poses=config["poses"])
+    # Vina's native Python binding does not reliably print the final affinity
+    # table to captured stdout. Publish the actual returned energies immediately,
+    # before optional RDKit/Meeko pose reconstruction and RMSD calculations.
+    print(format_vina_affinities(scores, ligand["name"], seed), flush=True)
 
     checkpoint("reconstructing_poses", "Scores retrieved; reconstructing RDKit conformers via Meeko...")
     poses = RDKitMolCreate.from_pdbqt_mol(
@@ -96,6 +115,11 @@ def _run_search(directory, config, ligand, seed, cpu_threads, stage_callback=Non
                 )
                 row["reference_rmsd_A"] = reference_rmsd(reference, pose)
                 pose.SetProp("reference_rmsd_A", str(row["reference_rmsd_A"]))
+                print(
+                    f"Pose {rank}: affinity {score:.3f} kcal/mol · "
+                    f"reference RMSD {row['reference_rmsd_A']:.3f} Å",
+                    flush=True,
+                )
             checkpoint(
                 "writing_sdf",
                 f"Writing SDF pose {rank}/{len(conformers)}...",
@@ -197,6 +221,14 @@ def run(directory):
             )
             results.extend(rows)
             completed_searches += 1
+            if rows:
+                best = min(rows, key=lambda row: row["score_kcal_mol"])
+                print(
+                    f"Completed search {completed_searches}/{total} | "
+                    f"{ligand['name']} | seed {seed} | "
+                    f"best affinity {best['score_kcal_mol']:.3f} kcal/mol",
+                    flush=True,
+                )
 
             (directory / "results.json").write_text(json.dumps(results, indent=2))
             update(
@@ -207,6 +239,14 @@ def run(directory):
             )
             print(f"Completed docking search {completed_searches}/{total}", flush=True)
 
+        if results:
+            best = min(results, key=lambda row: row["score_kcal_mol"])
+            print(
+                f"Best docking score across all searches: "
+                f"{best['score_kcal_mol']:.3f} kcal/mol | "
+                f"{best['ligand']} | seed {best['seed']} | pose {best['rank']}",
+                flush=True,
+            )
         update("completed", total=total, stage="completed", cpu_threads=vina_threads)
 
     except Exception as exc:
