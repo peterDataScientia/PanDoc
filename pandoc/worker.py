@@ -19,7 +19,7 @@ def format_vina_affinities(energies, ligand_name, seed):
         *[f"{rank:>4}    {score:>10.3f}" for rank, score in scored],
         f"Best affinity: {best_score:.3f} kcal/mol (mode {best_rank})",
     ]
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 
 def _run_search(directory, config, ligand, seed, cpu_threads, stage_callback=None):
