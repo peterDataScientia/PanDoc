@@ -64,7 +64,7 @@ def test_missing_chain_id_and_large_assemblies_are_handled():
 
 def test_desktop_viewer_tries_backup_3dmol_sources_and_reports_failure():
     view = py3Dmol.view(width="100%", height=430)
-    view.addModel(atom(1, "A") + "\\n" + atom(2, "B"), "pdb")
+    view.addModel(atom(1, "A") + "\n" + atom(2, "B"), "pdb")
     view.setStyle({"chain": "A"}, {"cartoon": {"color": "#1356ae"}})
     view.zoomTo()
     html = viewer_runtime.render_viewer_html(
@@ -76,7 +76,7 @@ def test_desktop_viewer_tries_backup_3dmol_sources_and_reports_failure():
     assert "setTimeout(function()" in html
     assert "return attempt(index + 1)" in html
     assert "3D view unavailable:" in html
-    assert "role=\\\"alert\\\"" in html
+    assert 'role="alert"' in html
     assert "ResizeObserver" in html
     assert "Zoom +" in html
     assert "Chain A" in html
