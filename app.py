@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review, profile_engine, profile_quality, compute, compute_options, structure_view
+from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review, profile_engine, profile_quality, compute, compute_options, structure_view, viewer_runtime
 
 PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.png'
 PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
@@ -71,12 +71,12 @@ def viewer(pdb=None, sdf=None, reference=None, center=None, size=None, focus=Non
             view.addStyle(selection, {'stick': {'color': '#f59e0b'}})
             view.zoomTo(selection)
     import streamlit.components.v1 as components
-    html = view._make_html()
     controls = f"""<div style='padding:6px'><button onclick='viewer_{view.uniqueid}.zoom(1.2);viewer_{view.uniqueid}.render()'>Zoom +</button>
 <button onclick='viewer_{view.uniqueid}.zoom(0.8);viewer_{view.uniqueid}.render()'>Zoom −</button>
 <button onclick='viewer_{view.uniqueid}.zoomTo();viewer_{view.uniqueid}.render()'>Fit structure</button></div>"""
     legend = structure_view.chain_legend(chain_colors)
-    components.html(html + controls + legend, height=510, scrolling=False)
+    html = viewer_runtime.render_viewer_html(view, controls=controls, legend=legend)
+    components.html(html, height=540, scrolling=False)
 
 
 
