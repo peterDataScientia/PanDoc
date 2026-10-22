@@ -347,8 +347,8 @@ async def submit_docking_job(
     cpu: int = Form(2),
     reference: UploadFile | None = File(None),
 ):
-    if not 1 <= len(ligands) <= 25:
-        raise HTTPException(status_code=422, detail="Submit between 1 and 25 prepared ligand PDBQT files.")
+    if not 1 <= len(ligands) <= 40:
+        raise HTTPException(status_code=422, detail="Submit between 1 and 40 prepared ligand PDBQT files.")
     try:
         center_values = [float(x) for x in json.loads(center)]
         size_values = [float(x) for x in json.loads(size)]
