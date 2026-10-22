@@ -405,6 +405,23 @@ def prepare_receptor(pdb, directory, template_assignments='', add_templates=None
     log = first_log
     failed = (completed.returncode != 0 or not (directory / 'receptor.pdbqt').is_file()
               or not (directory / 'receptor_prepared.pdb').is_file())
+    if failed and 'Template matching failed' in first_log:
+        # Meeko may count alternate conformers as excess heavy atoms. Retry with
+        # a declared default conformer only when the PDB actually has altloc A.
+        # Do not delete unmatched residues or alter the original coordinates.
+        has_altloc_a = any(
+            line.startswith(('ATOM  ', 'HETATM')) and len(line) > 16
+            and line[16] == 'A' for line in pdb.splitlines()
+        )
+        if has_altloc_a:
+            alt_args = args + ['--default_altloc', 'A']
+            alt_result = subprocess.run(alt_args, capture_output=True, text=True,
+                                        timeout=180)
+            log += '\n--- ALTLOC A TEMPLATE RETRY ---\n'
+            log += alt_result.stdout + '\n' + alt_result.stderr
+            failed = (alt_result.returncode != 0
+                      or not (directory / 'receptor.pdbqt').is_file()
+                      or not (directory / 'receptor_prepared.pdb').is_file())
     if failed:
         # Retry only the component(s) identified in a CCD-related Meeko error.
         try:
