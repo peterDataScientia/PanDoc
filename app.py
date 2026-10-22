@@ -407,10 +407,10 @@ def prepare_candidates_on_streamlit(ligands, ph, enumerate_states):
             state_smiles = Chem.MolToSmiles(Chem.RemoveHs(mol), isomericSmiles=True)
             prepared.append((name, parent_index, 1, mol, state_smiles))
 
-    if len(prepared) > 25:
+    if len(prepared) > 40:
         raise ValueError(
             f'pH-aware enumeration generated {len(prepared)} states. '
-            'Reduce the input set or prepare compounds in smaller batches (maximum 25 states per run).'
+            'Reduce the input set or prepare compounds in smaller batches (maximum 40 states per run).'
         )
 
     directory = root/'candidates'/uuid.uuid4().hex
@@ -1898,8 +1898,8 @@ with workspace:
                                     'name': pieces[1] if len(pieces) > 1 else f'Ligand {len(ligand_inputs)+1}',
                                     'smiles': pieces[0],
                                 })
-                        if not 1 <= len(ligand_inputs) <= 25:
-                            raise ValueError('Prepare between one and 25 input candidate ligands.')
+                        if not 1 <= len(ligand_inputs) <= 40:
+                            raise ValueError('Prepare between one and 40 input candidate ligands.')
                         if cloud_compute_mode():
                             try:
                                 with st.spinner('Preparing candidate ligands on Streamlit Cloud…'):
