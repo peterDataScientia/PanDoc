@@ -110,24 +110,36 @@ def normalize_structure(data, suffix):
     if suffix.lower() in ('.cif', '.mmcif'):
         import gemmi
         structure = gemmi.make_structure_from_block(gemmi.cif.read_string(data).sole_block())
-        # Legacy PDB chain IDs occupy one character. mmCIF author IDs may
-        # contain several (e.g. AAA). Gemmi allocates unique one-character
-        # identifiers without overwriting existing valid one-letter IDs.
-        original = [[chain.name for chain in model] for model in structure]
-        structure.shorten_chain_names()
-        converted = [[chain.name for chain in model] for model in structure]
-        mapping = {}
-        for source_ids, target_ids in zip(original, converted):
-            if len(source_ids) != len(target_ids):
-                raise ValueError('Chain count changed during mmCIF normalization.')
-            if len(target_ids) != len(set(target_ids)):
-                raise ValueError('Cannot convert structure to PDB without chain collisions.')
-            for source_id, target_id in zip(source_ids, target_ids):
-                if len(target_id) != 1:
-                    raise ValueError('PDB chain ID must be exactly one character.')
-                if source_id in mapping and mapping[source_id] != target_id:
-                    raise ValueError('Inconsistent chain mapping between models.')
-                mapping[source_id] = target_id
+        # Allocate ONE structure-wide mapping, not a separate Gemmi mapping
+        # per MODEL. Chain order and chain membership may vary by model.
+        models = list(structure)
+        names = list(dict.fromkeys(chain.name for model in models for chain in model))
+        # Preserve existing one-character chain identifiers where possible.
+        reserved = {name for name in names if len(name) == 1 and name.isalnum()}
+        alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+        available = (letter for letter in alphabet if letter not in reserved)
+        mapping = {name: name for name in names if name in reserved}
+        for name in names:
+            if name not in mapping:
+                target = next(available, None)
+                if target is None:
+                    raise ValueError(
+                        'Too many distinct chain IDs for legacy PDB (62 alphanumeric '
+                        'identifiers). Use a smaller selection or retain mmCIF.'
+                    )
+                mapping[name] = target
+        for model in models:
+            original_names = [chain.name for chain in model]
+            if len(original_names) != len(set(original_names)):
+                raise ValueError(
+                    'Duplicate source chain IDs in one model; PDB conversion '
+                    'would merge distinct chains. Select or curate chains first.'
+                )
+            for chain in model:
+                chain.name = mapping[chain.name]
+            converted_names = [chain.name for chain in model]
+            if len(converted_names) != len(set(converted_names)):
+                raise ValueError('PDB chain ID collision after normalization.')
         pdb = structure.make_pdb_string()
         # Keep a trace of renames in the normalized PDB for audit/review.
         changes = [(src, dst) for src, dst in mapping.items() if src != dst]
