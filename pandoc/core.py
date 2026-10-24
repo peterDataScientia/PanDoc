@@ -282,18 +282,46 @@ def fetch_ccd(component):
         names = list(block.find_values('_chem_comp_atom.atom_id'))
         elements = list(block.find_values('_chem_comp_atom.type_symbol'))
         result['heavy_atom_names'] = [gemmi.cif.as_string(n) for n,e in zip(names,elements) if e.upper() not in ('H', 'D')]
+        result['heavy_atom_elements'] = [e.upper() for e in elements if e.upper() not in ('H', 'D')]
     except Exception:
         result['heavy_atom_names'] = []
+        result['heavy_atom_elements'] = []
     return result
 
 
 def ccd_atom_name_check(pdb, definition):
+    """Classify CCD naming differences separately from missing heavy atoms.
+
+    Element counts are independent of atom labels. Only report genuine
+    compositional discrepancies when CCD element metadata is available.
+    """
+    from collections import Counter
+
     expected = set(definition.get('heavy_atom_names', []))
-    present = {a['name'] for a in atoms(pdb) if a['element'] not in ('H', 'D')}
+    crystal_atoms = [a for a in atoms(pdb) if a['element'] not in ('H', 'D')]
+    present = {a['name'] for a in crystal_atoms}
+    expected_elements = [str(e).upper() for e in definition.get('heavy_atom_elements', [])]
+    observed_elements = [a['element'].upper() for a in crystal_atoms]
+    if not expected:
+        return dict(reliable=False, missing=[], extra=[], status='unavailable',
+                    element_differences={})
+    missing = sorted(expected - present)
+    extra = sorted(present - expected)
+    if expected_elements:
+        ccd = Counter(expected_elements)
+        observed = Counter(observed_elements)
+        differences = {element: dict(ccd=ccd[element], crystal=observed[element])
+                       for element in sorted(set(ccd) | set(observed))
+                       if ccd[element] != observed[element]}
+        status = ('composition_mismatch' if differences else
+                  'naming_difference' if missing or extra else 'match')
+        return dict(reliable=True, missing=missing, extra=extra, status=status,
+                    element_differences=differences)
     overlap = expected & present
-    if not expected or len(overlap) < 0.8 * min(len(expected), len(present)):
-        return dict(reliable=False, missing=[], extra=[])
-    return dict(reliable=True, missing=sorted(expected-present), extra=sorted(present-expected))
+    reliable = len(overlap) >= 0.8 * min(len(expected), len(present)) if present else False
+    return dict(reliable=reliable, missing=missing if reliable else [],
+                extra=extra if reliable else [], status='names_only' if reliable else 'unavailable',
+                element_differences={})
 
 
 def write_ligand(mol, path):
