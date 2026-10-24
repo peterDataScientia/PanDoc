@@ -1203,6 +1203,76 @@ with st.container(key='runtime_toolbar'):
                     st.warning('GitHub Actions is not configured on this server.')
             st.caption('Runtime changes apply to new calculations; active jobs keep their original backend.')
 
+
+# Standalone preparation for large GPU docking libraries: no receptor/docking required.
+with st.expander("Bulk ligand preparation · CSV → up to 10,000 PDBQT files", expanded=False):
+    from pandoc import bulk_ligands
+    st.caption("Upload a CSV containing compound IDs and SMILES. Preparation runs in automatic batches. "
+               "Download a ZIP containing individual PDBQT files, success.csv, failed.csv and a manifest. "
+               "The GPU notebook will perform docking only.")
+    bulk_upload = st.file_uploader("Upload compound CSV", type=["csv"], key="bulk_ligands_csv")
+    bulk_id_column = bulk_smiles_column = None
+    if bulk_upload is not None:
+        try:
+            from io import BytesIO
+            preview = pd.read_csv(BytesIO(bulk_upload.getvalue()), encoding="utf-8-sig", nrows=5)
+            columns = [str(column) for column in preview.columns]
+            if len(columns) < 2:
+                st.warning("CSV needs an ID and SMILES column.")
+            else:
+                smi_default = next((i for i, name in enumerate(columns) if name.lower().strip() in
+                                    ("smiles", "canonical_smiles", "isomeric_smiles", "smile")), 0)
+                id_default = next((i for i, name in enumerate(columns) if name.lower().strip() in
+                                   ("id", "compound_id", "molecule_id", "chembl_id", "name")), 0)
+                c_id, c_smiles = st.columns(2)
+                bulk_id_column = c_id.selectbox("Compound ID column", columns, index=id_default, key="bulk_id_col")
+                bulk_smiles_column = c_smiles.selectbox("SMILES column", columns, index=smi_default, key="bulk_smiles_col")
+                st.dataframe(preview, hide_index=True, width="stretch")
+        except Exception as exc:
+            st.error("Cannot read the CSV: " + str(exc))
+    st.caption("Input SMILES are prepared as supplied; pH-dependent protonation must be curated upstream "
+               "if required. Invalid molecules are listed rather than silently skipped.")
+    bulk_ph = st.number_input("pH context for preparation record", min_value=0.0, max_value=14.0,
+                               value=7.4, step=0.1, key="bulk_ph")
+    bulk_existing = st.session_state.get("bulk_prepare_dir")
+    if st.button("Prepare CSV library for GPU docking", type="primary",
+                 disabled=(bulk_upload is None or not bulk_smiles_column or not bulk_id_column or
+                           bool(bulk_existing and bulk_ligands.load(Path(bulk_existing))["status"] == "running")),
+                 key="bulk_prepare_start"):
+        try:
+            if bulk_id_column == bulk_smiles_column:
+                raise ValueError("ID and SMILES must use different columns.")
+            records = bulk_ligands.parse_csv(bulk_upload.getvalue(), bulk_id_column, bulk_smiles_column)
+            directory = root / "bulk_ligands" / uuid.uuid4().hex
+            bulk_ligands.start(directory, records, bulk_ph)
+            st.session_state.bulk_prepare_dir = str(directory)
+            st.rerun()
+        except (ValueError, OSError, RuntimeError) as exc:
+            st.error(str(exc))
+    if bulk_existing:
+        @st.fragment(run_every="2s")
+        def _bulk_prepare_progress():
+            directory = Path(st.session_state.bulk_prepare_dir)
+            try:
+                state = bulk_ligands.load(directory)
+                if state["status"] == "running":
+                    state = bulk_ligands.advance(directory)
+                st.progress(state["completed"] / max(state["total"], 1),
+                            text=f"{state['completed']:,}/{state['total']:,} prepared; "
+                                 f"{state['success']:,} valid, {state['failed']:,} failed")
+                if state["status"] == "completed":
+                    st.success(f"Finished: {state['success']:,} PDBQT files ready for GPU docking.")
+                    archive = bulk_ligands.build_zip(directory)
+                    st.download_button("Download GPU-ready ligand ZIP",
+                                       data=archive.read_bytes(), file_name="PanDoc_GPU_ready_ligands.zip",
+                                       mime="application/zip", key="bulk_ready_download")
+                else:
+                    st.caption("Automatic preparation is running. Keep this page open; "
+                               "Streamlit Cloud sessions are temporary.")
+            except Exception as exc:
+                st.error("Preparation interrupted: " + str(exc))
+        _bulk_prepare_progress()
+
 ui.automation_snapshot(
     st,
     stage=stage,
