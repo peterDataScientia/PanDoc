@@ -31,8 +31,8 @@ def test_long_chain_ids_convert_without_collision():
     assert len(ids) == 3
     assert len(set(ids)) == 3
     assert "A" in ids
-    assert "REMARK 950 PANDOC CHAIN_MAP AAA -> " in pdb
-    assert "REMARK 950 PANDOC CHAIN_MAP BBB -> " in pdb
+    assert "REMARK 950 PANDOC CHAIN_MAP AAA occurrence=1 -> " in pdb
+    assert "REMARK 950 PANDOC CHAIN_MAP BBB occurrence=1 -> " in pdb
     assert [float(line[30:38]) for line in atom_lines] == [1.0, 2.0, 3.0]
 
 
@@ -80,4 +80,15 @@ def test_multimodel_chain_order_and_membership_change():
     assert models[0] == ["B", "C", "A"]
     assert models[1] == ["C", "B"]
     assert models[2] == ["B", "A", "C"]
-    assert pdb.count("REMARK 950 PANDOC CHAIN_MAP AAA -> B") == 1
+    assert pdb.count("REMARK 950 PANDOC CHAIN_MAP AAA occurrence=1 -> B") == 1
+
+
+def test_duplicate_author_ids_get_separate_pdb_chains():
+    pdb = core.normalize_structure(_structure(["AAA", "AAA", "B"]), ".cif")
+    atoms = [line for line in pdb.splitlines() if line.startswith("ATOM")]
+    assert len(atoms) == 3
+    assert len({line[21] for line in atoms}) == 3
+    assert atoms[-1][21] == "B"
+    assert "AAA occurrence=1" in pdb
+    assert "AAA occurrence=2" in pdb
+    assert [float(line[30:38]) for line in atoms] == [1.0, 2.0, 3.0]
