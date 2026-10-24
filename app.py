@@ -1254,6 +1254,8 @@ with st.expander("Bulk ligand preparation · CSV → up to 10,000 PDBQT files", 
                 if remote_backend is None:
                     raise RuntimeError("GitHub Actions is not configured. Select the Streamlit option or configure GITHUB_TOKEN and PANDOC_JOB_KEY.")
                 st.session_state.bulk_remote_job = remote_backend.submit_bulk_ligand_preparation(records, bulk_ph)
+                st.session_state.bulk_remote_total = len(records)
+                st.session_state.bulk_remote_progress = {"processed": 0, "total": len(records), "success": 0, "failed": 0}
                 st.session_state.pop("bulk_prepare_dir", None)
             else:
                 directory = root / "bulk_ligands" / uuid.uuid4().hex
@@ -1298,9 +1300,50 @@ with st.expander("Bulk ligand preparation · CSV → up to 10,000 PDBQT files", 
             def _bulk_remote_progress():
                 try:
                     state = remote_backend.status(remote_bulk)
-                    st.info(f"GitHub Actions CSV preparation · {state['state']} · job {remote_bulk['job_id'][:8]}")
-                    with st.expander("Preparation progress and logs", expanded=False):
-                        show_compute_progress(remote_backend, remote_bulk)
+                    st.info(f"CSV ligand preparation · {state['state']} · job {remote_bulk['job_id'][:8]}")
+                    # Parse REAL molecular preparation counters from the encrypted live
+                    # worker log; never confuse GitHub Actions runner steps with ligand progress.
+                    counters = dict(st.session_state.get("bulk_remote_progress") or {})
+                    total = int(st.session_state.get("bulk_remote_total") or counters.get("total") or 1)
+                    live_log = ""
+                    try:
+                        live_log = remote_backend.logs(remote_bulk, tail=150)
+                        for line in live_log.splitlines():
+                            if "PANDOC_BULK_PROGRESS " not in line:
+                                continue
+                            try:
+                                report = json.loads(line.split("PANDOC_BULK_PROGRESS ", 1)[1].strip())
+                                count = int(report.get("processed", -1))
+                                if 0 <= count <= total and count >= int(counters.get("processed", 0)):
+                                    counters = report
+                            except (ValueError, TypeError, json.JSONDecodeError):
+                                continue
+                    except (compute.ComputeBackendError, OSError):
+                        pass
+                    st.session_state.bulk_remote_progress = counters
+                    processed = max(0, min(int(counters.get("processed", 0)), total))
+                    successes = max(0, int(counters.get("success", 0)))
+                    failures = max(0, int(counters.get("failed", 0)))
+                    st.progress(processed / total,
+                                text=f"{processed:,} / {total:,} ligands processed ({processed / total:.1%})")
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("Processed", f"{processed:,}")
+                    col2.metric("PDBQT ready", f"{successes:,}")
+                    col3.metric("Failed", f"{failures:,}")
+                    col4.metric("Remaining", f"{total-processed:,}")
+                    if state["state"] in ("queued", "starting", "running") and not processed:
+                        st.caption("Awaiting first molecular preparation batch; runner setup is not counted as preparation.")
+                    elif state["state"] == "running":
+                        st.caption(f"Last confirmed molecular batch completed: {processed:,}/{total:,}. Updates arrive through encrypted worker logs.")
+                    with st.expander("Molecular preparation log", expanded=False):
+                        if live_log:
+                            relevant = [line for line in live_log.splitlines()
+                                        if "PANDOC_BULK_PROGRESS " in line or
+                                        "CSV ligand preparation:" in line or
+                                        "Traceback" in line or "Error" in line]
+                            st.code("\n".join(relevant[-50:]) or "Awaiting molecular progress...", language=None)
+                        else:
+                            st.caption("Awaiting encrypted molecular log...")
                     if state["state"] == "completed":
                         target = root / "bulk_ligands" / ("remote_" + remote_bulk["job_id"])
                         if not (target / "PanDoc_GPU_ready_ligands.zip").is_file():
