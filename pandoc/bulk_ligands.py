@@ -66,7 +66,7 @@ def load(directory: Path) -> dict:
 
 
 def advance(directory: Path, batch_size: int = BATCH_SIZE) -> dict:
-    from . import core
+    from . import core, ligand_recovery
     directory = Path(directory)
     state = load(directory)
     if state["status"] != "running":
@@ -83,14 +83,35 @@ def advance(directory: Path, batch_size: int = BATCH_SIZE) -> dict:
             try:
                 if not item["smiles"]:
                     raise ValueError("Missing SMILES")
-                mol = core.molecule(smiles=item["smiles"])
-                core.write_ligand(mol, output)
+                recovery = None
+                try:
+                    mol = core.molecule(smiles=item["smiles"])
+                    core.write_ligand(mol, output)
+                except (ValueError, RuntimeError) as primary_error:
+                    # A conservative, auditable recovery path. Never mutate
+                    # the original input, and reject ambiguous mixtures.
+                    mol, recovery = ligand_recovery.prepare(item["smiles"])
+                    try:
+                        core.write_ligand(mol, output)
+                    except Exception as retry_error:
+                        raise ValueError(
+                            f"Initial preparation: {primary_error}; "
+                            f"recovery writer: {retry_error}"
+                        ) from retry_error
                 if not output.exists() or output.stat().st_size < 100:
                     raise RuntimeError("PDBQT was not produced")
                 # SDF is not needed for docking-only GPU transfer.
                 output.with_suffix(".sdf").unlink(missing_ok=True)
+                prepared_smiles = recovery["prepared_smiles"] if recovery else item["smiles"]
                 ok.write(json.dumps({"id": item["id"], "file": "pdbqt/" + output.name,
-                                     "smiles": item["smiles"], "csv_line": item["csv_line"]}) + "\n")
+                                     "smiles": item["smiles"], "csv_line": item["csv_line"],
+                                     "prepared_smiles": prepared_smiles,
+                                     "recovery_used": bool(recovery),
+                                     "removed_counterions": ";".join(recovery["removed_counterions"]) if recovery else "",
+                                     "conformer_method": recovery["conformer_method"] if recovery else "ETKDGv3_seed2026"}) + "\n")
+                if recovery:
+                    with (directory / "recovery_audit.jsonl").open("a", encoding="utf-8") as audit_file:
+                        audit_file.write(json.dumps({"id": item["id"], "file": output.name, **recovery}) + "\n")
                 state["success"] += 1
             except Exception as exc:
                 output.unlink(missing_ok=True)
@@ -124,7 +145,10 @@ def build_zip(directory: Path) -> Path:
     with zipfile.ZipFile(result, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
         for ligand in sorted((directory / "pdbqt").glob("*.pdbqt")):
             archive.write(ligand, "pdbqt/" + ligand.name)
-        write_csv(directory / "success.jsonl", archive, ["id", "file", "smiles", "csv_line"])
+        write_csv(directory / "success.jsonl", archive, ["id", "file", "smiles", "csv_line", "prepared_smiles", "recovery_used", "removed_counterions", "conformer_method"])
         write_csv(directory / "failed.jsonl", archive, ["id", "smiles", "csv_line", "error"])
+        audit = directory / "recovery_audit.jsonl"
+        if audit.exists():
+            archive.writestr("recovery_audit.jsonl", audit.read_bytes())
         archive.writestr("preparation_manifest.json", json.dumps(state, indent=2))
     return result
