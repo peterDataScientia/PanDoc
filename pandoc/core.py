@@ -110,7 +110,34 @@ def normalize_structure(data, suffix):
     if suffix.lower() in ('.cif', '.mmcif'):
         import gemmi
         structure = gemmi.make_structure_from_block(gemmi.cif.read_string(data).sole_block())
-        return structure.make_pdb_string()
+        # Legacy PDB chain IDs occupy one character. mmCIF author IDs may
+        # contain several (e.g. AAA). Gemmi allocates unique one-character
+        # identifiers without overwriting existing valid one-letter IDs.
+        original = [[chain.name for chain in model] for model in structure]
+        structure.shorten_chain_names()
+        converted = [[chain.name for chain in model] for model in structure]
+        mapping = {}
+        for source_ids, target_ids in zip(original, converted):
+            if len(source_ids) != len(target_ids):
+                raise ValueError('Chain count changed during mmCIF normalization.')
+            if len(target_ids) != len(set(target_ids)):
+                raise ValueError('Cannot convert structure to PDB without chain collisions.')
+            for source_id, target_id in zip(source_ids, target_ids):
+                if len(target_id) != 1:
+                    raise ValueError('PDB chain ID must be exactly one character.')
+                if source_id in mapping and mapping[source_id] != target_id:
+                    raise ValueError('Inconsistent chain mapping between models.')
+                mapping[source_id] = target_id
+        pdb = structure.make_pdb_string()
+        # Keep a trace of renames in the normalized PDB for audit/review.
+        changes = [(src, dst) for src, dst in mapping.items() if src != dst]
+        if changes:
+            remarks = ''.join(
+                f'REMARK 950 PANDOC CHAIN_MAP {src or "(blank)"} -> {dst}\\n'
+                for src, dst in changes
+            )
+            pdb = remarks + pdb
+        return pdb
     atoms(data)
     return data
 
