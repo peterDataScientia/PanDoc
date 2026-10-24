@@ -1585,6 +1585,7 @@ with workspace:
                             st.stop()
                         repair_changes = structure_checks.changes(selected_input, final)
                         combined_templates = ','.join(x for x in (reviewed_templates, templates.strip()) if x)
+                        combined_templates = core.normalize_terminal_templates(final, combined_templates)
                         prep_id = core.digest(final, combined_templates, intended_ph, heme_coordination_residue, st.session_state.get('protonation_review'), core.versions())
                         directory = root/'preparations'/prep_id
                         with st.spinner('Checking chemistry and preparing receptor…'):
