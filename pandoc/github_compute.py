@@ -186,6 +186,17 @@ class GitHubCompute:
         )
         return self._queue(payload, "prepare-candidates")
 
+    def submit_bulk_ligand_preparation(self, ligands: list[dict], ph: float) -> dict:
+        """Queue up to 10,000 CSV ligands for docking-only GPU export."""
+        if not 1 <= len(ligands) <= 10_000:
+            raise GitHubComputeError("Bulk preparation requires 1 to 10,000 ligands.")
+        request = {"ligands": ligands, "ph": float(ph)}
+        payload = _encrypt_archive(
+            {"request.json": json.dumps(request, separators=(",", ":")).encode()},
+            self.job_key,
+        )
+        return self._queue(payload, "prepare-bulk-ligands")
+
     def submit_profile_preparation(self, target: str) -> dict:
         request = {"target": str(target)}
         payload = _encrypt_archive(
