@@ -1964,13 +1964,41 @@ with workspace:
                         if definition:
                             atom_check=core.ccd_atom_name_check(ref,definition)
                             if atom_check['reliable'] and (atom_check['missing'] or atom_check['extra']):
-                                with st.expander('Inspect atom differences',expanded=True):
+                                with st.expander('Inspect CCD atom comparison',expanded=True):
+                                    status=atom_check.get('status')
+                                    if status == 'naming_difference':
+                                        st.info(
+                                            'CCD atom labels differ from the selected crystal ligand, '
+                                            'but heavy-atom element counts agree. This is a naming '
+                                            'difference, not evidence of missing heavy atoms.'
+                                        )
+                                    elif status == 'composition_mismatch':
+                                        st.warning(
+                                            'CCD and crystal ligand have different heavy-atom '
+                                            'element counts. Confirm the selected residue is '
+                                            'complete and corresponds to the same molecule.'
+                                        )
+                                        st.json(atom_check['element_differences'])
+                                    else:
+                                        st.info(
+                                            'CCD and selected ligand atom labels differ. '
+                                            'CCD element composition was unavailable, so '
+                                            'missing atoms cannot be established from names alone.'
+                                        )
                                     if atom_check['missing']:
-                                        st.warning('CCD heavy atoms absent from selected crystal ligand: '+', '.join(atom_check['missing']))
-                                        st.write('Use a complete reference ligand structure. Missing crystallographic atoms cannot be restored by adding hydrogens.')
+                                        st.write('CCD names not found in crystal selection: '+', '.join(atom_check['missing']))
                                     if atom_check['extra']:
-                                        st.warning('Selected atom names absent from CCD definition: '+', '.join(atom_check['extra']))
-                                    st.caption('This check compares deposited atom names. Review custom naming before interpreting missing atoms.')
+                                        st.write('Crystal names not found in CCD: '+', '.join(atom_check['extra']))
+                                    st.caption(
+                                        'Atom labels are not chemical identities. Preparation '
+                                        'separately checks molecular composition and connectivity.'
+                                    )
+                            elif atom_check.get('status') == 'composition_mismatch':
+                                st.warning(
+                                    'The CCD and selected ligand have different heavy-atom '
+                                    'element counts. Verify completeness before redocking.'
+                                )
+                                st.json(atom_check['element_differences'])
                         with st.expander('Inspect selected crystal ligand'):
                             viewer(pdb=ref)
                         reviewed=st.checkbox('I reviewed the ligand identity, stereochemistry and chemical state.',key='reference_review_'+identity)
