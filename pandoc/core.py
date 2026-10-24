@@ -110,43 +110,51 @@ def normalize_structure(data, suffix):
     if suffix.lower() in ('.cif', '.mmcif'):
         import gemmi
         structure = gemmi.make_structure_from_block(gemmi.cif.read_string(data).sole_block())
-        # Allocate ONE structure-wide mapping, not a separate Gemmi mapping
-        # per MODEL. Chain order and chain membership may vary by model.
+        # mmCIF author IDs may repeat for distinct asym instances.
+        # Key by (author chain name, occurrence within a model).
         models = list(structure)
-        names = list(dict.fromkeys(chain.name for model in models for chain in model))
-        # Preserve existing one-character chain identifiers where possible.
-        reserved = {name for name in names if len(name) == 1 and name.isalnum()}
+        keyed_models = []
+        for model in models:
+            counts = {}
+            keyed = []
+            for chain in model:
+                name = chain.name
+                counts[name] = counts.get(name, 0) + 1
+                keyed.append((chain, (name, counts[name])))
+            keyed_models.append(keyed)
+        keys = list(dict.fromkeys(key for model in keyed_models for _, key in model))
         alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+        if any(len(model) > len(alphabet) for model in keyed_models) or len(keys) > len(alphabet):
+            raise ValueError(
+                'Structure requires more than 62 chain identifiers in legacy PDB. '
+                'Select a smaller assembly or preserve mmCIF.'
+            )
+        reserved = {name for name, number in keys
+                    if number == 1 and len(name) == 1 and name in alphabet}
         available = (letter for letter in alphabet if letter not in reserved)
-        mapping = {name: name for name in names if name in reserved}
-        for name in names:
-            if name not in mapping:
+        mapping = {(name, number): name for name, number in keys
+                   if number == 1 and name in reserved}
+        for key in keys:
+            if key not in mapping:
                 target = next(available, None)
                 if target is None:
-                    raise ValueError(
-                        'Too many distinct chain IDs for legacy PDB (62 alphanumeric '
-                        'identifiers). Use a smaller selection or retain mmCIF.'
-                    )
-                mapping[name] = target
-        for model in models:
-            original_names = [chain.name for chain in model]
-            if len(original_names) != len(set(original_names)):
-                raise ValueError(
-                    'Duplicate source chain IDs in one model; PDB conversion '
-                    'would merge distinct chains. Select or curate chains first.'
-                )
-            for chain in model:
-                chain.name = mapping[chain.name]
-            converted_names = [chain.name for chain in model]
-            if len(converted_names) != len(set(converted_names)):
+                    raise ValueError('No unique PDB chain identifier available.')
+                mapping[key] = target
+        for keyed in keyed_models:
+            for chain, key in keyed:
+                chain.name = mapping[key]
+            names = [chain.name for chain, _ in keyed]
+            if len(names) != len(set(names)):
                 raise ValueError('PDB chain ID collision after normalization.')
         pdb = structure.make_pdb_string()
-        # Keep a trace of renames in the normalized PDB for audit/review.
-        changes = [(src, dst) for src, dst in mapping.items() if src != dst]
+        changes = [(name, occurrence, target)
+                   for (name, occurrence), target in mapping.items()
+                   if name != target or occurrence != 1]
         if changes:
             remarks = ''.join(
-                f'REMARK 950 PANDOC CHAIN_MAP {src or "(blank)"} -> {dst}\n'
-                for src, dst in changes
+                f'REMARK 950 PANDOC CHAIN_MAP {name or "(blank)"}'
+                f' occurrence={occurrence} -> {target}\n'
+                for name, occurrence, target in changes
             )
             pdb = remarks + pdb
         return pdb
