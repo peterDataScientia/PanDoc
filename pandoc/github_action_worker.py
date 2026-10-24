@@ -177,6 +177,47 @@ def _run_candidate_preparation(root: Path, result_dir: Path):
 
 
 
+
+def _run_bulk_ligand_preparation(root: Path, result_dir: Path):
+    """Prepare a full CSV library on Actions, with per-ligand failure tracking.
+
+    Uses the same preparation implementation as the Streamlit fallback, but
+    runs to completion away from the browser; docking itself is never invoked.
+    """
+    from . import bulk_ligands
+    request = json.loads((root / "request.json").read_text())
+    ligands = request.get("ligands", [])
+    ph = float(request.get("ph", 7.4))
+    if not isinstance(ligands, list) or not 1 <= len(ligands) <= bulk_ligands.MAX_LIGANDS:
+        raise ValueError("Bulk CSV preparation requires 1 to 10,000 ligands.")
+    directory = result_dir / "bulk"
+    bulk_ligands.start(directory, ligands, ph)
+    while True:
+        state = bulk_ligands.advance(directory, batch_size=40)
+        # Surface progress to Actions logs and leave a durable status snapshot.
+        (result_dir / "status.json").write_text(json.dumps({
+            "state": "running" if state["status"] == "running" else "completed",
+            "completed": state["completed"],
+            "total": state["total"],
+            "success": state["success"],
+            "failed": state["failed"],
+        }))
+        if state["completed"] % 200 == 0 or state["status"] == "completed":
+            print(f"CSV ligand preparation: {state['completed']}/{state['total']} "
+                  f"processed; {state['success']} PDBQT; {state['failed']} failed", flush=True)
+        if state["status"] == "completed":
+            break
+    result = bulk_ligands.build_zip(directory)
+    import shutil
+    shutil.copy2(result, result_dir / "PanDoc_GPU_ready_ligands.zip")
+    (result_dir / "results.json").write_text(json.dumps({
+        "total": state["total"], "success": state["success"],
+        "failed": state["failed"], "pH_context": ph,
+        "archive": "PanDoc_GPU_ready_ligands.zip",
+        "protonation": state["protonation"],
+    }, indent=2))
+
+
 def _run_profile_preparation(root: Path, result_dir: Path):
     request = json.loads((root / "request.json").read_text())
     target = str(request.get("target") or "").strip()
@@ -241,6 +282,8 @@ def main(job_id: str, operation: str = "dock"):
             _run_ligand_microstates(root, result_dir)
         elif operation == "prepare-candidates":
             _run_candidate_preparation(root, result_dir)
+        elif operation == "prepare-bulk-ligands":
+            _run_bulk_ligand_preparation(root, result_dir)
         elif operation == "prepare-profile":
             _run_profile_preparation(root, result_dir)
         elif operation == "prepare-heme":
