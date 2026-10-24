@@ -133,7 +133,7 @@ def normalize_structure(data, suffix):
         changes = [(src, dst) for src, dst in mapping.items() if src != dst]
         if changes:
             remarks = ''.join(
-                f'REMARK 950 PANDOC CHAIN_MAP {src or "(blank)"} -> {dst}\\n'
+                f'REMARK 950 PANDOC CHAIN_MAP {src or "(blank)"} -> {dst}\n'
                 for src, dst in changes
             )
             pdb = remarks + pdb
