@@ -1242,6 +1242,7 @@ with st.expander("Bulk ligand preparation · CSV → up to 10,000 PDBQT files", 
     bulk_existing = st.session_state.get("bulk_prepare_dir")
     if st.button("Prepare CSV library for GPU docking", type="primary",
                  disabled=(bulk_upload is None or not bulk_smiles_column or not bulk_id_column or
+                           bool(st.session_state.get("bulk_remote_job")) or
                            bool(bulk_existing and bulk_ligands.load(Path(bulk_existing))["status"] == "running")),
                  key="bulk_prepare_start"):
         try:
