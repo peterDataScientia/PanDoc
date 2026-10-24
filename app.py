@@ -1232,6 +1232,11 @@ with st.expander("Bulk ligand preparation · CSV → up to 10,000 PDBQT files", 
             st.error("Cannot read the CSV: " + str(exc))
     st.caption("Input SMILES are prepared as supplied; pH-dependent protonation must be curated upstream "
                "if required. Invalid molecules are listed rather than silently skipped.")
+    bulk_backend_choice = st.radio(
+        "Preparation execution", ["GitHub Actions · recommended for 1–10,000 ligands",
+                                  "This Streamlit session · small libraries"],
+        horizontal=True, key="bulk_execution",
+        help="GitHub Actions prepares ligands outside the browser; the Streamlit option requires the page to stay open.")
     bulk_ph = st.number_input("pH context for preparation record", min_value=0.0, max_value=14.0,
                                value=7.4, step=0.1, key="bulk_ph")
     bulk_existing = st.session_state.get("bulk_prepare_dir")
@@ -1243,13 +1248,21 @@ with st.expander("Bulk ligand preparation · CSV → up to 10,000 PDBQT files", 
             if bulk_id_column == bulk_smiles_column:
                 raise ValueError("ID and SMILES must use different columns.")
             records = bulk_ligands.parse_csv(bulk_upload.getvalue(), bulk_id_column, bulk_smiles_column)
-            directory = root / "bulk_ligands" / uuid.uuid4().hex
-            bulk_ligands.start(directory, records, bulk_ph)
-            st.session_state.bulk_prepare_dir = str(directory)
+            if bulk_backend_choice.startswith("GitHub Actions"):
+                remote_backend = github_backend()
+                if remote_backend is None:
+                    raise RuntimeError("GitHub Actions is not configured. Select the Streamlit option or configure GITHUB_TOKEN and PANDOC_JOB_KEY.")
+                st.session_state.bulk_remote_job = remote_backend.submit_bulk_ligand_preparation(records, bulk_ph)
+                st.session_state.pop("bulk_prepare_dir", None)
+            else:
+                directory = root / "bulk_ligands" / uuid.uuid4().hex
+                bulk_ligands.start(directory, records, bulk_ph)
+                st.session_state.bulk_prepare_dir = str(directory)
+                st.session_state.pop("bulk_remote_job", None)
             st.rerun()
         except (ValueError, OSError, RuntimeError) as exc:
             st.error(str(exc))
-    if bulk_existing:
+    if bulk_existing and not st.session_state.get("bulk_remote_job"):
         @st.fragment(run_every="2s")
         def _bulk_prepare_progress():
             directory = Path(st.session_state.bulk_prepare_dir)
@@ -1272,6 +1285,39 @@ with st.expander("Bulk ligand preparation · CSV → up to 10,000 PDBQT files", 
             except Exception as exc:
                 st.error("Preparation interrupted: " + str(exc))
         _bulk_prepare_progress()
+
+
+    remote_bulk = st.session_state.get("bulk_remote_job")
+    if remote_bulk:
+        remote_backend = backend_for_handle(remote_bulk)
+        if remote_backend is None:
+            st.error("GitHub Actions is not configured for the active bulk-preparation job.")
+        else:
+            @st.fragment(run_every="8s")
+            def _bulk_remote_progress():
+                try:
+                    state = remote_backend.status(remote_bulk)
+                    st.info(f"GitHub Actions CSV preparation · {state['state']} · job {remote_bulk['job_id'][:8]}")
+                    with st.expander("Preparation progress and logs", expanded=False):
+                        show_compute_progress(remote_backend, remote_bulk)
+                    if state["state"] == "completed":
+                        target = root / "bulk_ligands" / ("remote_" + remote_bulk["job_id"])
+                        if not (target / "PanDoc_GPU_ready_ligands.zip").is_file():
+                            remote_backend.materialize(remote_bulk, target)
+                        archive = target / "PanDoc_GPU_ready_ligands.zip"
+                        if not archive.is_file():
+                            raise FileNotFoundError("GitHub Actions artifact is missing the prepared ligand ZIP.")
+                        summary = json.loads((target / "results.json").read_text())
+                        st.success(f"{summary['success']:,}/{summary['total']:,} ligands prepared; "
+                                   f"{summary['failed']:,} failed and were reported.")
+                        st.download_button("Download GPU-ready ligand ZIP", archive.read_bytes(),
+                                           file_name="PanDoc_GPU_ready_ligands.zip",
+                                           mime="application/zip", key="remote_bulk_download")
+                    elif state["state"] in ("failed", "cancelled"):
+                        st.error(state.get("error") or f"Bulk preparation {state['state']}. Check Actions logs.")
+                except (OSError, ValueError, compute.ComputeBackendError) as exc:
+                    st.warning("Bulk preparation status unavailable: " + str(exc))
+            _bulk_remote_progress()
 
 ui.automation_snapshot(
     st,
