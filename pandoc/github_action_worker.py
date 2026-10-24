@@ -202,9 +202,13 @@ def _run_bulk_ligand_preparation(root: Path, result_dir: Path):
             "success": state["success"],
             "failed": state["failed"],
         }))
-        if state["completed"] % 200 == 0 or state["status"] == "completed":
-            print(f"CSV ligand preparation: {state['completed']}/{state['total']} "
-                  f"processed; {state['success']} PDBQT; {state['failed']} failed", flush=True)
+        # The encrypted live-log bridge publishes stdout periodically; emit
+        # machine-readable counters every batch, including the final partial batch.
+        print("PANDOC_BULK_PROGRESS " + json.dumps({
+            "processed": state["completed"], "total": state["total"],
+            "success": state["success"], "failed": state["failed"],
+            "batch_size": 40, "state": state["status"],
+        }, separators=(",", ":")), flush=True)
         if state["status"] == "completed":
             break
     result = bulk_ligands.build_zip(directory)
