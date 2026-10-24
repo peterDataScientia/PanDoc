@@ -19,21 +19,24 @@ def prepare(smiles: str, *, allow_counterion_removal: bool = True):
     if len(fragments) > 1:
         if not allow_counterion_removal:
             raise ValueError("Disconnected input; automatic counterion removal disabled.")
-        # Only remove explicit small unbound counterions. Reject mixtures and
-        # ambiguous multicomponent drugs rather than silently dropping chemistry.
-        candidates = [f for f in fragments if f.GetNumHeavyAtoms() >= 6
-                      and any(a.GetAtomicNum() == 6 for a in f.GetAtoms())]
-        if len(candidates) != 1:
-            raise ValueError("Ambiguous multicomponent compound; manual chemistry review required.")
-        chosen = candidates[0]
-        other = [f for f in fragments if f is not chosen]
+        # Identify a narrowly reviewed list of counterions BEFORE choosing
+        # the drug component; e.g. trifluoroacetate has seven heavy atoms and
+        # must not be selected as a second drug-like fragment.
         allowed = {"[Cl-]", "[Br-]", "[I-]", "[F-]", "Cl", "Br", "I",
                    "[Na+]", "[K+]", "[Li+]", "[Ca+2]", "[Mg+2]",
                    "O=C(O)C(F)(F)F", "O=C([O-])C(F)(F)F", "O=S(=O)(O)O",
                    "O=S(=O)([O-])O"}
-        removed = [Chem.MolToSmiles(f, isomericSmiles=True) for f in other]
         canonical_allowed = {Chem.MolToSmiles(Chem.MolFromSmiles(s)) for s in allowed}
-        if any(fragment not in canonical_allowed for fragment in removed):
+        enumerated = [(f, Chem.MolToSmiles(f, isomericSmiles=True)) for f in fragments]
+        drug_candidates = [(f, canonical) for f, canonical in enumerated
+                           if canonical not in canonical_allowed]
+        if len(drug_candidates) != 1:
+            raise ValueError("Ambiguous multicomponent compound; manual chemistry review required.")
+        chosen = drug_candidates[0][0]
+        if not any(a.GetAtomicNum() == 6 for a in chosen.GetAtoms()) or chosen.GetNumHeavyAtoms() < 6:
+            raise ValueError("No unambiguous organic drug fragment.")
+        removed = [canonical for f, canonical in enumerated if f is not chosen]
+        if not removed or any(fragment not in canonical_allowed for fragment in removed):
             raise ValueError("Nonstandard second component; requires manual review: " + ", ".join(removed))
     cleaned_smiles = Chem.MolToSmiles(chosen, isomericSmiles=True)
     molecule = Chem.AddHs(Chem.Mol(chosen))
