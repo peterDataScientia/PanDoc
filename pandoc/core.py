@@ -329,6 +329,34 @@ def repair_heavy_atoms(pdb):
     return repaired
 
 
+
+
+def normalize_terminal_templates(pdb, assignments):
+    """Use chemically compatible Meeko templates for explicitly terminal GLU.
+
+    Meeko distinguishes internal GLU/GLH from C-terminal CGLU/CGLH.
+    Only transform a residue with an OXT atom, and never change manual
+    assignments to any other residue state.
+    """
+    terminal = {
+        f"{atom['chain'] or '_'}:{atom['number']}{atom['icode']}"
+        for atom in atoms(pdb)
+        if atom['name'] == 'OXT' and atom['res'] == 'GLU'
+    }
+    result = []
+    for assignment in assignments.split(','):
+        entry = assignment.strip()
+        if not entry or '=' not in entry:
+            if entry:
+                result.append(entry)
+            continue
+        residue, state = (part.strip() for part in entry.split('=', 1))
+        if residue in terminal and state in ('GLU', 'GLH'):
+            state = 'C' + state
+        result.append(f'{residue}={state}')
+    return ','.join(result)
+
+
 def prepare_receptor(pdb, directory, template_assignments='', add_templates=None,
                      heme_coordination_residue=None, heme_source_pdb=None):
     """Prepare a rigid receptor without silent cofactor deletion.
