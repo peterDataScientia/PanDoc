@@ -88,21 +88,22 @@ def viewer(pdb=None, sdf=None, reference=None, center=None, size=None, focus=Non
         # Adapted from Anyone Can Dock's translucent fill plus wireframe:
         # https://github.com/nyelidl/anyone-docking (MIT license).
         view.addBox({'center': box_center_xyz, 'dimensions': box_dimensions,
-                     'color': 'blue', 'opacity': 0.07, 'wireframe': False})
-        view.addBox({'center': box_center_xyz, 'dimensions': box_dimensions,
-                     'color': 'cyan', 'opacity': 0.90, 'wireframe': True})
+                     'color': 'blue', 'opacity': 0.035, 'wireframe': False})
+        # Thick gray frame as in the Anyone Can Dock reference image.
+        box_vertices = structure_view.draw_docking_box_frame(view, center, size)
+        # Viewer-only corner model enables correct zoom fitting regardless of receptor size.
+        box_model_index = int(bool(pdb)) + int(bool(reference)) + int(bool(sdf))
+        corner_pdb = '\n'.join(
+            f"ATOM  {i:5d}  C   BOX Z   1    "
+            f"{point['x']:8.3f}{point['y']:8.3f}{point['z']:8.3f}"
+            f"{1.0:6.2f}{0.0:6.2f}           C"
+            for i, point in enumerate(box_vertices, start=1)
+        ) + '\nEND\n'
+        view.addModel(corner_pdb, 'pdb')
+        view.setStyle({'model': box_model_index}, {})
     if center is not None and size is not None:
-        # The default full-protein fit makes a small docking box unreadable.
-        # Frame the grid at its geometric center, as in Anyone Can Dock.
-        if reference or sdf:
-            # A bound ligand supplies the most reliable pocket camera target.
-            view.zoomTo({'model': int(bool(pdb)) + (int(bool(reference)) if sdf else 0)})
-        elif pocket_residues:
-            # Fit selected pocket residues rather than the entire protein.
-            view.zoomTo({'model': 0, 'resi': sorted({int(n) for _, n, _ in pocket_residues})})
-            view.zoom(0.8)
-        else:
-            view.zoomTo()
+        view.zoomTo({'model': box_model_index})
+        view.zoom(0.85)
     else:
         view.zoomTo()
     if pdb and focus:
@@ -2095,7 +2096,7 @@ with workspace:
                 show_docking_box = st.toggle('Show docking box in 3D receptor', value=True,
                                              key='show_docking_box')
                 st.caption('Anyone Can Dock-style 3D preview: translucent spectrum protein, '
-                           'white pocket sticks, magenta reference ligand and blue/cyan docking box (Å).')
+                           'white pocket sticks, magenta reference ligand and thick gray docking box edges (Å).')
                 reference_preview = None
                 if validation and st.session_state.get('reference_path'):
                     reference_file = Path(st.session_state.reference_path)
