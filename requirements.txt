@@ -33,3 +33,6 @@ cryptography>=42,<47
 
 # HTTP clients for remote compute backends
 requests>=2.31,<3
+
+# Literature PDF preview in PDF-to-SMILES page
+pymupdf>=1.24,<2
