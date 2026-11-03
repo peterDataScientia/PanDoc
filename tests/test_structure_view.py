@@ -101,3 +101,32 @@ def test_py3dmol_scene_wrapper_never_silently_drops_loader_contract():
         assert "loader template changed" in str(exc)
     else:
         raise AssertionError("Unsupported py3Dmol HTML must fail explicitly")
+
+
+def test_docking_pocket_selects_box_intersection_without_merging_chains():
+    def near_atom(serial, chain, residue_number, x):
+        line = atom(serial, chain)
+        return line[:22] + f"{residue_number:4d}" + line[26:30] + f"{x:8.3f}" + line[38:]
+    pdb = "\n".join([
+        near_atom(1, "A", 10, 0.0),
+        near_atom(2, "B", 10, 40.0),
+        near_atom(3, "A", 20, 1.0),
+    ])
+    selected = structure_view.docking_box_pocket_residues(
+        pdb, [0, 0, 0], [10, 10, 10]
+    )
+    assert selected == {("A", "10", ""), ("A", "20", "")}
+
+
+def test_docking_pocket_styles_only_selected_protein_residues():
+    pdb = atom(1, "A") + "\n" + atom(2, "B")
+    view = Fake3DView()
+    view.addStyle = lambda selector, style: view.styles.append((selector, style))
+    result = structure_view.style_docking_pocket(
+        view, pdb, [1, 0, 0], [10, 10, 10], model=0
+    )
+    assert len(result) == 2
+    assert len(view.styles) == 2
+    assert {entry[0]["chain"] for entry in view.styles} == {"A", "B"}
+    assert all(entry[1]["stick"]["colorscheme"] == "whiteCarbon"
+               for entry in view.styles)
