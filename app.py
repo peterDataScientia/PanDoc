@@ -259,7 +259,8 @@ def load_complex(text, suffix, provenance):
         for k in ('preparation_id', 'reference_path', 'receptor_path', 'validation_job', 'experiment_job',
                   'candidate_paths', 'selected_pdb', 'reference_pdb', 'selection_id', 'selection_record',
                   'assistant_diagnostic', 'assistant_structure_checks', 'assistant_selected_issue', 'structure_report', 'preparation_review', 'center', 'size', 'preparation_record', 'reference_id', 'reference_smiles', 'reference_chemistry_source',
-                  'receptor_preparation_ph', 'protonation_prediction', 'protonation_review'):
+                  'receptor_preparation_ph', 'protonation_prediction', 'protonation_review',
+                  'experiment_pubchem_ligands', 'experiment_pubchem_result'):
             st.session_state.pop(k, None)
         for original in root.glob('source_original.*'):
             original.unlink()
