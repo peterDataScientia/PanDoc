@@ -122,6 +122,53 @@ def viewer(pdb=None, sdf=None, reference=None, center=None, size=None, focus=Non
 
 
 
+def docking_pose_viewer(receptor_pdb, pose_sdf, reference_sdf=None, *,
+                        pocket_cutoff=3.5, show_labels=False, show_surface=True):
+    """ACD-inspired docked-pose inspection; preserves original pose coordinates."""
+    from rdkit import Chem
+    import py3Dmol
+    import streamlit.components.v1 as components
+    ligand = Chem.MolFromMolBlock(pose_sdf, removeHs=False)
+    if ligand is None or ligand.GetNumConformers() == 0:
+        raise ValueError('Selected docking pose has no readable 3D coordinates.')
+    positions = ligand.GetConformer().GetPositions()
+    heavy_xyz = [tuple(float(v) for v in positions[a.GetIdx()])
+                 for a in ligand.GetAtoms() if a.GetAtomicNum() > 1]
+    view = py3Dmol.view(width='100%', height=440)
+    view.setBackgroundColor('#ffffff')
+    next_model = 0
+    if receptor_pdb:
+        view.addModel(receptor_pdb, 'pdb')
+        view.setStyle({'model': 0}, {
+            'cartoon': {'color': 'spectrum', 'opacity': 0.45},
+        })
+        next_model += 1
+    if reference_sdf:
+        view.addModel(reference_sdf, 'sdf')
+        view.setStyle({'model': next_model}, {
+            'stick': {'colorscheme': 'magentaCarbon', 'radius': 0.20}
+        })
+        next_model += 1
+    view.addModel(pose_sdf, 'sdf')
+    pose_model = next_model
+    view.setStyle({'model': pose_model}, {
+        'stick': {'colorscheme': 'cyanCarbon', 'radius': 0.28}
+    })
+    if receptor_pdb:
+        if show_surface:
+            view.addSurface(py3Dmol.SES, {'opacity': 0.20, 'color': 'lightblue'},
+                            {'model': 0}, {'model': pose_model})
+        residues = structure_view.style_pose_pocket(
+            view, receptor_pdb, heavy_xyz, cutoff=pocket_cutoff, labels=show_labels
+        )
+    else:
+        residues = set()
+    view.zoomTo({'model': pose_model})
+    html = viewer_runtime.render_viewer_html(view)
+    components.html(html, height=455, scrolling=False)
+    return len(residues)
+
+
 @st.cache_data(show_spinner=False)
 def inspect_structure(pdb, raw=False):
     return structure_checks.check(pdb, raw=raw)
@@ -2336,10 +2383,37 @@ with workspace:
                         raise ValueError('Selected pose could not be read from SDF.')
                     sdf=Chem.MolToMolBlock(pose)+'\n$$$$\n'
                     receptor=job_path(job, config['receptor']).parent/'receptor_prepared.pdb'
+                    st.subheader('3D docking pose · interactive inspection')
+                    bp1, bp2, bp3 = st.columns(3)
+                    with bp1:
+                        cutoff = st.slider('Pocket cutoff (Å)', 2.5, 5.0, 3.5, 0.1,
+                                           key='pose_cutoff_' + job.name)
+                    with bp2:
+                        labels = st.checkbox('Residue labels', value=False,
+                                             key='pose_labels_' + job.name)
+                    with bp3:
+                        surface = st.checkbox('Protein surface', value=True,
+                                              key='pose_surface_' + job.name)
+                    reference_sdf = None
                     if config.get('reference'):
-                        publication_figure(job, row)
-                    else:
-                        viewer(pdb=receptor.read_text() if receptor.exists() else None, sdf=sdf)
+                        reference_file = job_path(job, config['reference'])
+                        if reference_file.is_file():
+                            reference_sdf = reference_file.read_text()
+                    n_residues = docking_pose_viewer(
+                        receptor.read_text() if receptor.exists() else None,
+                        sdf, reference_sdf, pocket_cutoff=cutoff,
+                        show_labels=labels, show_surface=surface)
+                    st.caption(
+                        f"Selected pose {row['rank']} · predicted affinity "
+                        f"{row['score_kcal_mol']:.2f} kcal/mol · "
+                        f"{n_residues} pocket residues within {cutoff:.1f} Å. "
+                        "Cyan: docked ligand · magenta: crystallographic reference "
+                        "(when available) · orange: nearby residues. "
+                        "Proximity is not an assigned chemical interaction."
+                    )
+                    if config.get('reference'):
+                        with st.expander('Publication pose overlay'):
+                            publication_figure(job, row)
                     st.download_button('Download results CSV',df.to_csv(index=False),'results.csv','text/csv', on_click='ignore')
                     st.download_button('Download selected pose SDF',sdf,'selected_pose.sdf', on_click='ignore')
                 with st.expander('Saved docking settings'):
