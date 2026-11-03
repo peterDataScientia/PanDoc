@@ -130,3 +130,20 @@ def test_docking_pocket_styles_only_selected_protein_residues():
     assert {entry[0]["chain"] for entry in view.styles} == {"A", "B"}
     assert all(entry[1]["stick"]["colorscheme"] == "whiteCarbon"
                for entry in view.styles)
+
+
+def test_docking_box_gray_frame_has_twelve_edges_and_correct_corners():
+    class Frame:
+        def __init__(self):
+            self.cylinders = []
+        def addCylinder(self, options):
+            self.cylinders.append(options)
+
+    view = Frame()
+    vertices = structure_view.draw_docking_box_frame(view, [10, 20, 30], [12, 18, 24])
+    assert len(vertices) == 8
+    assert len(view.cylinders) == 12
+    assert vertices[0] == {"x": 4.0, "y": 11.0, "z": 18.0}
+    assert vertices[-1] == {"x": 16.0, "y": 29.0, "z": 42.0}
+    assert all(edge["color"] == "#666666" and edge["radius"] == 0.13
+               for edge in view.cylinders)
