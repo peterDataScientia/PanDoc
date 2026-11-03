@@ -147,3 +147,31 @@ def test_docking_box_gray_frame_has_twelve_edges_and_correct_corners():
     assert vertices[-1] == {"x": 16.0, "y": 29.0, "z": 42.0}
     assert all(edge["color"] == "#666666" and edge["radius"] == 0.13
                for edge in view.cylinders)
+
+
+def test_ligand_pocket_proximity_keeps_chains_separate_and_uses_heavy_atoms():
+    def placed_atom(serial, chain, x):
+        line = atom(serial, chain)
+        return line[:30] + f"{x:8.3f}" + line[38:]
+    pdb = "\n".join([placed_atom(1, "A", 0.0), placed_atom(2, "B", 20.0)])
+    nearby = structure_view.ligand_pocket_residues(pdb, [(1.0, 0.0, 0.0)], 3.5)
+    assert nearby == {("A", "1", "", "ALA")}
+    assert not structure_view.ligand_pocket_residues(pdb, [], 3.5)
+
+
+def test_pose_pocket_visual_styles_are_orange_with_optional_labels():
+    class Mock:
+        def __init__(self):
+            self.styles = []
+            self.labels = []
+        def addStyle(self, selector, style):
+            self.styles.append((selector, style))
+        def addLabel(self, text, options, selection):
+            self.labels.append((text, options, selection))
+    view = Mock()
+    residues = structure_view.style_pose_pocket(
+        view, atom(1, "A"), [(1.0, 0.0, 0.0)], 3.5, labels=True
+    )
+    assert len(residues) == 1
+    assert view.styles[0][1]["stick"]["colorscheme"] == "orangeCarbon"
+    assert view.labels[0][1]["fontColor"] == "yellow"
