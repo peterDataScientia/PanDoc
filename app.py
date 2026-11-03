@@ -61,8 +61,24 @@ def viewer(pdb=None, sdf=None, reference=None, center=None, size=None, focus=Non
         # Last model is the candidate or redocked pose.
         idx = int(bool(pdb)) + int(bool(reference))
         view.setStyle({'model': idx}, {'stick': {'colorscheme': 'magentaCarbon'}})
-    if center and size:
-        view.addBox({'center': dict(zip('xyz', center)), 'dimensions': dict(zip('whd', size)), 'color': '#f59e0b', 'wireframe': True})
+    if center is not None and size is not None:
+        # Docking search space in Angstroms. Use the same coordinates that
+        # are passed to Vina; never infer the box from viewport dimensions.
+        from math import isfinite
+        box_center = [float(value) for value in center]
+        box_size = [float(value) for value in size]
+        if len(box_center) != 3 or len(box_size) != 3 or not all(
+            isfinite(value) for value in box_center + box_size
+        ) or any(value <= 0 for value in box_size):
+            raise ValueError('Docking box requires three finite center coordinates and positive dimensions.')
+        box_center_xyz = dict(zip('xyz', box_center))
+        box_dimensions = dict(zip('whd', box_size))
+        # Adapted from Anyone Can Dock's translucent fill plus wireframe:
+        # https://github.com/nyelidl/anyone-docking (MIT license).
+        view.addBox({'center': box_center_xyz, 'dimensions': box_dimensions,
+                     'color': '#23a9e0', 'opacity': 0.065, 'wireframe': False})
+        view.addBox({'center': box_center_xyz, 'dimensions': box_dimensions,
+                     'color': '#0284c7', 'opacity': 0.95, 'wireframe': True})
     view.zoomTo()
     if pdb and focus:
         serials = [int(a['line'][6:11]) for a in core.atoms(pdb) if core.key(a)==focus]
@@ -2051,7 +2067,13 @@ with workspace:
                         manifest()
                 center = st.session_state.get('center', center)
                 size = st.session_state.get('size', size)
-                viewer(pdb=st.session_state.prepared_pdb, center=center, size=size)
+                show_docking_box = st.toggle('Show docking box in 3D receptor', value=True,
+                                             key='show_docking_box')
+                st.caption('3D preview: blue outline and translucent volume mark the Vina search space (Å). '
+                           'Rotate and zoom the receptor; save changes above to update the box.')
+                viewer(pdb=st.session_state.prepared_pdb,
+                       center=center if show_docking_box else None,
+                       size=size if show_docking_box else None)
                 prefix = 'validation' if validation else 'experiment'
                 params = settings(prefix)
                 protocol_id = core.digest(st.session_state.preparation_id, center, size, params)
