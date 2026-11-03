@@ -101,9 +101,21 @@ def viewer(pdb=None, sdf=None, reference=None, center=None, size=None, focus=Non
         ) + '\nEND\n'
         view.addModel(corner_pdb, 'pdb')
         view.setStyle({'model': box_model_index}, {})
+        # Match ACD receptor preview: subtle labeled XYZ orientation axes.
+        for axis, color, offset in (
+            ('X', 'red', (8.0, 0.0, 0.0)),
+            ('Y', 'green', (0.0, 8.0, 0.0)),
+            ('Z', 'blue', (0.0, 0.0, 8.0)),
+        ):
+            tip = dict(zip('xyz', (box_center[i] + offset[i] for i in range(3))))
+            view.addArrow({'start': box_center_xyz, 'end': tip,
+                           'radius': 0.12, 'color': color, 'radiusRatio': 3.0})
+            view.addLabel(axis, {'position': tip, 'fontSize': 14,
+                                 'fontColor': color, 'backgroundColor': 'black',
+                                 'backgroundOpacity': 0.6, 'inFront': True})
     if center is not None and size is not None:
         view.zoomTo({'model': box_model_index})
-        view.zoom(0.85)
+        view.zoom(0.95)
     else:
         view.zoomTo()
     if pdb and focus:
