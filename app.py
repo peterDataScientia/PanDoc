@@ -66,7 +66,9 @@ def viewer(pdb=None, sdf=None, reference=None, center=None, size=None, focus=Non
         # Highlight whole residues whose atoms intersect the Vina search box.
         view.setStyle({'model': 0, 'hetflag': False},
                       {'cartoon': {'color': '#9acbd0', 'opacity': 0.4}})
-        structure_view.style_docking_pocket(view, pdb, center, size)
+        pocket_residues = structure_view.style_docking_pocket(view, pdb, center, size)
+    else:
+        pocket_residues = set()
     if center is not None and size is not None:
         # Docking search space in Angstroms. Use the same coordinates that
         # are passed to Vina; never infer the box from viewport dimensions.
@@ -88,9 +90,15 @@ def viewer(pdb=None, sdf=None, reference=None, center=None, size=None, focus=Non
     if center is not None and size is not None:
         # The default full-protein fit makes a small docking box unreadable.
         # Frame the grid at its geometric center, as in Anyone Can Dock.
-        view.zoomTo()
-        view.center(dict(zip('xyz', [float(v) for v in center])))
-        view.zoom(1.5)
+        if reference or sdf:
+            # A bound ligand supplies the most reliable pocket camera target.
+            view.zoomTo({'model': int(bool(pdb)) + int(bool(reference or sdf)) - int(bool(sdf))})
+        elif pocket_residues:
+            # Fit selected pocket residues rather than the entire protein.
+            view.zoomTo({'model': 0, 'resi': sorted({int(n) for _, n, _ in pocket_residues})})
+            view.zoom(0.8)
+        else:
+            view.zoomTo()
     else:
         view.zoomTo()
     if pdb and focus:
