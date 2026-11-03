@@ -2142,8 +2142,6 @@ with workspace:
                 size = st.session_state.get('size', size)
                 show_docking_box = st.toggle('Show docking box in 3D receptor', value=True,
                                              key='show_docking_box')
-                st.caption('Anyone Can Dock-style 3D preview: translucent spectrum protein, '
-                           'white pocket sticks, magenta reference ligand and thick gray docking box edges (Å).')
                 reference_preview = None
                 if validation and st.session_state.get('reference_path'):
                     reference_file = Path(st.session_state.reference_path)
