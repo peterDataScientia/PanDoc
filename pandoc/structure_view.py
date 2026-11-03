@@ -129,3 +129,46 @@ def draw_docking_box_frame(view, center, size, *, radius=0.13):
                     "fromCap": 1, "toCap": 1,
                 })
     return vertices
+
+
+def ligand_pocket_residues(pdb_text: str, ligand_coordinates, cutoff: float = 3.5):
+    """Chain- and insertion-aware protein residues near ligand heavy atoms.
+
+    Proximity alone is not an assignment of hydrogen bonds or other interactions.
+    """
+    from math import isfinite
+    radius = float(cutoff)
+    if not isfinite(radius) or radius <= 0:
+        raise ValueError("Pocket cutoff must be a positive finite distance in angstroms.")
+    coords = [tuple(float(v) for v in point) for point in ligand_coordinates]
+    if any(len(p) != 3 or not all(map(isfinite, p)) for p in coords):
+        raise ValueError("Ligand coordinates must be finite XYZ triplets.")
+    if not coords:
+        return set()
+    squared = radius * radius
+    return {
+        (a["chain"], a["number"], a["icode"], a["res"])
+        for a in core.atoms(pdb_text)
+        if a["record"] == "ATOM" and a["element"] not in ("H", "D")
+        and any(sum((a["xyz"][i] - p[i]) ** 2 for i in range(3)) <= squared
+                for p in coords)
+    }
+
+
+def style_pose_pocket(view, pdb_text, ligand_coordinates, cutoff=3.5, *, labels=False):
+    """Anyone Can Dock-style orange pocket sticks and optional yellow labels."""
+    residues = ligand_pocket_residues(pdb_text, ligand_coordinates, cutoff)
+    for chain, number, icode, resname in sorted(residues):
+        selection = {"model": 0, "chain": chain, "resi": int(number), "hetflag": False}
+        if icode:
+            selection["icode"] = icode
+        view.addStyle(selection, {
+            "stick": {"colorscheme": "orangeCarbon", "radius": 0.20}
+        })
+        if labels:
+            view.addLabel(f"{resname}{number}{icode}{chain}", {
+                "fontSize": 11, "fontColor": "yellow",
+                "backgroundColor": "black", "backgroundOpacity": 0.65,
+                "inFront": True, "showBackground": True,
+            }, selection)
+    return residues
