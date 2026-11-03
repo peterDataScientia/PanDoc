@@ -61,6 +61,12 @@ def viewer(pdb=None, sdf=None, reference=None, center=None, size=None, focus=Non
         # Last model is the candidate or redocked pose.
         idx = int(bool(pdb)) + int(bool(reference))
         view.setStyle({'model': idx}, {'stick': {'colorscheme': 'magentaCarbon'}})
+    if pdb and center is not None and size is not None:
+        # Anyone Can Dock-style translucent cartoon and pocket-only sticks.
+        # Highlight whole residues whose atoms intersect the Vina search box.
+        view.setStyle({'model': 0, 'hetflag': False},
+                      {'cartoon': {'color': '#9acbd0', 'opacity': 0.4}})
+        structure_view.style_docking_pocket(view, pdb, center, size)
     if center is not None and size is not None:
         # Docking search space in Angstroms. Use the same coordinates that
         # are passed to Vina; never infer the box from viewport dimensions.
@@ -79,7 +85,14 @@ def viewer(pdb=None, sdf=None, reference=None, center=None, size=None, focus=Non
                      'color': '#23a9e0', 'opacity': 0.065, 'wireframe': False})
         view.addBox({'center': box_center_xyz, 'dimensions': box_dimensions,
                      'color': '#0284c7', 'opacity': 0.95, 'wireframe': True})
-    view.zoomTo()
+    if center is not None and size is not None:
+        # The default full-protein fit makes a small docking box unreadable.
+        # Frame the grid at its geometric center, as in Anyone Can Dock.
+        view.zoomTo()
+        view.center(dict(zip('xyz', [float(v) for v in center])))
+        view.zoom(1.5)
+    else:
+        view.zoomTo()
     if pdb and focus:
         serials = [int(a['line'][6:11]) for a in core.atoms(pdb) if core.key(a)==focus]
         if serials:
