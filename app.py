@@ -92,7 +92,7 @@ def viewer(pdb=None, sdf=None, reference=None, center=None, size=None, focus=Non
         # Frame the grid at its geometric center, as in Anyone Can Dock.
         if reference or sdf:
             # A bound ligand supplies the most reliable pocket camera target.
-            view.zoomTo({'model': int(bool(pdb)) + int(bool(reference or sdf)) - int(bool(sdf))})
+            view.zoomTo({'model': int(bool(pdb)) + (int(bool(reference)) if sdf else 0)})
         elif pocket_residues:
             # Fit selected pocket residues rather than the entire protein.
             view.zoomTo({'model': 0, 'resi': sorted({int(n) for _, n, _ in pocket_residues})})
