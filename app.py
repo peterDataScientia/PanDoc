@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review, profile_engine, profile_quality, compute, compute_options, structure_view, viewer_runtime
+from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review, profile_engine, profile_quality, compute, compute_options, structure_view, viewer_runtime, pubchem_search
 
 PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.png'
 PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
@@ -2172,6 +2172,48 @@ with workspace:
                                   ligands=[dict(id='reference', name='Reference ligand', path=st.session_state.reference_pdbqt)])
                     st.caption('RMSD compares heavy atoms in the fixed receptor frame with symmetry handling. Ligands are not fitted onto the reference.')
                 else:
+                    st.markdown('**Find ligand in PubChem**')
+                    with st.form('pubchem_experiment_search_form', clear_on_submit=False):
+                        pubchem_query = st.text_input(
+                            'Compound name or PubChem CID',
+                            placeholder='e.g., aspirin, quercetin, or 2244',
+                        )
+                        pubchem_submit = st.form_submit_button('Search PubChem')
+                    if pubchem_submit:
+                        try:
+                            st.session_state['experiment_pubchem_result'] = pubchem_search.find_compound(pubchem_query)
+                        except pubchem_search.PubChemLookupError as exc:
+                            st.session_state.pop('experiment_pubchem_result', None)
+                            st.warning(str(exc))
+                    pubchem_result = st.session_state.get('experiment_pubchem_result')
+                    if pubchem_result:
+                        st.write(f"**{pubchem_result['name']}** · PubChem CID {pubchem_result['cid']}")
+                        st.code(pubchem_result['smiles'], language=None)
+                        st.caption(f"Formula: {pubchem_result['formula']} · Molecular weight: "
+                                   f"{pubchem_result['weight'] or 'not reported'} g/mol")
+                        st.link_button('View compound in PubChem', pubchem_result['url'])
+                        if st.button('Add PubChem ligand to experiment', key='pubchem_add_ligand'):
+                            selected = st.session_state.setdefault('experiment_pubchem_ligands', [])
+                            if not any(item['cid'] == pubchem_result['cid'] for item in selected):
+                                if len(selected) >= 40:
+                                    st.warning('The experiment supports up to 40 candidate ligands.')
+                                else:
+                                    selected.append(dict(pubchem_result))
+                                    st.session_state.pop('candidate_paths', None)
+                                    st.success(f"Added {pubchem_result['name']} to candidate ligands.")
+                            else:
+                                st.info('This PubChem CID is already selected.')
+                    pubchem_ligands = st.session_state.get('experiment_pubchem_ligands', [])
+                    if pubchem_ligands:
+                        st.markdown('**PubChem ligands selected for preparation**')
+                        st.dataframe(pd.DataFrame([
+                            {'CID': x['cid'], 'Name': x['name'], 'SMILES': x['smiles']}
+                            for x in pubchem_ligands
+                        ]), hide_index=True, width='stretch')
+                        if st.button('Clear PubChem ligand selection', key='clear_experiment_pubchem'):
+                            st.session_state['experiment_pubchem_ligands'] = []
+                            st.session_state.pop('candidate_paths', None)
+                            st.rerun()
                     upload = st.file_uploader('Candidate ligands (multi-molecule SDF)', type=['sdf'])
                     smiles_text = st.text_area('Or one SMILES per line', placeholder='CCO ethanol')
                     candidate_ph = float(st.session_state.get('preparation_record', {}).get('pH', 7.0))
@@ -2181,7 +2223,11 @@ with workspace:
                     candidate_busy = bool(st.session_state.get(candidate_task_key))
                     if st.button('Prepare candidate ligands', disabled=not chemical_review or candidate_busy, key='prepare_candidate_ligands'):
                         from rdkit import Chem
-                        ligand_inputs = []
+                        ligand_inputs = [
+                            {'name': f"{item['name']} (PubChem CID {item['cid']})",
+                             'smiles': item['smiles']}
+                            for item in st.session_state.get('experiment_pubchem_ligands', [])
+                        ]
                         if upload:
                             import io
                             for i, mol in enumerate(Chem.ForwardSDMolSupplier(io.BytesIO(upload.getvalue()), removeHs=False)):
