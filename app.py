@@ -55,17 +55,21 @@ def viewer(pdb=None, sdf=None, reference=None, center=None, size=None, focus=Non
         view.addStyle({'model': 0, 'hetflag': True}, {'stick': {'colorscheme': 'cyanCarbon'}})
     if reference:
         view.addModel(reference, 'sdf')
-        view.setStyle({'model': int(bool(pdb))}, {'stick': {'colorscheme': 'greenCarbon'}})
+        # Anyone Can Dock uses magentaCarbon for the crystallographic ligand.
+        view.setStyle({'model': int(bool(pdb))},
+                      {'stick': {'colorscheme': 'magentaCarbon', 'radius': 0.25}})
     if sdf:
         view.addModel(sdf, 'sdf')
         # Last model is the candidate or redocked pose.
         idx = int(bool(pdb)) + int(bool(reference))
-        view.setStyle({'model': idx}, {'stick': {'colorscheme': 'magentaCarbon'}})
+        view.setStyle({'model': idx},
+                      {'stick': {'colorscheme': 'cyanCarbon' if reference else 'magentaCarbon',
+                                 'radius': 0.28 if reference else 0.25}})
     if pdb and center is not None and size is not None:
         # Anyone Can Dock-style translucent cartoon and pocket-only sticks.
         # Highlight whole residues whose atoms intersect the Vina search box.
         view.setStyle({'model': 0, 'hetflag': False},
-                      {'cartoon': {'color': '#9acbd0', 'opacity': 0.4}})
+                      {'cartoon': {'color': 'spectrum', 'opacity': 0.4}})
         pocket_residues = structure_view.style_docking_pocket(view, pdb, center, size)
     else:
         pocket_residues = set()
@@ -84,9 +88,9 @@ def viewer(pdb=None, sdf=None, reference=None, center=None, size=None, focus=Non
         # Adapted from Anyone Can Dock's translucent fill plus wireframe:
         # https://github.com/nyelidl/anyone-docking (MIT license).
         view.addBox({'center': box_center_xyz, 'dimensions': box_dimensions,
-                     'color': '#23a9e0', 'opacity': 0.065, 'wireframe': False})
+                     'color': 'blue', 'opacity': 0.07, 'wireframe': False})
         view.addBox({'center': box_center_xyz, 'dimensions': box_dimensions,
-                     'color': '#0284c7', 'opacity': 0.95, 'wireframe': True})
+                     'color': 'cyan', 'opacity': 0.90, 'wireframe': True})
     if center is not None and size is not None:
         # The default full-protein fit makes a small docking box unreadable.
         # Frame the grid at its geometric center, as in Anyone Can Dock.
@@ -2090,9 +2094,14 @@ with workspace:
                 size = st.session_state.get('size', size)
                 show_docking_box = st.toggle('Show docking box in 3D receptor', value=True,
                                              key='show_docking_box')
-                st.caption('3D preview: blue outline and translucent volume mark the Vina search space (Å). '
-                           'Rotate and zoom the receptor; save changes above to update the box.')
-                viewer(pdb=st.session_state.prepared_pdb,
+                st.caption('Anyone Can Dock-style 3D preview: translucent spectrum protein, '
+                           'white pocket sticks, magenta reference ligand and blue/cyan docking box (Å).')
+                reference_preview = None
+                if validation and st.session_state.get('reference_path'):
+                    reference_file = Path(st.session_state.reference_path)
+                    if reference_file.is_file():
+                        reference_preview = reference_file.read_text()
+                viewer(pdb=st.session_state.prepared_pdb, reference=reference_preview,
                        center=center if show_docking_box else None,
                        size=size if show_docking_box else None)
                 prefix = 'validation' if validation else 'experiment'
