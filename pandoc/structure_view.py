@@ -100,3 +100,32 @@ def style_docking_pocket(view, pdb_text: str, center, size, model: int = 0):
             "stick": {"colorscheme": "whiteCarbon", "radius": 0.18},
         })
     return residues
+
+
+def draw_docking_box_frame(view, center, size, *, radius=0.13):
+    """Draw 12 solid gray box edges, matching the ACD receptor-setup frame.
+
+    The geometry is presentation-only; the docking search space is unchanged.
+    Uses cylinders because py3Dmol's built-in wireframe can be too thin.
+    """
+    from math import isfinite
+    c = [float(v) for v in center]
+    d = [float(v) for v in size]
+    if len(c) != 3 or len(d) != 3 or not all(map(isfinite, c + d)) or any(v <= 0 for v in d):
+        raise ValueError("Docking box needs three finite coordinates and positive dimensions.")
+    half = [v / 2 for v in d]
+    vertices = [
+        {axis: c[i] + (half[i] if bits & (1 << i) else -half[i])
+         for i, axis in enumerate("xyz")}
+        for bits in range(8)
+    ]
+    for i in range(8):
+        for axis in (0, 1, 2):
+            j = i ^ (1 << axis)
+            if i < j:
+                view.addCylinder({
+                    "start": vertices[i], "end": vertices[j],
+                    "radius": float(radius), "color": "#666666",
+                    "fromCap": 1, "toCap": 1,
+                })
+    return vertices
