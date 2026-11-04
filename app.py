@@ -331,6 +331,7 @@ def pdb_details(pdb_id):
     return pdb_search.details(pdb_id)
 
 
+@st.fragment
 def pdb_discovery():
     st.caption('Search experimental PDB structures, read the details, then choose a complex to load.')
     with st.form('pdb_search_form'):
@@ -353,7 +354,7 @@ def pdb_discovery():
             st.session_state.update(pdb_search_options=options, pdb_search_start=0, pdb_search_result=result)
             st.session_state.pop('pdb_review', None)
             st.session_state.pending_scroll = 'pd-pdb-results'
-            st.rerun()
+            st.rerun(scope="fragment")
         except (ValueError, RuntimeError) as exc:
             st.session_state.pop('pdb_search_result', None)
             st.warning(str(exc))
@@ -381,7 +382,7 @@ def pdb_discovery():
             st.session_state.update(pdb_search_start=new_start, pdb_search_result=next_result)
             st.session_state.pop('pdb_review', None)
             st.session_state.pending_scroll = 'pd-pdb-results'
-            st.rerun()
+            st.rerun(scope="fragment")
         except (ValueError, RuntimeError) as exc:
             st.warning(str(exc))
     selected = st.selectbox('Structure to review', result['ids'])
@@ -391,7 +392,7 @@ def pdb_discovery():
                 detail = pdb_details(selected)
             st.session_state.pdb_review = dict(id=selected, detail=detail)
             st.session_state.pending_scroll = 'pd-pdb-details'
-            st.rerun()
+            st.rerun(scope="fragment")
         except (ValueError, RuntimeError) as exc:
             st.warning(str(exc))
     review = st.session_state.get('pdb_review')
