@@ -7,6 +7,8 @@ import math
 import os
 import re
 import subprocess
+import queue
+import threading
 import time
 import zipfile
 from pathlib import Path
@@ -81,6 +83,55 @@ def score_table(path):
     if not values: raise RuntimeError("Vina produced no scored poses")
     return [float(v) for v in values]
 
+def run_vina_live(args, folder, on_update, timeout_seconds=3600, publish_interval=10):
+    """Publish actual Vina stdout and heartbeat while its subprocess is alive."""
+    output = []
+    events = queue.Queue()
+    proc = subprocess.Popen(
+        args, cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, errors="replace", bufsize=1,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    def reader():
+        try:
+            for line in proc.stdout:
+                events.put(line.rstrip("\r\n"))
+        finally:
+            events.put(None)
+    threading.Thread(target=reader, daemon=True).start()
+    start = time.monotonic()
+    last_publish = start
+    dirty = False
+    eof = False
+    try:
+        while proc.poll() is None or not eof or not events.empty():
+            if time.monotonic() - start > timeout_seconds:
+                raise RuntimeError("Vina search exceeded 1 hour")
+            try:
+                line = events.get(timeout=0.6)
+                if line is None:
+                    eof = True
+                elif line:
+                    output.append(line)
+                    dirty = True
+            except queue.Empty:
+                pass
+            now = time.monotonic()
+            if now - last_publish >= publish_interval:
+                on_update("\n".join(output[-120:]), now-start, dirty)
+                last_publish = now
+                dirty = False
+        code = proc.wait()
+        on_update("\n".join(output[-120:]), time.monotonic()-start, dirty)
+        return code, "\n".join(output)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        if proc.stdout:
+            proc.stdout.close()
+
+
 def run_job(branch,job_id):
     base=f".pandoc_d_jobs/{job_id}/"
     folder=WORK/"jobs"/job_id
@@ -117,17 +168,21 @@ def run_job(branch,job_id):
                       "--num_modes",str(int(config["poses"])),"--seed",str(int(seed)),
                       "--out",str(folder/out)]
                 current=f"{ligand['id']} / seed {seed}"
-                status("running",current=current,total=total)
+                status("running", current=current, total=total,
+                       active_ligand=str(ligand["name"]), active_seed=int(seed))
                 logs.append("Starting "+current+" CPU="+str(cpu))
                 log()
-                try:
-                    result=subprocess.run(args,cwd=folder,capture_output=True,text=True,timeout=3600,
-                                          creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
-                except subprocess.TimeoutExpired as exc:
-                    raise RuntimeError("Vina search exceeded 1 hour") from exc
-                logs.append((result.stdout+"\n"+result.stderr)[-15000:])
+                def publish_live(output, elapsed, changed):
+                    if changed:
+                        logs.append(output[-8000:])
+                        log()
+                    status("running", current=current, total=total,
+                           active_ligand=str(ligand["name"]), active_seed=int(seed),
+                           elapsed_seconds=round(elapsed, 1))
+                returncode, output = run_vina_live(args, folder, publish_live)
+                logs.append(output[-15000:])
                 log()
-                if result.returncode or not (folder/out).is_file():
+                if returncode or not (folder/out).is_file():
                     raise RuntimeError("Vina returned failure for "+current)
                 scores=score_table(folder/out)
                 records.append({"ligand":str(ligand["name"]),"ligand_id":str(ligand["id"]),
