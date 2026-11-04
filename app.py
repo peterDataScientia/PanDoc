@@ -1102,7 +1102,7 @@ def show_remote_job(remote, local_key, remote_key):
             live_log = backend.logs(remote, tail=220)
         except Exception:
             live_log = 'Docking output is temporarily unavailable. The computation may still be running.'
-        st.markdown('#### AutoDock Vina · Live docking output')
+        st.markdown('#### Docking activity' if remote.get('backend') == 'computer-d-vina' else '#### AutoDock Vina · Live docking output')
         st.code(live_log or 'Waiting for docking worker output.', language=None)
 
         if current['state'] in active_states:
