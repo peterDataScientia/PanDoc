@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import re
 import time
 import uuid
 import zipfile
@@ -14,6 +15,31 @@ from rdkit import Chem
 from meeko import PDBQTMolecule, RDKitMolCreate
 from .github_compute import _payload, _request, _repo_url, validate_key, DEFAULT_REPOSITORY
 from .compute import ComputeBackendError
+
+
+def concise_vina_activity(value, tail=80):
+    """Extract distinct Vina milestones; suppress duplicated native stdout."""
+    events = []
+    seen = set()
+    latest_search = None
+    for raw in value.splitlines():
+        line = raw.strip()
+        if line.startswith(("Docking ", "Completed ", "Failed ", "ERROR:")):
+            event = line
+        elif re.match(r"^Starting [A-Za-z0-9_-]+ / seed [0-9]+ CPU=[0-9]+$", line):
+            latest_search = line.split(" CPU=", 1)[0].replace("Starting ", "")
+            event = "Docking " + latest_search
+        elif re.match(r"^Finished [A-Za-z0-9_-]+ / seed [0-9]+: Vina elapsed [0-9.]+ s$", line):
+            event = line.replace("Finished ", "Completed ")
+        elif latest_search and re.match(r"^1\\s+-?[0-9]+(?:\\.[0-9]+)?\\s+", line):
+            event = f"Best pose: {latest_search} | affinity {line.split()[1]} kcal/mol"
+        else:
+            continue
+        if event not in seen:
+            events.append(event)
+            seen.add(event)
+    return "\n".join(events[-max(1, int(tail)):]) or "Waiting for Computer D docking activity..."
+
 
 class ComputerDError(ComputeBackendError):
     pass
@@ -71,7 +97,7 @@ class ComputerDCompute:
     def logs(self, job, tail=80):
         try:
             value=Fernet(self.key.encode()).decrypt(self._content(job,"log.bin")).decode("utf-8",errors="replace")
-            return "\n".join(value.splitlines()[-max(1,int(tail)):])
+            return concise_vina_activity(value, tail=tail)
         except Exception:
             return "Waiting for Computer D docking output..."
 
