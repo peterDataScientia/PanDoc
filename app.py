@@ -2283,11 +2283,16 @@ with workspace:
                             st.warning(str(exc))
                     pubchem_result = st.session_state.get('experiment_pubchem_result')
                     if pubchem_result:
-                        st.write(f"**{pubchem_result['name']}** · PubChem CID {pubchem_result['cid']}")
-                        st.code(pubchem_result['smiles'], language=None)
-                        st.caption(f"Formula: {pubchem_result['formula']} · Molecular weight: "
-                                   f"{pubchem_result['weight'] or 'not reported'} g/mol")
-                        st.link_button('View compound in PubChem', pubchem_result['url'])
+                        st.markdown('**PubChem search result**')
+                        st.dataframe(
+                            pd.DataFrame([pubchem_search.compound_details_row(pubchem_result)]),
+                            hide_index=True, width='stretch', height=110,
+                            column_config={'PubChem': st.column_config.LinkColumn(
+                                'PubChem record', display_text='Open record'),
+                                'SMILES': st.column_config.TextColumn('SMILES', width='large'),
+                                'IUPAC name': st.column_config.TextColumn('IUPAC name', width='large')},
+                        )
+                        st.caption('Scroll horizontally to see all molecular properties and the structure.')
                         if st.button('Add PubChem ligand to experiment', key='pubchem_add_ligand'):
                             selected = st.session_state.setdefault('experiment_pubchem_ligands', [])
                             if not any(item['cid'] == pubchem_result['cid'] for item in selected):
@@ -2302,10 +2307,15 @@ with workspace:
                     pubchem_ligands = st.session_state.get('experiment_pubchem_ligands', [])
                     if pubchem_ligands:
                         st.markdown('**PubChem ligands selected for preparation**')
-                        st.dataframe(pd.DataFrame([
-                            {'CID': x['cid'], 'Name': x['name'], 'SMILES': x['smiles']}
-                            for x in pubchem_ligands
-                        ]), hide_index=True, width='stretch')
+                        st.dataframe(
+                            pd.DataFrame([pubchem_search.compound_details_row(x)
+                                          for x in pubchem_ligands]),
+                            hide_index=True, width='stretch',
+                            column_config={'PubChem': st.column_config.LinkColumn(
+                                'PubChem record', display_text='Open record'),
+                                'SMILES': st.column_config.TextColumn('SMILES', width='large'),
+                                'IUPAC name': st.column_config.TextColumn('IUPAC name', width='large')},
+                        )
                         if st.button('Clear PubChem ligand selection', key='clear_experiment_pubchem'):
                             st.session_state['experiment_pubchem_ligands'] = []
                             st.session_state.pop('candidate_paths', None)
