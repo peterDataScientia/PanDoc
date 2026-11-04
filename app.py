@@ -1632,8 +1632,8 @@ with workspace:
             )
     try:
         if stage.startswith('1'):
-            st.write('Upload a complex, inspect its components and select the receptor and crystallographic reference ligand.')
             source_mode = st.radio('Structure source', ['Upload file', 'Search PDB'], horizontal=True, key='structure_source_mode')
+            st.caption('Select a complex, receptor chains, and a crystallographic reference ligand.')
             if source_mode == 'Upload file':
                 upload = st.file_uploader('PDB or mmCIF complex', type=['pdb', 'cif', 'mmcif'], key='complex_upload')
                 if upload:
