@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import base64
 import os
 import subprocess
 import tempfile
@@ -19,6 +20,32 @@ from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui
 
 PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.png'
 PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
+
+@st.cache_data(show_spinner=False)
+def _pandoc_logo_data_uri():
+    """Serve the existing logo inline rather than relying on expiring media URLs."""
+    if not PANDOC_LOGO.is_file():
+        return ""
+    try:
+        encoded = base64.b64encode(PANDOC_LOGO.read_bytes()).decode("ascii")
+        return f"data:image/png;base64,{encoded}"
+    except OSError:
+        return ""
+
+def _brand_logo(width=250):
+    data_uri = _pandoc_logo_data_uri()
+    if data_uri:
+        st.markdown(
+            f'<img src="{data_uri}" alt="PanDoc logo" '
+            f'style="display:block;width:{int(width)}px;max-width:100%;height:auto;margin:0.25rem 0 0.75rem 0;" />',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div style="font-size:1.7rem;font-weight:850;color:#0f2a43">Pan'
+            '<span style="color:#0f8f91">Doc</span></div>',
+            unsafe_allow_html=True,
+        )
 
 st.set_page_config(page_title='PanDoc · Docking workbench', page_icon='🧬', layout='wide', initial_sidebar_state='collapsed')
 ui.load_css(st, PANDOC_CSS)
@@ -1122,14 +1149,10 @@ st.session_state.setdefault('workflow_stage', '1 · Load complex')
 
 stage = st.session_state.workflow_stage
 
+# Keep the brand visible even while the sidebar is collapsed.
+_brand_logo(width=220)
 with st.sidebar:
-    if PANDOC_LOGO.exists():
-        st.image(str(PANDOC_LOGO), width=250)
-    else:
-        st.markdown(
-            '<div style="font-size:1.7rem;font-weight:850;color:#0f2a43;letter-spacing:-.03em">Pan<span style="color:#0f8f91">Doc</span></div>',
-            unsafe_allow_html=True,
-        )
+    _brand_logo(width=250)
     # One workflow navigator, inside Streamlit's collapsible sidebar.
     # Scope the menu styling: other sidebar primary actions keep their design.
     # Buttons cannot replay a stale selection during scientific widget reruns.
