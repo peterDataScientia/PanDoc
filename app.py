@@ -315,13 +315,11 @@ def load_complex(text, suffix, provenance):
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def search_pdb(options, start):
-    # RCSB search already returns ranked PDB IDs. Avoid fetching ten
-    # additional entry records before the user can see/select a hit.
-    # Full metadata remains available through View structure details.
     result = pdb_search.search(**options, start=start)
-    # Show only real data returned by RCSB. Do not repeat filler text
-    # in every row; rich titles/methods load on explicit selection.
-    result['summaries'] = [dict(PDB=entry_id) for entry_id in result['ids']]
+    # Fetch the metadata for the current ten results concurrently so the
+    # search table is informative before a structure is selected.
+    # Failed metadata requests retain their PDB ID and show an explicit warning.
+    result['summaries'] = pdb_search.summaries(result['ids'])
     return result
 
 
@@ -367,8 +365,16 @@ def pdb_discovery():
         return
     start = st.session_state.get('pdb_search_start', 0)
     st.caption(f"{result['total']} matches · showing {start+1}–{start+len(result['ids'])}. Search relevance does not measure docking suitability.")
-    # Static list avoids the heavier interactive DataFrame frontend module.
-    st.table(pd.DataFrame(result['summaries']))
+    st.dataframe(
+        pd.DataFrame(result['summaries']), hide_index=True, width='stretch',
+        column_config={
+            'PDB': st.column_config.TextColumn('PDB ID', width='small'),
+            'Title': st.column_config.TextColumn('Structure title', width='large'),
+            'Method': st.column_config.TextColumn('Experimental method'),
+            'Resolution': st.column_config.TextColumn('Resolution (Å)'),
+            'Ligands': st.column_config.TextColumn('Nonpolymer components'),
+        },
+    )
     left, right = st.columns(2)
     previous = left.button('Previous results', disabled=start == 0)
     following = right.button('Next results', disabled=start+10 >= result['total'])
