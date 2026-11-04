@@ -471,7 +471,7 @@ def settings(prefix):
     poses = b.number_input('Maximum poses', 1, 20, 9, key=prefix+'poses')
     seeds_text = c.text_input('Seeds (comma-separated)', '2026,2027,2028' if prefix=='validation' else '2026', key=prefix+'seeds')
     seeds = [int(x.strip()) for x in seeds_text.split(',')]
-    return dict(exhaustiveness=int(exhaustive), poses=int(poses), seeds=seeds, cpu=min(2, os.cpu_count() or 1))
+    return dict(exhaustiveness=int(exhaustive), poses=int(poses), seeds=seeds, cpu=0)  # Auto: use all worker-available CPUs.
 
 
 def github_backend():
