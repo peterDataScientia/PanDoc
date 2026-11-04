@@ -2172,6 +2172,45 @@ with workspace:
                         with st.expander('Inspect selected crystal ligand'):
                             viewer(pdb=ref)
                         reviewed=st.checkbox('I reviewed the ligand identity, stereochemistry and chemical state.',key='reference_review_'+identity)
+                        if multi_residue:
+                            st.markdown('#### Whole-glycan preparation from crystal')
+                            st.caption('Uses the original atom coordinates, CCD atom/bond definitions for '
+                                       'each monosaccharide, and only explicitly deposited PDB LINKs. '
+                                       'No missing heavy atom is fabricated and no inter-residue bond '
+                                       'is guessed from distance.')
+                            if st.button('Reconstruct and prepare complete glycan',
+                                         type='primary', disabled=not reviewed,
+                                         key='prepare_whole_glycan_'+identity):
+                                try:
+                                    from pandoc import glycans
+                                    from rdkit import Chem
+                                    mol, glycan_audit = glycans.reconstruct_glycan(
+                                        ref, st.session_state.pdb)
+                                    ident = core.digest(ref, glycan_audit, ligand_ph)
+                                    directory = root/'references'/ident
+                                    directory.mkdir(parents=True, exist_ok=True)
+                                    (directory/'glycan_audit.json').write_text(
+                                        json.dumps(glycan_audit, indent=2))
+                                    core.write_ligand(mol, directory/'reference.pdbqt')
+                                    st.session_state.update(
+                                        reference_path=str(directory/'reference.sdf'),
+                                        reference_pdbqt=str(directory/'reference.pdbqt'),
+                                        reference_smiles=glycan_audit['proposed_isomeric_smiles'],
+                                        reference_id=ident,
+                                        reference_chemistry_source=dict(
+                                            source='CCD bonds + deposited inter-residue LINK',
+                                            preparation_pH=ligand_ph,
+                                            glycan_audit=glycan_audit))
+                                    manifest()
+                                    ui.automation_marker(st, 'reference-prepared',
+                                                         state='completed', value=ident)
+                                    st.success('Whole-glycan PDBQT and crystal-coordinate SDF written. '
+                                               'Review stereochemistry, ionization and docking suitability '
+                                               'before accepting an RMSD result.')
+                                except Exception as exc:
+                                    st.error('Whole-glycan preparation blocked: ' + str(exc))
+                            if st.session_state.get('reference_chemistry_source',{}).get('glycan_audit'):
+                                st.json(st.session_state.reference_chemistry_source['glycan_audit'])
                         if st.button('Prepare reference ligand',
                                      disabled=multi_residue or not comparison['valid'] or not reviewed,
                                      key='prepare_reference_ligand'):
@@ -2193,7 +2232,8 @@ with workspace:
                                 with st.expander('Preparation explanation'):
                                     st.text(str(exc))
                         if st.session_state.get('reference_path'):
-                            if selected_smiles.strip()!=st.session_state.get('reference_smiles'):
+                            if (not multi_residue and
+                                    selected_smiles.strip()!=st.session_state.get('reference_smiles')):
                                 st.info('The downloaded reference below belongs to previously prepared chemistry. Prepare the edited SMILES before using it for a new validation.')
                             path = Path(st.session_state.reference_path)
                             ui.scroll_anchor(st, 'pd-reference-ready')
