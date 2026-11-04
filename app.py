@@ -17,6 +17,7 @@ import streamlit as st
 
 
 from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review, profile_engine, profile_quality, compute, compute_options, structure_view, viewer_runtime, pubchem_search
+from pandoc.computer_d_compute import ComputerDCompute
 
 PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.png'
 PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
@@ -517,7 +518,19 @@ def kaggle_config_problem():
     return ''
 
 
+def computer_d_backend():
+    try:
+        token = st.secrets.get('GITHUB_TOKEN', os.environ.get('GITHUB_TOKEN', ''))
+        job_key = st.secrets.get('PANDOC_JOB_KEY', os.environ.get('PANDOC_JOB_KEY', ''))
+        repository = st.secrets.get('PANDOC_GITHUB_REPOSITORY', compute.DEFAULT_REPOSITORY)
+        return ComputerDCompute(token, job_key, repository)
+    except Exception:
+        return None
+
+
 def backend_for_handle(handle):
+    if handle and handle.get('backend') == 'computer-d-vina':
+        return computer_d_backend()
     if handle and handle.get('backend') == 'kaggle-direct':
         return kaggle_backend()
     return github_backend()
@@ -564,7 +577,7 @@ def prepare_candidates_on_streamlit(ligands, ph, enumerate_states):
 
 def cloud_compute_mode():
     mode = st.session_state.get('compute_mode', 'Computer A · Fast')
-    return mode.startswith('Computer A') or mode.startswith('Streamlit Cloud')
+    return mode.startswith('Computer A') or mode.startswith('Streamlit Cloud') or mode == compute_options.COMPUTER_D
 
 
 def kaggle_compute_mode():
@@ -1002,7 +1015,7 @@ def show_remote_job(remote, local_key, remote_key):
 
     # Computer C snapshots are published every ~12s; poll every 5s to avoid
     # exhausting GitHub API quota without compromising meaningful freshness.
-    refresh_seconds = 5 if remote.get('backend') != 'kaggle-direct' else 2
+    refresh_seconds = 15 if remote.get('backend') == 'computer-d-vina' else (5 if remote.get('backend') != 'kaggle-direct' else 2)
 
     @st.fragment(run_every=refresh_seconds if polling else None)
     def live_remote_job():
@@ -1011,7 +1024,7 @@ def show_remote_job(remote, local_key, remote_key):
         except compute.ComputeBackendError as exc:
             st.error(str(exc))
             return
-        backend_label = 'Kaggle worker' if remote.get('backend') == 'kaggle-direct' else 'GitHub Actions'
+        backend_label = ('Computer D · Windows Vina' if remote.get('backend') == 'computer-d-vina' else ('Kaggle worker' if remote.get('backend') == 'kaggle-direct' else 'GitHub Actions'))
         ui.automation_marker(
             st,
             'job-status',
@@ -1036,7 +1049,7 @@ def show_remote_job(remote, local_key, remote_key):
             if remote.get('backend') == 'kaggle-direct':
                 st.caption('Running on Kaggle worker. Status and log refresh every 2 seconds.')
             else:
-                st.caption('Computer C: encrypted Vina output is published approximately every 12 seconds; this panel checks every 5 seconds.')
+                st.caption('Computer D: encrypted Vina output via GitHub.' if remote.get('backend') == 'computer-d-vina' else 'Computer C: encrypted Vina output is published approximately every 12 seconds; this panel checks every 5 seconds.')
             cancel_key = remote['job_id'] + '_cancel_confirm'
             if st.session_state.get(cancel_key):
                 st.warning('Cancel this calculation? Current progress for the active search may be lost.')
@@ -1319,7 +1332,7 @@ with st.container(key='runtime_toolbar'):
                 compute_options.OPTIONS,
                 key='compute_mode',
                 format_func=compute_options.runtime_label,
-                help='Computer A runs in this app; B on Kaggle; C on GitHub Actions.',
+                help='Computer A runs here; B uses Kaggle; C uses GitHub Actions; D runs Vina on Windows.',
             )
             _selected_runtime = st.session_state.get('compute_mode', compute_options.STREAMLIT)
             st.caption(compute_options.description(_selected_runtime))
@@ -1327,6 +1340,9 @@ with st.container(key='runtime_toolbar'):
                 _k_url, _k_key = kaggle_config()
                 if not (_k_url and _k_key):
                     st.warning('Kaggle is not configured. GitHub Actions fallback requires separate configuration.')
+            elif _selected_runtime == compute_options.COMPUTER_D:
+                if computer_d_backend() is None:
+                    st.warning('Computer D requires GITHUB_TOKEN and PANDOC_JOB_KEY.')
             elif _selected_runtime == compute_options.GITHUB_ACTIONS:
                 if github_backend() is None:
                     st.warning('GitHub Actions is not configured on this server.')
@@ -2340,7 +2356,9 @@ with workspace:
                 cloud_busy = bool(active and jobs.status(active).get('state') in ('queued','running','starting'))
                 busy = bool(remote_busy or cloud_busy)
 
-                if cloud_compute_mode():
+                if st.session_state.get('compute_mode') == compute_options.COMPUTER_D:
+                    st.caption('Compute · Computer D · Windows Vina')
+                elif cloud_compute_mode():
                     st.caption('Compute · This app · GitHub Actions fallback enabled' if github else 'Compute · This app')
                 elif kaggle_compute_mode():
                     st.caption('Compute · Kaggle worker · GitHub Actions fallback enabled' if github else 'Compute · Kaggle worker')
@@ -2349,7 +2367,19 @@ with workspace:
 
                 if st.button('Run redocking' if validation else 'Run docking', type='primary', disabled=busy or not config['ligands'], key=prefix+'_run_calculation'):
                     manifest()
-                    if cloud_compute_mode():
+                    if st.session_state.get('compute_mode') == compute_options.COMPUTER_D:
+                        computer_d = computer_d_backend()
+                        if computer_d is None:
+                            st.error('Computer D requires GITHUB_TOKEN and PANDOC_JOB_KEY.')
+                        else:
+                            try:
+                                remote_job = computer_d.submit(root, config)
+                                st.session_state[prefix+'_github_job'] = remote_job
+                                st.session_state.pop(prefix+'_job', None)
+                                st.rerun()
+                            except Exception as exc:
+                                st.error('Computer D submission failed: ' + str(exc))
+                    elif cloud_compute_mode():
                         try:
                             directory = jobs.launch(root, config)
                             st.session_state[prefix+'_job'] = directory
