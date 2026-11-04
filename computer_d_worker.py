@@ -152,13 +152,62 @@ def run_job(branch,job_id):
         except Exception: pass
         print("Job failed:",job_id,exc,flush=True)
 
-def main():
-    global TOKEN,KEY
+def load_credentials():
+    """Store secrets in the current Windows user's Credential Manager."""
+    global TOKEN, KEY
     from getpass import getpass
-    if not TOKEN:TOKEN=getpass("GitHub token (hidden): ").strip()
-    if not KEY:KEY=getpass("PANDOC_JOB_KEY (hidden): ").strip()
-    if not TOKEN or not KEY:raise SystemExit("Token and encryption key required")
-    Fernet(KEY.encode())
+    import sys
+    try:
+        import keyring
+    except ImportError as exc:
+        raise SystemExit(
+            "Credential Manager support is required: py -3.13 -m pip install keyring"
+        ) from exc
+    backend = keyring.get_keyring()
+    if not backend.__class__.__module__.startswith("keyring.backends.Windows"):
+        raise SystemExit(
+            "A Windows Credential Manager backend is required; refusing to store "
+            "secrets in a plaintext or fallback keyring."
+        )
+    service = "PanDoc-Computer-D:" + REPO
+    if "--reset-credentials" in sys.argv:
+        for account in ("GITHUB_TOKEN", "PANDOC_JOB_KEY"):
+            try:
+                keyring.delete_password(service, account)
+            except keyring.errors.PasswordDeleteError:
+                pass
+        print("Saved Computer D credentials cleared from Windows Credential Manager.")
+        raise SystemExit(0)
+
+    token_saved = keyring.get_password(service, "GITHUB_TOKEN")
+    key_saved = keyring.get_password(service, "PANDOC_JOB_KEY")
+    if not TOKEN:
+        TOKEN = (token_saved or getpass("GitHub token (hidden, first run only): ")).strip()
+    if not KEY:
+        KEY = (key_saved or getpass("PANDOC_JOB_KEY (hidden, first run only): ")).strip()
+    if not TOKEN or not KEY:
+        raise SystemExit("Both credentials are required.")
+    try:
+        Fernet(KEY.encode())
+    except (ValueError, TypeError) as exc:
+        raise SystemExit("PANDOC_JOB_KEY is not a valid Fernet key.") from exc
+
+    # Confirm GitHub access before saving a newly entered token.
+    try:
+        api("GET", "")
+    except (RuntimeError, requests.RequestException) as exc:
+        raise SystemExit(
+            "GitHub authentication failed; credentials were not saved: " + str(exc)
+        ) from exc
+    if not token_saved and not os.environ.get("GITHUB_TOKEN"):
+        keyring.set_password(service, "GITHUB_TOKEN", TOKEN)
+    if not key_saved and not os.environ.get("PANDOC_JOB_KEY"):
+        keyring.set_password(service, "PANDOC_JOB_KEY", KEY)
+    print("Computer D credentials loaded from Windows Credential Manager.")
+
+
+def main():
+    load_credentials()
     if not VINA.is_file():raise SystemExit("Cannot find Vina executable: "+str(VINA))
     WORK.mkdir(parents=True,exist_ok=True)
     print("Computer D ready. Vina:",VINA,flush=True)
