@@ -72,3 +72,18 @@ def test_vina_score_formatter_has_no_fake_default_score():
     output = format_vina_affinities([], "Ligand A", 2027)
     assert "returned no pose affinities" in output
     assert "Best affinity" not in output
+
+
+def test_auto_cpu_uses_all_affinity_available_cores(monkeypatch):
+    from pandoc import worker
+    monkeypatch.setattr(worker, "allocated_cpu_count", lambda: 16)
+    assert worker.vina_cpu_threads({"cpu": 0, "exhaustiveness": 32}) == (16, 16)
+    assert worker.vina_cpu_threads({"exhaustiveness": 32}) == (16, 16)
+
+
+def test_cpu_threads_cannot_exceed_exhaustiveness_or_explicit_limit(monkeypatch):
+    from pandoc import worker
+    monkeypatch.setattr(worker, "allocated_cpu_count", lambda: 32)
+    assert worker.vina_cpu_threads({"cpu": 0, "exhaustiveness": 8}) == (32, 8)
+    assert worker.vina_cpu_threads({"cpu": 4, "exhaustiveness": 16}) == (4, 4)
+    assert worker.vina_cpu_threads({"cpu": 64, "exhaustiveness": 16}) == (32, 16)
