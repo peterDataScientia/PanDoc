@@ -51,42 +51,6 @@ def _brand_logo(width=250, floating=False):
         )
 
 st.set_page_config(page_title='PanDoc · Docking workbench', page_icon='🧬', layout='wide', initial_sidebar_state='collapsed')
-# Handle one transient Streamlit/Vite asset-chunk failure without forcing
-# users to reboot the app. This is a bounded client recovery, not a fix
-# for an unavailable Streamlit CDN or reverse-proxy rate limiting.
-st.html("""
-<script>
-(function () {
-  if (window.__pandocChunkRecoveryInstalled) return;
-  window.__pandocChunkRecoveryInstalled = true;
-  var key = "pandoc_chunk_recovery_v1";
-  function recover(message) {
-    if (!/Failed to fetch dynamically imported module|Importing a module script failed|Failed to load module script|error loading dynamically imported module/i.test(String(message || ""))) return;
-    var now = Date.now();
-    try {
-      var last = Number(window.sessionStorage.getItem(key) || "0");
-      if (last > 0 && now - last < 300000) return;
-      window.sessionStorage.setItem(key, String(now));
-    } catch (_) {
-      // No storage means no safe reload guard; leave manual recovery available.
-      return;
-    }
-    var url = new URL(window.location.href);
-    url.searchParams.set("_pandoc_asset_retry", String(now));
-    window.location.replace(url.toString());
-  }
-  window.addEventListener("unhandledrejection", function (event) {
-    recover(event.reason && (event.reason.message || event.reason));
-  });
-  window.addEventListener("error", function (event) {
-    recover(event.message || (event.error && event.error.message));
-  });
-  window.addEventListener("vite:preloadError", function (event) {
-    recover(event.payload && (event.payload.message || event.payload));
-  });
-})();
-</script>
-""", unsafe_allow_javascript=True)
 ui.load_css(st, PANDOC_CSS)
 
 # Isolated publication-export demonstration for browser regression checks.
