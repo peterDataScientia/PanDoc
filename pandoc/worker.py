@@ -7,6 +7,28 @@ from pathlib import Path
 from .core import reference_rmsd, validate_config
 
 
+
+def allocated_cpu_count() -> int:
+    """Logical CPUs available to this worker, honoring Linux affinity."""
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        return max(1, int(os.cpu_count() or 1))
+
+
+def vina_cpu_threads(config: dict) -> tuple[int, int]:
+    """Return allocated CPUs and useful Vina threads.
+
+    cpu=0/missing means auto-detect on the actual compute worker, not the
+    Streamlit frontend. Vina cannot use more simultaneous independent
+    search threads than its exhaustiveness specifies.
+    """
+    allocated = allocated_cpu_count()
+    requested = int(config.get("cpu", 0) or 0)
+    available = min(allocated, requested) if requested > 0 else allocated
+    return available, max(1, min(available, int(config["exhaustiveness"])))
+
+
 def format_vina_affinities(energies, ligand_name, seed):
     """Format the energies returned by the SAME Vina search; never estimate scores."""
     scored = [(rank, float(energy[0])) for rank, energy in enumerate(energies, 1)]
@@ -162,13 +184,12 @@ def run(directory):
         total = len(tasks)
         update("running", total=total)
 
-        available_cpu = max(1, int(config.get("cpu", os.cpu_count() or 1)))
+        available_cpu, vina_threads = vina_cpu_threads(config)
         exhaustiveness = max(1, int(config["exhaustiveness"]))
 
-        # Vina itself parallelizes its independent Monte-Carlo runs. Giving a
-        # single search all useful CPU threads avoids competing Vina processes,
-        # duplicated search overhead, and idle remainder cores.
-        vina_threads = max(1, min(available_cpu, exhaustiveness))
+        # Use all worker CPUs that Vina can employ for these independent
+        # Monte-Carlo runs. The user-defined exhaustiveness is never silently
+        # increased: doing so would change the scientific search protocol.
 
         print(
             f"Vina compute: {available_cpu} CPU(s) allocated; "
