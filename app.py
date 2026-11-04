@@ -1056,7 +1056,7 @@ def show_remote_job(remote, local_key, remote_key):
 
     # Computer C snapshots are published every ~12s; poll every 5s to avoid
     # exhausting GitHub API quota without compromising meaningful freshness.
-    refresh_seconds = 10 if remote.get('backend') == 'computer-d-vina' else (5 if remote.get('backend') != 'kaggle-direct' else 2)
+    refresh_seconds = 4 if remote.get('backend') == 'computer-d-vina' else (5 if remote.get('backend') != 'kaggle-direct' else 2)
 
     @st.fragment(run_every=refresh_seconds if polling else None)
     def live_remote_job():
@@ -1092,7 +1092,7 @@ def show_remote_job(remote, local_key, remote_key):
             elapsed = current.get('elapsed_seconds')
             if elapsed is not None:
                 st.caption(f"Current Vina search elapsed: {float(elapsed):.0f} seconds")
-            st.caption("Progress counts completed ligand–seed docking searches, not Vina's internal optimization iterations. Updates arrive through the GitHub worker approximately every 10 seconds.")
+            st.caption("Progress counts completed ligand–seed docking searches, not Vina's internal iterations. Computer D checks for new jobs every 4 seconds; GitHub progress snapshots are periodic, not continuous.")
         # A workflow step list is infrastructure metadata, NOT docking progress.
         # Keep the primary view dedicated to the real Vina/Meeko worker stdout.
         if current['state'] == 'queued':
