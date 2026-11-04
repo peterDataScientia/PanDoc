@@ -53,6 +53,7 @@ html,body{
   width:100%;
   max-width:1440px;
   padding:0 2rem 4rem;
+  margin-top:-1.25rem;
 }
 
 hr{
@@ -93,6 +94,7 @@ p,li,[data-testid="stCaptionContainer"]{
 
 [data-testid="stSidebar"] .block-container{
   padding:1rem 1rem 2rem;
+  margin-top:0;
 }
 
 [data-testid="stSidebar"] img{
