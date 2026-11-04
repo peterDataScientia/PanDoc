@@ -545,41 +545,67 @@ def backend_for_handle(handle):
 
 
 def prepare_candidates_on_streamlit(ligands, ph, enumerate_states):
+    """Prepare candidates independently; retain explicit per-compound failures."""
     from rdkit import Chem
     from rdkit.Chem import rdMolDescriptors
 
-    prepared = []
-    for parent_index, item in enumerate(ligands, 1):
-        name = item['name']
-        smiles = item['smiles']
-        if enumerate_states:
-            states = phprep.enumerate_ligand_states(smiles, ph)
-            for state in states:
-                prepared.append((name, parent_index, state['index'], state['mol'], state['smiles']))
-        else:
-            mol = core.molecule(smiles=smiles)
-            state_smiles = Chem.MolToSmiles(Chem.RemoveHs(mol), isomericSmiles=True)
-            prepared.append((name, parent_index, 1, mol, state_smiles))
-
-    if len(prepared) > 500:
-        raise ValueError(
-            f'pH-aware enumeration generated {len(prepared)} states. '
-            'Reduce the input set or prepare compounds in smaller batches (maximum 500 prepared states per run).'
-        )
-
     directory = root/'candidates'/uuid.uuid4().hex
     directory.mkdir(parents=True, exist_ok=True)
-    records = []
-    for i, (name, parent_index, state_index, mol, state_smiles) in enumerate(prepared, 1):
-        ident = f'ligand_{i:03d}'
-        path = directory/(ident+'.pdbqt')
-        core.write_ligand(mol, path)
-        records.append(dict(
-            id=ident, name=name, parent=parent_index, microstate=state_index,
-            smiles=state_smiles, pH=ph, path=str(path),
-            formula=rdMolDescriptors.CalcMolFormula(mol),
-            charge=int(Chem.GetFormalCharge(mol)),
-        ))
+    records, failures = [], []
+    max_states = 500
+    next_id = 1
+    for parent_index, item in enumerate(ligands, 1):
+        name = str(item['name'])
+        smiles = str(item['smiles'])
+        try:
+            if enumerate_states:
+                states = phprep.enumerate_ligand_states(smiles, ph)
+            else:
+                try:
+                    mol = core.molecule(smiles=smiles)
+                except (ValueError, RuntimeError):
+                    from pandoc import ligand_recovery
+                    mol, audit = ligand_recovery.prepare(
+                        smiles, allow_counterion_removal=False
+                    )
+                    st.caption(f"3D conformer fallback used for {name}: {audit['conformer_method']}")
+                state_smiles = Chem.MolToSmiles(Chem.RemoveHs(mol), isomericSmiles=True)
+                states = [{'index': 1, 'mol': mol, 'smiles': state_smiles}]
+            if len(records) + len(states) > max_states:
+                raise ValueError('Prepared-state limit of 500 exceeded; reduce or split the CSV.')
+            for state in states:
+                ident = f'ligand_{next_id:04d}'
+                path = directory/(ident+'.pdbqt')
+                try:
+                    core.write_ligand(state['mol'], path)
+                except (ValueError, RuntimeError, OSError) as exc:
+                    path.unlink(missing_ok=True)
+                    path.with_suffix('.sdf').unlink(missing_ok=True)
+                    raise ValueError(f"Microstate {state['index']}: {exc}") from exc
+                records.append(dict(
+                    id=ident, name=name, parent=parent_index,
+                    microstate=state['index'], smiles=state['smiles'],
+                    pH=ph, path=str(path),
+                    formula=rdMolDescriptors.CalcMolFormula(state['mol']),
+                    charge=int(Chem.GetFormalCharge(state['mol'])),
+                ))
+                next_id += 1
+        except (ValueError, RuntimeError, OSError) as exc:
+            failures.append({
+                'compound_id': name, 'csv_row': parent_index,
+                'smiles': smiles, 'reason': str(exc)[:700],
+            })
+    st.session_state.candidate_preparation_failures = failures
+    if failures:
+        st.warning(
+            f"{len(failures)} candidate(s) failed preparation; their IDs and reasons "
+            "are available below. Failed structures were not docked."
+        )
+    if not records:
+        raise ValueError(
+            f"No candidate could be prepared ({len(failures)} failed). "
+            "Review the preparation failures before docking."
+        )
     return records
 
 
@@ -2390,6 +2416,14 @@ with workspace:
                     candidates=st.session_state.get('candidate_paths',[])
                     if candidates:
                         st.dataframe(pd.DataFrame(candidates).drop(columns=['path']),hide_index=True)
+                    prep_failures = st.session_state.get('candidate_preparation_failures', [])
+                    if prep_failures:
+                        st.warning(f'{len(prep_failures)} compound(s) failed ligand preparation and will not be docked.')
+                        st.dataframe(pd.DataFrame(prep_failures), hide_index=True, width='stretch')
+                        st.download_button('Download failed compounds CSV',
+                                           pd.DataFrame(prep_failures).to_csv(index=False),
+                                           'failed_ligand_preparation.csv', 'text/csv',
+                                           key='download_failed_candidate_prep')
                     config['ligands']=candidates
                     matched = False
                     for job in jobs.list_jobs(root):
