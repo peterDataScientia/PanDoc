@@ -156,7 +156,9 @@ def run_job(branch,job_id):
         config=json.loads((folder/"config.json").read_text())
         receptor=validate(config,folder)
         total=len(config["ligands"])*len(config["seeds"])
-        cpu=max(1,min(4,int(config.get("cpu",4)),int(config["exhaustiveness"])))
+        # Use every logical processor visible to Windows; no 4-thread or
+        # exhaustiveness-derived cap. Vina manages the search threads.
+        cpu=max(1, os.cpu_count() or 1)
         records=[]
         for ligand in config["ligands"]:
             for seed in config["seeds"]:
