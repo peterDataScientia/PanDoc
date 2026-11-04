@@ -36,8 +36,8 @@ class ComputerDCompute:
     def submit(self, root, config):
         from .core import validate_config
         validate_config(config)
-        if not 1 <= len(config.get("ligands",[])) <= 25:
-            raise ComputerDError("Computer D accepts 1-25 prepared ligands per run.")
+        if not 1 <= len(config.get("ligands",[])) <= 500:
+            raise ComputerDError("Computer D accepts 1-500 prepared ligands per run.")
         job_id = uuid.uuid4().hex
         branch = "pandoc-d-job-" + job_id
         encrypted = _payload(config, self.key)
