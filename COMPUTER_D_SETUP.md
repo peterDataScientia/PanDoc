@@ -16,6 +16,6 @@ The GitHub token must have Contents read/write permission for `peterDataScientia
 
 Only docking runs on Windows: receptor/ligand preparation, PDBQT-to-SDF conversion, and symmetry-aware RMSD remain on the Streamlit host. Computer A/B/C are unchanged.
 
-Limits: 500 prepared ligands, 5 seeds, 20 poses, 60 Å box dimensions, max 4 CPU threads, 1 hour/search, 35 MB encrypted transport per direction. One worker process at a time. Cancellation is observed between searches, not mid-search. Failed jobs may leave temporary branches that need cleanup.
+Limits: 500 prepared ligands, 5 seeds, 20 poses, 60 Å box dimensions, all logical CPUs visible to Windows, 1 hour/search, 35 MB encrypted transport per direction. One worker process at a time. Cancellation is observed between searches, not mid-search. Failed jobs may leave temporary branches that need cleanup.
 
 **Deployment limitation:** A network connection and a real docking test are required to confirm end-to-end operation. Do not claim that the worker is online until its CMD is running. The worker does not automatically become available just because the Streamlit runtime choice appears.
