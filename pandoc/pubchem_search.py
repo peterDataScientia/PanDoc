@@ -10,7 +10,8 @@ from urllib.parse import quote
 import requests
 
 _BASE = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
-_PROPERTIES = ("SMILES,IUPACName,Title,MolecularFormula,MolecularWeight,"\n               "XLogP,TPSA,HBondDonorCount,HBondAcceptorCount,RotatableBondCount")
+_PROPERTIES = ("SMILES,IUPACName,Title,MolecularFormula,MolecularWeight,"
+               "XLogP,TPSA,HBondDonorCount,HBondAcceptorCount,RotatableBondCount")
 
 
 class PubChemLookupError(ValueError):
