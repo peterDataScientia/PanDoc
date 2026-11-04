@@ -41,14 +41,23 @@ def run():
             repaired,root/'receptor',template_assignments=assignments)
         ligand_path=root/'reference.pdbqt'
         core.write_ligand(reference,ligand_path)
-        results=worker._run_search(
-            root,
-            dict(receptor=str(rec_path),reference=str(ligand_path.with_suffix('.sdf')),
-                 center=center,size=size,exhaustiveness=8,poses=5),
-            dict(name='5E9C_DP4',id='dp4',path=str(ligand_path)),
-            seed=2026,cpu_threads=2)
+        seeds = [2026, 2027, 2028]
+        results = []
+        for seed in seeds:
+            print(f'Starting repeat-seed 5E9C validation: {seed}', flush=True)
+            results.extend(worker._run_search(
+                root,
+                dict(receptor=str(rec_path),reference=str(ligand_path.with_suffix('.sdf')),
+                     center=center,size=size,exhaustiveness=8,poses=5),
+                dict(name='5E9C_DP4',id='dp4',path=str(ligand_path)),
+                seed=seed,cpu_threads=2))
+        top_ranked = [row for row in results if row['rank'] == 1]
         report=dict(pdb='5E9C',ph=5.5,center=center,size=size,
                     ligand_audit=audit,protonation_review_flags=ambiguous,
+                    seeds=seeds,top_ranked_pose_rmsd_A={
+                        str(row['seed']): row['reference_rmsd_A'] for row in top_ranked},
+                    top_ranked_pose_within_2A=sum(row['reference_rmsd_A'] <= 2.0
+                                                  for row in top_ranked),
                     docking_results=results)
         print('5E9C_RED0CK_REPORT='+json.dumps(report,default=str))
         return report
