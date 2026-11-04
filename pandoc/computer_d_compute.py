@@ -88,7 +88,7 @@ class ComputerDCompute:
         target=Path(target)
         target.mkdir(parents=True,exist_ok=True)
         with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-            if len(archive.infolist())>1200:
+            if len(archive.infolist())>4000:
                 raise ComputerDError("Too many result files")
             for member in archive.infolist():
                 if member.is_dir(): continue
