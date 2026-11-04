@@ -16,6 +16,11 @@ def main():
     molecule,audit=glycans.reconstruct_glycan(ref,pdb)
     assert len(audit['residues'])==4
     assert audit['links']>=3
+    # 5E9C DP4 has two uronates and five sulfate substituents.
+    # At pH 5.5 the expected dominant formal charge is -7.
+    assert audit['formal_charge'] == -7, (
+        'Incorrect deposited CCD ionization for pH 5.5; do not proceed to docking. '
+        + repr(audit))
     assert molecule.GetNumConformers()==1
     import tempfile
     from pathlib import Path
