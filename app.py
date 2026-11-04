@@ -2266,7 +2266,35 @@ with workspace:
                             st.session_state['experiment_pubchem_ligands'] = []
                             st.session_state.pop('candidate_paths', None)
                             st.rerun()
-                    upload = st.file_uploader('Candidate ligands (multi-molecule SDF)', type=['sdf'])
+                    upload = st.file_uploader(
+                        'Candidate ligands (SDF or CSV with compound ID + SMILES)',
+                        type=['sdf', 'csv'], key='experiment_candidate_upload'
+                    )
+                    csv_id_column = csv_smiles_column = None
+                    if upload and upload.name.lower().endswith('.csv'):
+                        try:
+                            from io import BytesIO
+                            csv_preview = pd.read_csv(BytesIO(upload.getvalue()), encoding='utf-8-sig', nrows=5)
+                            csv_columns = [str(c) for c in csv_preview.columns]
+                            if len(csv_columns) < 2:
+                                st.error('CSV requires distinct compound ID and SMILES columns.')
+                            else:
+                                smi_default = next((i for i, c in enumerate(csv_columns)
+                                    if c.lower().strip() in ('smiles', 'canonical_smiles', 'isomeric_smiles', 'smile')), 1)
+                                id_default = next((i for i, c in enumerate(csv_columns)
+                                    if c.lower().strip() in ('id', 'compound_id', 'molecule_id', 'chembl_id', 'name')), 0)
+                                csv_left, csv_right = st.columns(2)
+                                with csv_left:
+                                    csv_id_column = st.selectbox('Compound ID column', csv_columns,
+                                                                 index=id_default, key='experiment_csv_id')
+                                with csv_right:
+                                    csv_smiles_column = st.selectbox('SMILES column', csv_columns,
+                                                                    index=smi_default, key='experiment_csv_smiles')
+                                st.dataframe(csv_preview, hide_index=True, width='stretch')
+                                st.caption('CSV enters the ordinary ligand-preparation and docking workflow. '
+                                           'Maximum 40 input ligands; Computer D accepts at most 25 prepared states per docking job.')
+                        except (ValueError, UnicodeDecodeError, pd.errors.ParserError) as exc:
+                            st.error('Could not read candidate CSV: ' + str(exc))
                     smiles_text = st.text_area('Or one SMILES per line', placeholder='CCO ethanol')
                     candidate_ph = float(st.session_state.get('preparation_record', {}).get('pH', 7.0))
                     enumerate_states = st.checkbox(f'Enumerate candidate protonation/tautomer states at pH {candidate_ph:.1f} with Molscrub', value=True)
@@ -2281,13 +2309,34 @@ with workspace:
                             for item in st.session_state.get('experiment_pubchem_ligands', [])
                         ]
                         if upload:
-                            import io
-                            for i, mol in enumerate(Chem.ForwardSDMolSupplier(io.BytesIO(upload.getvalue()), removeHs=False)):
-                                if mol is None:
-                                    raise ValueError(f'Invalid molecule in SDF record {i+1}.')
-                                name = mol.GetProp('_Name') if mol.HasProp('_Name') and mol.GetProp('_Name').strip() else f'Ligand {i+1}'
-                                state_smiles = Chem.MolToSmiles(Chem.RemoveHs(mol), isomericSmiles=True)
-                                ligand_inputs.append({'name': name, 'smiles': state_smiles})
+                            if upload.name.lower().endswith('.csv'):
+                                from pandoc import bulk_ligands
+                                if not csv_id_column or not csv_smiles_column:
+                                    raise ValueError('Select the compound ID and SMILES columns first.')
+                                if csv_id_column == csv_smiles_column:
+                                    raise ValueError('Compound ID and SMILES must be different columns.')
+                                csv_records = bulk_ligands.parse_csv(
+                                    upload.getvalue(), csv_id_column, csv_smiles_column
+                                )
+                                if len(csv_records) + len(ligand_inputs) > 40:
+                                    raise ValueError(
+                                        'The experiment supports at most 40 input ligands. '
+                                        'Divide larger CSV libraries into batches.'
+                                    )
+                                for record in csv_records:
+                                    if not record['smiles']:
+                                        raise ValueError(f"Missing SMILES on CSV line {record['csv_line']}.")
+                                    if Chem.MolFromSmiles(record['smiles']) is None:
+                                        raise ValueError(f"Invalid SMILES on CSV line {record['csv_line']}.")
+                                    ligand_inputs.append({'name': record['id'], 'smiles': record['smiles']})
+                            else:
+                                import io
+                                for i, mol in enumerate(Chem.ForwardSDMolSupplier(io.BytesIO(upload.getvalue()), removeHs=False)):
+                                    if mol is None:
+                                        raise ValueError(f'Invalid molecule in SDF record {i+1}.')
+                                    name = mol.GetProp('_Name') if mol.HasProp('_Name') and mol.GetProp('_Name').strip() else f'Ligand {i+1}'
+                                    state_smiles = Chem.MolToSmiles(Chem.RemoveHs(mol), isomericSmiles=True)
+                                    ligand_inputs.append({'name': name, 'smiles': state_smiles})
                         for line in smiles_text.splitlines():
                             if line.strip():
                                 pieces = line.split(maxsplit=1)
