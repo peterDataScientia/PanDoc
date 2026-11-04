@@ -62,6 +62,24 @@ def inspect(pdb):
     return rows
 
 
+def glycan_chain_candidates(pdb):
+    """Suggest multi-residue hetero chains; connectivity requires user review.
+
+    A shared PDB chain identifier alone is not proof of covalent linkage.
+    Do not treat this as chemical reconstruction or a validated ligand.
+    """
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for item in inspect(pdb):
+        if item['kind'] != 'Other component':
+            continue
+        chain = item['chain']
+        if chain:
+            groups[chain].append(item['residue'])
+    return {f'Glycan candidate · chain {chain} ({len(residues)} residues)': residues
+            for chain, residues in sorted(groups.items()) if len(residues) >= 2}
+
+
 def select(pdb, residues, alternate='A', per_residue=None):
     per_residue = per_residue or {}
     from .structure_checks import alternate_options
