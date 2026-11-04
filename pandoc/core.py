@@ -62,6 +62,24 @@ def inspect(pdb):
     return rows
 
 
+def glycan_chain_candidates(pdb):
+    """Suggest multi-residue hetero chains; connectivity requires user review.
+
+    A shared PDB chain identifier alone is not proof of covalent linkage.
+    Do not treat this as chemical reconstruction or a validated ligand.
+    """
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for item in inspect(pdb):
+        if item['kind'] != 'Other component':
+            continue
+        chain = item['chain']
+        if chain:
+            groups[chain].append(item['residue'])
+    return {f'Glycan candidate · chain {chain} ({len(residues)} residues)': residues
+            for chain, residues in sorted(groups.items()) if len(residues) >= 2}
+
+
 def select(pdb, residues, alternate='A', per_residue=None):
     per_residue = per_residue or {}
     from .structure_checks import alternate_options
@@ -83,8 +101,11 @@ def select(pdb, residues, alternate='A', per_residue=None):
     if not selected:
         raise ValueError('Selection contains no atoms.')
     # Preserve retained atom connectivity; discard bonds to excluded atoms.
+    # PDB LINK/SSBOND records precede coordinates, while CONECT records must
+    # follow coordinates. OpenMM/PDBFixer rejects CONECT before the first model.
     serials = {int(line[6:11]) for line in selected}
-    metadata = []
+    header_connections = []
+    connectivity = []
     for line in pdb.splitlines():
         if line.startswith('ENDMDL'):
             break
@@ -93,7 +114,7 @@ def select(pdb, residues, alternate='A', per_residue=None):
             if ids and ids[0] in serials:
                 targets = [n for n in ids[1:] if n in serials]
                 if targets:
-                    metadata.append('CONECT'+''.join(f'{n:5d}' for n in [ids[0]]+targets))
+                    connectivity.append('CONECT'+''.join(f'{n:5d}' for n in [ids[0]]+targets))
         elif line.startswith(('LINK  ', 'SSBOND')):
             if line.startswith('LINK'):
                 endpoints = [(line[21:22].strip() or '_', line[22:26].strip()+line[26:27].strip(), line[17:20].strip()),
@@ -102,14 +123,45 @@ def select(pdb, residues, alternate='A', per_residue=None):
                 endpoints = [(line[15:16].strip() or '_', line[17:21].strip()+line[21:22].strip(), 'CYS'),
                              (line[29:30].strip() or '_', line[31:35].strip()+line[35:36].strip(), 'CYS')]
             if all(':'.join(e) in residues for e in endpoints):
-                metadata.append(line)
-    return '\n'.join(metadata + selected) + '\nEND\n'
+                header_connections.append(line)
+    return '\n'.join(header_connections + selected + connectivity) + '\nEND\n'
 
 
 def normalize_structure(data, suffix):
     if suffix.lower() in ('.cif', '.mmcif'):
         import gemmi
-        structure = gemmi.make_structure_from_block(gemmi.cif.read_string(data).sole_block())
+        block = gemmi.cif.read_string(data).sole_block()
+        # An mmCIF lacking unique label_asym_id values cannot distinguish
+        # duplicate author-chain copies if residue/atom identities overlap.
+        # Gemmi otherwise merges those atoms silently. Reject rather than
+        # pretend an atom-losing structure was converted faithfully.
+        # Some valid files provide atom/component names only under label_*
+        # (the synthetic regression fixture is one such example).
+        comp_tag = ('_atom_site.auth_comp_id' if block.find_values('_atom_site.auth_comp_id')
+                    else '_atom_site.label_comp_id')
+        atom_tag = ('_atom_site.auth_atom_id' if block.find_values('_atom_site.auth_atom_id')
+                    else '_atom_site.label_atom_id')
+        atom_table = block.find(['_atom_site.pdbx_PDB_model_num',
+                                 '_atom_site.auth_asym_id',
+                                 '_atom_site.auth_seq_id',
+                                 '_atom_site.pdbx_PDB_ins_code',
+                                 comp_tag, atom_tag,
+                                 '_atom_site.label_alt_id',
+                                 '_atom_site.label_asym_id'])
+        if atom_table:
+            seen = {}
+            for row in atom_table:
+                vals = tuple(str(value) for value in row)
+                identity = vals[:7]
+                label_asym = vals[7]
+                if identity in seen and (label_asym in ('.', '?', '')
+                                         or seen[identity] in ('.', '?', '')
+                                         or seen[identity] == label_asym):
+                    raise ValueError('Ambiguous duplicate mmCIF atom identity: '
+                                     'author-chain labels are repeated without '
+                                     'distinct label_asym_id; use a corrected mmCIF.')
+                seen[identity] = label_asym
+        structure = gemmi.make_structure_from_block(block)
         # mmCIF author IDs may repeat for distinct asym instances.
         # Key by (author chain name, occurrence within a model).
         models = list(structure)

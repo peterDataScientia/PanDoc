@@ -33,12 +33,14 @@ def _pandoc_logo_data_uri():
     except OSError:
         return ""
 
-def _brand_logo(width=250):
+def _brand_logo(width=250, floating=False):
     data_uri = _pandoc_logo_data_uri()
     if data_uri:
         st.markdown(
             f'<img src="{data_uri}" alt="PanDoc logo" '
-            f'style="display:block;width:{int(width)}px;max-width:100%;height:auto;margin:0.25rem 0 0.75rem 0;" />',
+            f'style="display:block;width:{int(width)}px;max-width:100%;height:auto;'
+            + ('position:fixed;top:4.2rem;right:1.8rem;z-index:50;margin:0;' if floating else
+               'margin:0.25rem 0 0.75rem 0;') + '" />',
             unsafe_allow_html=True,
         )
     else:
@@ -1221,7 +1223,7 @@ st.session_state.setdefault('workflow_stage', '1 · Load complex')
 stage = st.session_state.workflow_stage
 
 # Keep the brand visible even while the sidebar is collapsed.
-_brand_logo(width=220)
+_brand_logo(width=85, floating=True)
 with st.sidebar:
     _brand_logo(width=250)
     # One workflow navigator, inside Streamlit's collapsible sidebar.
@@ -1681,8 +1683,8 @@ with workspace:
             )
     try:
         if stage.startswith('1'):
-            st.write('Upload a complex, inspect its components and select the receptor and crystallographic reference ligand.')
             source_mode = st.radio('Structure source', ['Upload file', 'Search PDB'], horizontal=True, key='structure_source_mode')
+            st.caption('Select a complex, receptor chains, and a crystallographic reference ligand.')
             if source_mode == 'Upload file':
                 upload = st.file_uploader('PDB or mmCIF complex', type=['pdb', 'cif', 'mmcif'], key='complex_upload')
                 if upload:
@@ -1711,11 +1713,19 @@ with workspace:
                 other = [r['residue'] for r in rows if r['kind']!='Protein']
                 retained = st.multiselect('Retain waters, ions or cofactors', other)
                 ref_options = [r['residue'] for r in rows if r['kind']=='Other component']
-                ref = st.selectbox('Crystallographic reference ligand', ['None']+ref_options)
-                excluded_reference = ref in retained
+                glycan_options = core.glycan_chain_candidates(pdb)
+                ref = st.selectbox('Crystallographic reference ligand',
+                                   ['None'] + list(glycan_options) + ref_options)
+                reference_residues = glycan_options.get(ref, [ref] if ref != 'None' else [])
+                if ref in glycan_options:
+                    st.info('Multi-residue glycan candidate: ' + ', '.join(reference_residues)
+                            + '. Review covalent LINK/connectivity records. The complete '
+                              'selected chain can define an automatic box, but a CCD '
+                              'SMILES for one sugar is NOT valid chemistry for the whole glycan.')
+                excluded_reference = any(r in retained for r in reference_residues)
                 if excluded_reference:
                     st.info(f'{ref} will be saved separately for redocking and excluded from the receptor.')
-                retained = [residue for residue in retained if residue != ref]
+                retained = [residue for residue in retained if residue not in reference_residues]
                 alt = 'A'
                 overrides = {}
                 with st.expander('Alternate conformations'):
@@ -1733,7 +1743,7 @@ with workspace:
                 if st.button('Use selection and continue', type='primary'):
                     chosen = [r['residue'] for r in rows if r['kind']=='Protein' and r['chain'] in selected_chains]+retained
                     receptor = core.select(pdb, chosen, alt, overrides)
-                    reference = core.select(pdb, [ref], alt, overrides) if ref!='None' else None
+                    reference = core.select(pdb, reference_residues, alt, overrides) if reference_residues else None
                     selection = dict(chains=selected_chains, retained=retained, reference=ref, alternate=alt, overrides=overrides, reference_excluded_from_receptor=excluded_reference, alternate_recommendations=inventory['alternates'])
                     selection_id = core.digest(receptor, reference, selection)
                     if st.session_state.get('selection_id') != selection_id:
@@ -2067,6 +2077,7 @@ with workspace:
                         aa=core.atoms(ref)
                         component=aa[0]['res']
                         residue=core.key(aa[0])
+                        multi_residue = len({core.key(a) for a in aa}) > 1
                         identity=core.digest(ref)
                         input_key='reference_input_'+identity
                         definition_key='ccd_definition_'+identity
@@ -2074,7 +2085,15 @@ with workspace:
                         ui.card(st, 'Reference ligand', '', badge_text='Review', badge_kind='review')
                         st.write('Find its PDB chemical definition, review the molecule, then prepare it using the original crystal coordinates.')
                         left,right=st.columns([2,1])
-                        if left.button('Find ligand chemistry from PDB', type='primary'):
+                        if multi_residue:
+                            st.warning('This reference contains multiple residues. A single '
+                                       'CCD component cannot describe the full glycan. '
+                                       'PanDoc can use its crystallographic atoms to define '
+                                       'the search box, but whole-glycan chemistry and '
+                                       'connectivity must be reconstructed and checked '
+                                       'before redocking is enabled.')
+                        if left.button('Find ligand chemistry from PDB', type='primary',
+                                       disabled=multi_residue):
                             try:
                                 with st.spinner('Finding '+component+' in the Chemical Component Dictionary…'):
                                     definition=lookup_chemistry(component)
@@ -2205,7 +2224,48 @@ with workspace:
                         with st.expander('Inspect selected crystal ligand'):
                             viewer(pdb=ref)
                         reviewed=st.checkbox('I reviewed the ligand identity, stereochemistry and chemical state.',key='reference_review_'+identity)
-                        if st.button('Prepare reference ligand',disabled=not comparison['valid'] or not reviewed, key='prepare_reference_ligand'):
+                        if multi_residue:
+                            st.markdown('#### Whole-glycan preparation from crystal')
+                            st.caption('Uses the original atom coordinates, CCD atom/bond definitions for '
+                                       'each monosaccharide, and only explicitly deposited PDB LINKs. '
+                                       'No missing heavy atom is fabricated and no inter-residue bond '
+                                       'is guessed from distance.')
+                            if st.button('Reconstruct and prepare complete glycan',
+                                         type='primary', disabled=not reviewed,
+                                         key='prepare_whole_glycan_'+identity):
+                                try:
+                                    from pandoc import glycans
+                                    from rdkit import Chem
+                                    mol, glycan_audit = glycans.reconstruct_glycan(
+                                        ref, st.session_state.pdb, pH=ligand_ph)
+                                    ident = core.digest(ref, glycan_audit, ligand_ph)
+                                    directory = root/'references'/ident
+                                    directory.mkdir(parents=True, exist_ok=True)
+                                    (directory/'glycan_audit.json').write_text(
+                                        json.dumps(glycan_audit, indent=2))
+                                    core.write_ligand(mol, directory/'reference.pdbqt')
+                                    st.session_state.update(
+                                        reference_path=str(directory/'reference.sdf'),
+                                        reference_pdbqt=str(directory/'reference.pdbqt'),
+                                        reference_smiles=glycan_audit['proposed_isomeric_smiles'],
+                                        reference_id=ident,
+                                        reference_chemistry_source=dict(
+                                            source='CCD bonds + deposited inter-residue LINK',
+                                            preparation_pH=ligand_ph,
+                                            glycan_audit=glycan_audit))
+                                    manifest()
+                                    ui.automation_marker(st, 'reference-prepared',
+                                                         state='completed', value=ident)
+                                    st.success('Whole-glycan PDBQT and crystal-coordinate SDF written. '
+                                               'Review stereochemistry, ionization and docking suitability '
+                                               'before accepting an RMSD result.')
+                                except Exception as exc:
+                                    st.error('Whole-glycan preparation blocked: ' + str(exc))
+                            if st.session_state.get('reference_chemistry_source',{}).get('glycan_audit'):
+                                st.json(st.session_state.reference_chemistry_source['glycan_audit'])
+                        if st.button('Prepare reference ligand',
+                                     disabled=multi_residue or not comparison['valid'] or not reviewed,
+                                     key='prepare_reference_ligand'):
                             try:
                                 mol = core.reference_from_pdb(ref, selected_smiles)
                                 ident = core.digest(ref, selected_smiles.strip(), ligand_ph)
@@ -2224,7 +2284,8 @@ with workspace:
                                 with st.expander('Preparation explanation'):
                                     st.text(str(exc))
                         if st.session_state.get('reference_path'):
-                            if selected_smiles.strip()!=st.session_state.get('reference_smiles'):
+                            if (not multi_residue and
+                                    selected_smiles.strip()!=st.session_state.get('reference_smiles')):
                                 st.info('The downloaded reference below belongs to previously prepared chemistry. Prepare the edited SMILES before using it for a new validation.')
                             path = Path(st.session_state.reference_path)
                             ui.scroll_anchor(st, 'pd-reference-ready')

@@ -151,13 +151,19 @@ def main() -> int:
 
             # The app should move deterministically to structure preparation after rerun.
             wait_marker_state(page, "pandoc-complex", "ready")
-            page.wait_for_function(
-                """() => {
-                    const el = document.querySelector('[data-testid="pandoc-workflow-stage"]');
-                    return !!el && (el.getAttribute('data-state') || '').startsWith('2 ·');
-                }""",
-                timeout=60_000,
-            )
+            try:
+                page.wait_for_function(
+                    """() => {
+                        const el = document.querySelector('[data-testid="pandoc-workflow-stage"]');
+                        return !!el && (el.getAttribute('data-state') || '').startsWith('2 ·');
+                    }""",
+                    timeout=20_000,
+                )
+            except Exception:
+                print('SELECTION DIAGNOSTIC ALERTS:', page.locator('[data-testid="stAlert"]').all_text_contents())
+                print('SELECTION DIAGNOSTIC PAGE TAIL:', page.locator('body').inner_text()[-4500:])
+                page.screenshot(path=str(ARTIFACT_DIR / 'selection-failure-full.png'), full_page=True)
+                raise
 
             # Preparation is now a forward-flow workspace: pH is immediately
             # visible; advanced settings and the 3D receptor inspection are optional.
