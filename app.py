@@ -319,10 +319,9 @@ def search_pdb(options, start):
     # additional entry records before the user can see/select a hit.
     # Full metadata remains available through View structure details.
     result = pdb_search.search(**options, start=start)
-    result['summaries'] = [
-        dict(PDB=entry_id, Details='Select this structure and click View structure details')
-        for entry_id in result['ids']
-    ]
+    # Show only real data returned by RCSB. Do not repeat filler text
+    # in every row; rich titles/methods load on explicit selection.
+    result['summaries'] = [dict(PDB=entry_id) for entry_id in result['ids']]
     return result
 
 
@@ -385,6 +384,7 @@ def pdb_discovery():
         except (ValueError, RuntimeError) as exc:
             st.warning(str(exc))
     selected = st.selectbox('Structure to review', result['ids'])
+    st.caption(f'Selected PDB: {selected}. Open details to see the experimental method, resolution, protein chains and ligand components.')
     if st.button('View structure details', key='view_structure_details'):
         try:
             with st.spinner('Reading structure metadata…'):
