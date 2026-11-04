@@ -78,12 +78,19 @@ def reconstruct_glycan(reference_pdb, original_pdb, ccd_loader=None):
     if len(link_bonds) < len(residues) - 1:
         raise ValueError(f'{len(link_bonds)} inter-residue LINK records for '
                          f'{len(residues)} residues. Connectivity is incomplete; no inferred bonds added.')
-    linked_res = {x[0] for pair in link_bonds for x in pair}
     allowed_missing = {}
     for res, absent in missing.items():
         if absent:
-            if absent != ['O1'] or res not in linked_res:
-                raise ValueError(f'{res}: CCD heavy atoms absent: {absent}. Manual repair required.')
+            # An anomeric leaving oxygen is omitted only when the deposited
+            # LINK explicitly replaces it by bonding that very C1 center.
+            linked_anomeric_carbon = any(
+                endpoint[0] == res and endpoint[1] == 'C1'
+                for pair in link_bonds for endpoint in pair
+            )
+            if absent != ['O1'] or not linked_anomeric_carbon:
+                raise ValueError(
+                    f'{res}: missing CCD atoms {absent}; no C1 LINK explains O1. '
+                    'Do not fabricate or discard heavy atoms.')
             allowed_missing[res] = absent
 
     mol = Chem.RWMol()
