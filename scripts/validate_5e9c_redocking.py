@@ -22,7 +22,7 @@ def run():
     if len(names)!=1 or len(options[names[0]])!=4:
         raise ValueError(f'Unexpected glycan identification: {options}')
     glycan_pdb=core.select(pdb,options[names[0]])
-    reference,audit=glycans.reconstruct_glycan(glycan_pdb,pdb)
+    reference,audit=glycans.reconstruct_glycan(glycan_pdb,pdb,pH=5.5)
     components=core.inspect(pdb)
     receptor_ids=[r['residue'] for r in components if r['kind']=='Protein']
     receptor_pdb=core.select(pdb,receptor_ids)
