@@ -127,7 +127,10 @@ def run_vina_live(args, folder, on_update, timeout_seconds=3600, publish_interva
                 last_publish = now
                 dirty = False
         code = proc.wait()
-        on_update("\n".join(output[-120:]), time.monotonic()-start, dirty)
+        # Short searches should not trigger a separate GitHub commit simply
+        # because Vina exited. Batch progress at the worker level instead.
+        if time.monotonic() - start >= publish_interval:
+            on_update("\n".join(output[-120:]), time.monotonic()-start, dirty)
         return code, "\n".join(output)
     finally:
         if proc.poll() is None:
@@ -163,14 +166,20 @@ def run_job(branch,job_id):
         # GitHub is a remote control plane, not a live per-second log stream.
         # Limit network uploads while keeping all scientific output in local Vina log.
         records=[]
+        last_report=time.monotonic()
+        last_cancel_check=0.0
         for ligand in config["ligands"]:
             for seed in config["seeds"]:
-                try: get_file(branch,base+"cancel.json")
-                except RuntimeError as exc:
-                    if "404" not in str(exc):raise
-                else:
-                    status("cancelled",total=total)
-                    return
+                # Check cancellation every 10 seconds rather than making an
+                # extra GitHub request before every short ligand search.
+                if time.monotonic() - last_cancel_check >= 10.0:
+                    last_cancel_check=time.monotonic()
+                    try: get_file(branch,base+"cancel.json")
+                    except RuntimeError as exc:
+                        if "404" not in str(exc):raise
+                    else:
+                        status("cancelled",total=total)
+                        return
                 out=f"{ligand['id']}_seed{int(seed)}.pdbqt"
                 args=[str(VINA),"--receptor",str(receptor),"--ligand",str((folder/ligand["path"]).resolve()),
                       "--center_x",str(float(config["center"][0])),"--center_y",str(float(config["center"][1])),
@@ -180,12 +189,13 @@ def run_job(branch,job_id):
                       "--num_modes",str(int(config["poses"])),"--seed",str(int(seed)),
                       "--out",str(folder/out)]
                 current=f"{ligand['id']} / seed {seed}"
-                status("running", current=current, total=total,
-                       active_ligand=str(ligand["name"]), active_seed=int(seed))
                 search_start=time.monotonic()
                 logs.append("Starting "+current+" CPU="+str(cpu))
-                # One upload at start, rather than several commits per progress tick.
-                log()
+                if completed == 0 or time.monotonic()-last_report >= 30:
+                    status("running", current=current, total=total,
+                           active_ligand=str(ligand["name"]), active_seed=int(seed))
+                    log()
+                    last_report=time.monotonic()
                 def publish_live(output, elapsed, changed):
                     if changed and output:
                         logs.append(output[-6000:])
@@ -198,14 +208,18 @@ def run_job(branch,job_id):
                 search_elapsed=time.monotonic()-search_start
                 logs.append(f"Finished {current}: Vina elapsed {search_elapsed:.1f} s")
                 logs.append(output[-12000:])
-                log()
                 if returncode or not (folder/out).is_file():
+                    log()
                     raise RuntimeError("Vina returned failure for "+current)
                 scores=score_table(folder/out)
                 records.append({"ligand":str(ligand["name"]),"ligand_id":str(ligand["id"]),
                                 "seed":int(seed),"pdbqt":out,"scores":scores})
                 completed+=1
-                status("running",current=current,total=total)
+                if time.monotonic()-last_report >= 30 and completed < total:
+                    status("running",current=current,total=total)
+                    log()
+                    last_report=time.monotonic()
+        log()
         (folder/"raw_results.json").write_text(json.dumps(records,indent=2))
         (folder/"worker.log").write_text("\n".join(logs))
         stream=io.BytesIO()
