@@ -49,7 +49,9 @@ def test_search_review_load_workflow(tmp_path, monkeypatch):
     revealed = []
     monkeypatch.setattr(ui, 'auto_scroll', lambda st, name: revealed.append(name))
     monkeypatch.setattr(pdb_search, 'search', lambda **kwargs: dict(ids=['1LF2'], total=1, query={'fixture': True}))
-    monkeypatch.setattr(pdb_search, 'summaries', lambda ids: [dict(PDB='1LF2', Title='Test complex')])
+    def should_not_fetch_all_summaries(ids):
+        raise AssertionError('PDB search must not request metadata for every hit')
+    monkeypatch.setattr(pdb_search, 'summaries', should_not_fetch_all_summaries)
     monkeypatch.setattr(pdb_search, 'details', lambda _: dict(entry={'struct': {'title': 'Test complex'}}, proteins=[], ligands=[], warnings=[]))
     # A valid coordinate file, passed through the same normalization as a fetched mmCIF.
     import gemmi
