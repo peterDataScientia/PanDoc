@@ -31,7 +31,7 @@ def _ccd(component):
         raise ValueError(f'CCD {component} has no complete atom/bond definition.')
     return atoms, bonds
 
-def reconstruct_glycan(reference_pdb, original_pdb, ccd_loader=None):
+def reconstruct_glycan(reference_pdb, original_pdb, ccd_loader=None, pH=None):
     """Return (RDKit ligand with crystal coords, audit). Requires explicit PDB LINKs.
 
     Stereochemistry is inferred from observed coordinates, NOT certified against
@@ -127,8 +127,32 @@ def reconstruct_glycan(reference_pdb, original_pdb, ccd_loader=None):
         Chem.AssignStereochemistry(result, force=True, cleanIt=True)
     except Exception as exc:
         raise ValueError(f'RDKit valence or stereochemistry failed: {exc}') from exc
+    neutral_charge = Chem.GetFormalCharge(result)
+    ionized_groups = {'sulfate': 0, 'carboxylate': 0}
+    if pH is not None:
+        ph_value = float(pH)
+        if not (5.0 <= ph_value <= 8.0):
+            raise ValueError('Automatic glycan sulfate/carboxylate deprotonation '
+                             'is supported only at pH 5.0–8.0. Review lower-pH microstates.')
+        patterns = {
+            'sulfate': Chem.MolFromSmarts('[O;H1]-[S;X4](=[O])(=[O])'),
+            'carboxylate': Chem.MolFromSmarts('[O;H1]-[C;X3](=[O])'),
+        }
+        for group_name, pattern in patterns.items():
+            matches = result.GetSubstructMatches(pattern)
+            for match in matches:
+                acid_oxygen = result.GetAtomWithIdx(match[0])
+                acid_oxygen.SetFormalCharge(-1)
+                acid_oxygen.SetNumExplicitHs(0)
+                acid_oxygen.SetNoImplicit(True)
+                ionized_groups[group_name] += 1
+        Chem.SanitizeMol(result)
+        Chem.AssignStereochemistry(result, cleanIt=True, force=True)
     audit = dict(residues=residues, heavy_atoms=len(rows), links=len(link_bonds),
-                 missing_ccd_atoms=allowed_missing, formal_charge=Chem.GetFormalCharge(result),
+                 missing_ccd_atoms=allowed_missing,
+                 preparation_pH=pH, original_formal_charge=neutral_charge,
+                 ionized_groups=ionized_groups,
+                 formal_charge=Chem.GetFormalCharge(result),
                  proposed_isomeric_smiles=Chem.MolToSmiles(result, isomericSmiles=True),
-                 note='CCD+deposited LINK reconstruction; coordinates conserved; stereochemistry/charge require independent confirmation.')
+                 note='CCD+deposited LINK reconstruction; crystal heavy coordinates conserved; sulfate/carboxylate ionization modeled at specified pH; stereochemistry and charge-state assumptions require independent review.')
     return Chem.AddHs(result, addCoords=True), audit
