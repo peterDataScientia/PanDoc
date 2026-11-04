@@ -561,10 +561,10 @@ def prepare_candidates_on_streamlit(ligands, ph, enumerate_states):
             state_smiles = Chem.MolToSmiles(Chem.RemoveHs(mol), isomericSmiles=True)
             prepared.append((name, parent_index, 1, mol, state_smiles))
 
-    if len(prepared) > 40:
+    if len(prepared) > 500:
         raise ValueError(
             f'pH-aware enumeration generated {len(prepared)} states. '
-            'Reduce the input set or prepare compounds in smaller batches (maximum 40 states per run).'
+            'Reduce the input set or prepare compounds in smaller batches (maximum 500 prepared states per run).'
         )
 
     directory = root/'candidates'/uuid.uuid4().hex
@@ -2247,8 +2247,8 @@ with workspace:
                         if st.button('Add PubChem ligand to experiment', key='pubchem_add_ligand'):
                             selected = st.session_state.setdefault('experiment_pubchem_ligands', [])
                             if not any(item['cid'] == pubchem_result['cid'] for item in selected):
-                                if len(selected) >= 40:
-                                    st.warning('The experiment supports up to 40 candidate ligands.')
+                                if len(selected) >= 500:
+                                    st.warning('The experiment supports up to 500 candidate ligands.')
                                 else:
                                     selected.append(dict(pubchem_result))
                                     st.session_state.pop('candidate_paths', None)
@@ -2292,7 +2292,7 @@ with workspace:
                                                                     index=smi_default, key='experiment_csv_smiles')
                                 st.dataframe(csv_preview, hide_index=True, width='stretch')
                                 st.caption('CSV enters the ordinary ligand-preparation and docking workflow. '
-                                           'Maximum 40 input ligands; Computer D accepts at most 25 prepared states per docking job.')
+                                           'Maximum 500 input ligands; Computer D accepts up to 500 prepared states per docking job.')
                         except (ValueError, UnicodeDecodeError, pd.errors.ParserError) as exc:
                             st.error('Could not read candidate CSV: ' + str(exc))
                     smiles_text = st.text_area('Or one SMILES per line', placeholder='CCO ethanol')
@@ -2318,9 +2318,9 @@ with workspace:
                                 csv_records = bulk_ligands.parse_csv(
                                     upload.getvalue(), csv_id_column, csv_smiles_column
                                 )
-                                if len(csv_records) + len(ligand_inputs) > 40:
+                                if len(csv_records) + len(ligand_inputs) > 500:
                                     raise ValueError(
-                                        'The experiment supports at most 40 input ligands. '
+                                        'The experiment supports at most 500 input ligands. '
                                         'Divide larger CSV libraries into batches.'
                                     )
                                 for record in csv_records:
@@ -2344,8 +2344,8 @@ with workspace:
                                     'name': pieces[1] if len(pieces) > 1 else f'Ligand {len(ligand_inputs)+1}',
                                     'smiles': pieces[0],
                                 })
-                        if not 1 <= len(ligand_inputs) <= 40:
-                            raise ValueError('Prepare between one and 40 input candidate ligands.')
+                        if not 1 <= len(ligand_inputs) <= 500:
+                            raise ValueError('Prepare between one and 500 input candidate ligands.')
                         if cloud_compute_mode():
                             try:
                                 with st.spinner('Preparing candidate ligands on Streamlit Cloud…'):
