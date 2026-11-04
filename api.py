@@ -344,7 +344,7 @@ async def submit_docking_job(
     seeds: str = Form("[2026]"),
     exhaustiveness: int = Form(8),
     poses: int = Form(9),
-    cpu: int = Form(2),
+    cpu: int = Form(0),
     reference: UploadFile | None = File(None),
 ):
     if not 1 <= len(ligands) <= 40:
@@ -383,7 +383,7 @@ async def submit_docking_job(
         "seeds": seed_values,
         "exhaustiveness": exhaustiveness,
         "poses": poses,
-        "cpu": max(1, min(int(cpu), 8)),
+        "cpu": max(0, int(cpu)),  # 0 = all CPUs available to the actual compute worker.
     }
     try:
         core.validate_config(config)
@@ -503,7 +503,7 @@ class RedockingReview(BaseModel):
     seeds: list[int] | None = None
     exhaustiveness: int = Field(default=8, ge=1, le=64)
     poses: int = Field(default=9, ge=1, le=20)
-    cpu: int = Field(default=2, ge=1, le=8)
+    cpu: int = Field(default=0, ge=0, le=256)
     approved: bool = False
 
 
