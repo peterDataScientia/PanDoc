@@ -10,24 +10,29 @@ STREAMLIT = "Computer A · Fast"
 KAGGLE = "Computer B · High capacity"
 GITHUB_ACTIONS = "Computer C · Backup"
 
-OPTIONS = (STREAMLIT, KAGGLE, GITHUB_ACTIONS)
+COMPUTER_D = "Computer D · Tailscale Vina"
+
+OPTIONS = (STREAMLIT, KAGGLE, GITHUB_ACTIONS, COMPUTER_D)
 
 LABELS = {
     STREAMLIT: "This app (default)",
     KAGGLE: "Kaggle worker",
     GITHUB_ACTIONS: "GitHub Actions",
+    COMPUTER_D: "Windows Vina worker",
 }
 
 RUNTIME_LABELS = {
     STREAMLIT: "Computer A · This app",
     KAGGLE: "Computer B · Kaggle",
     GITHUB_ACTIONS: "Computer C · GitHub Actions",
+    COMPUTER_D: "Computer D · Tailscale Vina",
 }
 
 DESCRIPTIONS = {
     STREAMLIT: "Runs work in the current Streamlit session. May fall back to GitHub Actions if configured.",
     KAGGLE: "Runs jobs on an external Kaggle worker. Requires a configured, reachable worker; may fall back to GitHub Actions.",
     GITHUB_ACTIONS: "Runs jobs remotely in GitHub Actions. Requires administrator-configured credentials.",
+    COMPUTER_D: "Docking-only Windows Vina worker with encrypted outbound GitHub transport. Tailscale is for private administration.",
 }
 
 
