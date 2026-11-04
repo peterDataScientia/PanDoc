@@ -10,7 +10,7 @@ from urllib.parse import quote
 import requests
 
 _BASE = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
-_PROPERTIES = "SMILES,IUPACName,Title,MolecularFormula,MolecularWeight"
+_PROPERTIES = ("SMILES,IUPACName,Title,MolecularFormula,MolecularWeight,"\n               "XLogP,TPSA,HBondDonorCount,HBondAcceptorCount,RotatableBondCount")
 
 
 class PubChemLookupError(ValueError):
@@ -58,5 +58,29 @@ def find_compound(term: str) -> dict:
         "smiles": Chem.MolToSmiles(molecule, isomericSmiles=True),
         "formula": str(entry.get("MolecularFormula") or ""),
         "weight": entry.get("MolecularWeight"),
+        "iupac_name": str(entry.get("IUPACName") or ""),
+        "xlogp": entry.get("XLogP"),
+        "tpsa": entry.get("TPSA"),
+        "hbd": entry.get("HBondDonorCount"),
+        "hba": entry.get("HBondAcceptorCount"),
+        "rotatable_bonds": entry.get("RotatableBondCount"),
         "url": f"https://pubchem.ncbi.nlm.nih.gov/compound/{cid}",
+    }
+
+
+def compound_details_row(compound: dict) -> dict:
+    """Use the same visible columns for search results and selected ligands."""
+    return {
+        "CID": compound["cid"],
+        "Compound": compound["name"],
+        "Molecular formula": compound.get("formula") or "—",
+        "MW (g/mol)": compound.get("weight"),
+        "XLogP": compound.get("xlogp"),
+        "TPSA (Å²)": compound.get("tpsa"),
+        "HBD": compound.get("hbd"),
+        "HBA": compound.get("hba"),
+        "Rotatable bonds": compound.get("rotatable_bonds"),
+        "IUPAC name": compound.get("iupac_name") or "—",
+        "SMILES": compound["smiles"],
+        "PubChem": compound["url"],
     }
