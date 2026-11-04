@@ -46,7 +46,7 @@ def put_file(branch,path,data,message):
 def unpack(encrypted,folder):
     raw=Fernet(KEY.encode()).decrypt(encrypted)
     with zipfile.ZipFile(io.BytesIO(raw)) as z:
-        if len(z.infolist())>100: raise ValueError("Too many input files")
+        if len(z.infolist())>1100: raise ValueError("Too many input files")
         if sum(i.file_size for i in z.infolist())>80_000_000: raise ValueError("Oversized input archive")
         for item in z.infolist():
             if item.is_dir(): continue
@@ -83,7 +83,7 @@ def score_table(path):
     if not values: raise RuntimeError("Vina produced no scored poses")
     return [float(v) for v in values]
 
-def run_vina_live(args, folder, on_update, timeout_seconds=3600, publish_interval=10, local_log=None):
+def run_vina_live(args, folder, on_update, timeout_seconds=3600, publish_interval=45, local_log=None):
     """Publish actual Vina stdout and heartbeat while its subprocess is alive."""
     output = []
     events = queue.Queue()
@@ -159,6 +159,9 @@ def run_job(branch,job_id):
         # Use every logical processor visible to Windows; no 4-thread or
         # exhaustiveness-derived cap. Vina manages the search threads.
         cpu=max(1, os.cpu_count() or 1)
+        print(f"Computer D: {cpu} logical CPUs visible; exhaustiveness={config['exhaustiveness']}",flush=True)
+        # GitHub is a remote control plane, not a live per-second log stream.
+        # Limit network uploads while keeping all scientific output in local Vina log.
         records=[]
         for ligand in config["ligands"]:
             for seed in config["seeds"]:
@@ -179,18 +182,22 @@ def run_job(branch,job_id):
                 current=f"{ligand['id']} / seed {seed}"
                 status("running", current=current, total=total,
                        active_ligand=str(ligand["name"]), active_seed=int(seed))
+                search_start=time.monotonic()
                 logs.append("Starting "+current+" CPU="+str(cpu))
+                # One upload at start, rather than several commits per progress tick.
                 log()
                 def publish_live(output, elapsed, changed):
-                    if changed:
-                        logs.append(output[-8000:])
+                    if changed and output:
+                        logs.append(output[-6000:])
                         log()
                     status("running", current=current, total=total,
                            active_ligand=str(ligand["name"]), active_seed=int(seed),
                            elapsed_seconds=round(elapsed, 1))
                 returncode, output = run_vina_live(args, folder, publish_live,
                                                     local_log=folder/"vina_live.log")
-                logs.append(output[-15000:])
+                search_elapsed=time.monotonic()-search_start
+                logs.append(f"Finished {current}: Vina elapsed {search_elapsed:.1f} s")
+                logs.append(output[-12000:])
                 log()
                 if returncode or not (folder/out).is_file():
                     raise RuntimeError("Vina returned failure for "+current)
@@ -291,6 +298,6 @@ def main():
                 run_job(branch,job_id)
         except (requests.RequestException,RuntimeError) as exc:
             print("Queue error:",exc,flush=True)
-        time.sleep(15)
+        time.sleep(8)
 
 if __name__=="__main__":main()
