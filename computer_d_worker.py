@@ -58,7 +58,7 @@ def validate(config,folder):
     receptor=(folder/config["receptor"]).resolve()
     if folder.resolve() not in receptor.parents or not receptor.is_file() or receptor.suffix.lower()!=".pdbqt":
         raise ValueError("Invalid receptor")
-    if not 1<=len(config["ligands"])<=25: raise ValueError("Invalid ligand count")
+    if not 1<=len(config["ligands"])<=500: raise ValueError("Invalid ligand count")
     if not 1<=len(config["seeds"])<=5 or any(not 1<=int(s)<=2147483647 for s in config["seeds"]):
         raise ValueError("Invalid seeds")
     if not 1<=int(config["poses"])<=20 or not 1<=int(config["exhaustiveness"])<=64:
