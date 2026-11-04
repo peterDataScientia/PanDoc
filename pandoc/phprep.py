@@ -110,16 +110,39 @@ def enumerate_ligand_states(smiles: str, ph: float, max_states: int = 16):
     base = Chem.MolFromSmiles(smiles.strip())
     if base is None:
         raise ValueError("RDKit could not read the ligand SMILES.")
-    scrub = Scrub(ph_low=float(ph), ph_high=float(ph))
+    # Molscrub defaults to a single ETKDG attempt; retry geometry generation
+    # without altering protonation/tautomer selection or silently changing SMILES.
+    strategies = (
+        {"num_etkdg_attempts": 20, "use_random_coords": False},
+        {"num_etkdg_attempts": 50, "use_random_coords": True},
+    )
+    failures = []
     unique = {}
-    for mol in scrub(base):
-        key = Chem.MolToSmiles(Chem.RemoveHs(mol), isomericSmiles=True)
-        if key not in unique:
-            unique[key] = mol
-        if len(unique) >= int(max_states):
-            break
+    for strategy in strategies:
+        try:
+            scrub = Scrub(
+                ph_low=float(ph), ph_high=float(ph),
+                etkdg_rng_seed=2026, **strategy
+            )
+            candidate_states = {}
+            for mol in scrub(base):
+                key = Chem.MolToSmiles(Chem.RemoveHs(mol), isomericSmiles=True)
+                if key not in candidate_states:
+                    candidate_states[key] = mol
+                if len(candidate_states) >= int(max_states):
+                    break
+            if candidate_states:
+                unique = candidate_states
+                break
+            failures.append("Molscrub returned no ligand microstates")
+        except (ValueError, RuntimeError, OSError) as exc:
+            failures.append(str(exc)[:300])
     if not unique:
-        raise ValueError("Molscrub did not generate a ligand state at the selected pH.")
+        raise ValueError(
+            "Molscrub could not generate a 3D ligand state after normal and "
+            "random-coordinate ETKDG retries. Review this compound's SMILES, "
+            "ring system and protonation state. " + " | ".join(failures)[-600:]
+        )
     result = []
     for i, (state_smiles, mol) in enumerate(unique.items(), 1):
         result.append({
