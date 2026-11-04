@@ -13,6 +13,8 @@ import time
 import zipfile
 from pathlib import Path
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from cryptography.fernet import Fernet
 
 REPO=os.environ.get("PANDOC_GITHUB_REPOSITORY","peterDataScientia/PanDoc")
@@ -22,9 +24,13 @@ VINA=Path(os.environ.get("PANDOC_VINA_EXE",r"C:\Program Files (x86)\vina_1.2\vin
 WORK=Path(os.environ.get("PANDOC_D_WORK_DIR",str(Path.home()/"PanDoc-Vina-Worker")))
 API="https://api.github.com/repos/"+REPO
 PREFIX="pandoc-d-job-"
+SESSION=requests.Session()
+SESSION.mount("https://", HTTPAdapter(max_retries=Retry(total=4,connect=4,read=4,
+    backoff_factor=1.5,status_forcelist=(429,500,502,503,504),
+    allowed_methods=frozenset(("GET",)),respect_retry_after_header=True)))
 
 def api(method,suffix,**kw):
-    response=requests.request(method,API+suffix,timeout=(15,90),headers={
+    response=SESSION.request(method,API+suffix,timeout=(20,90),headers={
         "Authorization":"Bearer "+TOKEN,"Accept":"application/vnd.github+json",
         "X-GitHub-Api-Version":"2022-11-28"},**kw)
     if response.status_code>=400:
@@ -35,13 +41,27 @@ def get_file(branch,path):
     return base64.b64decode(api("GET","/contents/"+path,params={"ref":branch})["content"])
 
 def put_file(branch,path,data,message):
-    old=None
-    try: old=api("GET","/contents/"+path,params={"ref":branch})["sha"]
-    except RuntimeError as exc:
-        if "404" not in str(exc): raise
-    request={"branch":branch,"message":message,"content":base64.b64encode(data).decode()}
-    if old: request["sha"]=old
-    api("PUT","/contents/"+path,json=request)
+    """Retry an ambiguous PUT after checking if the bytes were committed."""
+    encoded=base64.b64encode(data).decode()
+    for attempt in range(5):
+        try:
+            old=None
+            try:
+                existing=api("GET","/contents/"+path,params={"ref":branch})
+                if base64.b64decode(existing["content"])==data: return
+                old=existing["sha"]
+            except RuntimeError as exc:
+                if "404" not in str(exc): raise
+            request={"branch":branch,"message":message,"content":encoded}
+            if old: request["sha"]=old
+            api("PUT","/contents/"+path,json=request)
+            return
+        except (requests.RequestException,RuntimeError) as exc:
+            if isinstance(exc,RuntimeError) and not any(
+                f"GitHub API {code}:" in str(exc) for code in (409,422,429,500,502,503,504)):
+                raise
+            if attempt==4: raise
+            time.sleep(min(2**attempt,16))
 
 def unpack(encrypted,folder):
     raw=Fernet(KEY.encode()).decrypt(encrypted)
@@ -150,9 +170,15 @@ def run_job(branch,job_id):
     logs=[]
     completed=0
     def status(state,**extra):
-        put_file(branch,base+"status.json",json.dumps({"state":state,"completed":completed,**extra}).encode(),"Computer D "+state)
+        try:
+            put_file(branch,base+"status.json",json.dumps({"state":state,"completed":completed,**extra}).encode(),"Computer D "+state)
+        except (requests.RequestException,RuntimeError) as exc:
+            print("Status deferred (network):",type(exc).__name__,flush=True)
     def log():
-        put_file(branch,base+"log.bin",cipher.encrypt("\n".join(logs)[-20000:].encode()),"Encrypted Vina log")
+        try:
+            put_file(branch,base+"log.bin",cipher.encrypt("\n".join(logs)[-20000:].encode()),"Encrypted Vina log")
+        except (requests.RequestException,RuntimeError) as exc:
+            print("Live log deferred (network):",type(exc).__name__,flush=True)
     try:
         status("running",current="Loading encrypted prepared structures")
         unpack(get_file(branch,base+"input.bin"),folder)
@@ -175,8 +201,9 @@ def run_job(branch,job_id):
                 if time.monotonic() - last_cancel_check >= 10.0:
                     last_cancel_check=time.monotonic()
                     try: get_file(branch,base+"cancel.json")
-                    except RuntimeError as exc:
-                        if "404" not in str(exc):raise
+                    except (RuntimeError,requests.RequestException) as exc:
+                        if not isinstance(exc,RuntimeError) or "404" not in str(exc):
+                            print("Cancellation check deferred:",type(exc).__name__,flush=True)
                     else:
                         status("cancelled",total=total)
                         return
@@ -233,8 +260,14 @@ def run_job(branch,job_id):
                 if path.is_file(): z.write(path,path.relative_to(folder).as_posix())
         encrypted=cipher.encrypt(stream.getvalue())
         if len(encrypted)>35_000_000: raise RuntimeError("Result exceeds 35 MB transport limit")
-        put_file(branch,base+"result.bin",encrypted,"Encrypted Computer D docking result")
-        status("completed",total=total,current="Vina docking finished")
+        pending=folder/"pending_result.bin"
+        pending.write_bytes(encrypted)
+        try:
+            put_file(branch,base+"result.bin",encrypted,"Encrypted Computer D docking result")
+            status("completed",total=total,current="Vina docking finished")
+            pending.unlink(missing_ok=True)
+        except (requests.RequestException,RuntimeError) as exc:
+            print("Result queued locally for retry:",type(exc).__name__,flush=True)
     except Exception as exc:
         logs.append("ERROR: "+str(exc))
         try: log()
@@ -309,14 +342,29 @@ def main():
                 branch=ref["ref"].removeprefix("refs/heads/")
                 if not re.fullmatch(r"pandoc-d-job-[0-9a-f]{32}",branch):continue
                 job_id=branch.removeprefix(PREFIX)
+                base=f".pandoc_d_jobs/{job_id}/"
+                folder=WORK/"jobs"/job_id
                 try:
-                    info=json.loads(get_file(branch,f".pandoc_d_jobs/{job_id}/status.json"))
-                    if info.get("state") in ("running","completed","failed","cancelled"):continue
+                    info=json.loads(get_file(branch,base+"status.json"))
+                    if info.get("state") in ("completed","failed","cancelled"):continue
+                    if info.get("state")=="running":
+                        pending=folder/"pending_result.bin"
+                        if pending.is_file():
+                            put_file(branch,base+"result.bin",pending.read_bytes(),
+                                     "Encrypted Computer D docking result")
+                            count=len(json.loads((folder/"raw_results.json").read_text()))
+                            put_file(branch,base+"status.json",
+                                     json.dumps({"state":"completed","completed":count,
+                                                 "current":"Vina docking finished"}).encode(),
+                                     "Computer D completed")
+                            pending.unlink(missing_ok=True)
+                            print("Recovered delivery:",job_id,flush=True)
+                        continue
                 except RuntimeError as exc:
                     if "404" not in str(exc):raise
                 run_job(branch,job_id)
         except (requests.RequestException,RuntimeError) as exc:
             print("Queue error:",exc,flush=True)
-        time.sleep(4)
+        time.sleep(12)
 
 if __name__=="__main__":main()
