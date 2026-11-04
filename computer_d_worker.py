@@ -116,7 +116,7 @@ def run_vina_live(args, folder, on_update, timeout_seconds=3600, publish_interva
                     output.append(line)
                     print(line, flush=True)
                     if local_stream:
-                        local_stream.write(line + "\\n")
+                        local_stream.write(line + "\n")
                         local_stream.flush()
                     dirty = True
             except queue.Empty:
