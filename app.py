@@ -315,8 +315,14 @@ def load_complex(text, suffix, provenance):
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def search_pdb(options, start):
+    # RCSB search already returns ranked PDB IDs. Avoid fetching ten
+    # additional entry records before the user can see/select a hit.
+    # Full metadata remains available through View structure details.
     result = pdb_search.search(**options, start=start)
-    result['summaries'] = pdb_search.summaries(result['ids'])
+    result['summaries'] = [
+        dict(PDB=entry_id, Details='Select this structure and click View structure details')
+        for entry_id in result['ids']
+    ]
     return result
 
 
@@ -362,7 +368,8 @@ def pdb_discovery():
         return
     start = st.session_state.get('pdb_search_start', 0)
     st.caption(f"{result['total']} matches · showing {start+1}–{start+len(result['ids'])}. Search relevance does not measure docking suitability.")
-    st.dataframe(pd.DataFrame(result['summaries']), hide_index=True, width='stretch')
+    # Static list avoids the heavier interactive DataFrame frontend module.
+    st.table(pd.DataFrame(result['summaries']))
     left, right = st.columns(2)
     previous = left.button('Previous results', disabled=start == 0)
     following = right.button('Next results', disabled=start+10 >= result['total'])
