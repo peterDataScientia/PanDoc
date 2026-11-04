@@ -46,7 +46,7 @@ def put_file(branch,path,data,message):
 def unpack(encrypted,folder):
     raw=Fernet(KEY.encode()).decrypt(encrypted)
     with zipfile.ZipFile(io.BytesIO(raw)) as z:
-        if len(z.infolist())>1100: raise ValueError("Too many input files")
+        if len(z.infolist())>1200: raise ValueError("Too many input files")
         if sum(i.file_size for i in z.infolist())>80_000_000: raise ValueError("Oversized input archive")
         for item in z.infolist():
             if item.is_dir(): continue
