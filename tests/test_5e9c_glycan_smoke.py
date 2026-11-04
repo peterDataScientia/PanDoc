@@ -36,6 +36,10 @@ def test_live_5e9c_glycan_preparation():
     """Run against deposited 5E9C and official CCDs in GitHub Actions."""
     main()
 
+@__import__('pytest').mark.skipif(
+    __import__('os').environ.get('PANDOC_RUN_5E9C_REDOCK') != '1',
+    reason='Long Vina diagnostic runs in the dedicated glycan workflow.'
+)
 def test_live_5e9c_redocking_diagnostic():
     """Attempt whole-glycan pH-aware Vina recovery; report rather than assume RMSD."""
     from scripts.validate_5e9c_redocking import run
