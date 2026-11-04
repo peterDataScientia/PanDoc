@@ -1081,8 +1081,8 @@ def show_remote_job(remote, local_key, remote_key):
         if current['state'] in active_states:
             if remote.get('backend') == 'kaggle-direct':
                 st.caption('Running on Kaggle worker. Status and log refresh every 2 seconds.')
-            else:
-                st.caption('Computer D: encrypted Vina output via GitHub.' if remote.get('backend') == 'computer-d-vina' else 'Computer C: encrypted Vina output is published approximately every 12 seconds; this panel checks every 5 seconds.')
+            elif remote.get('backend') != 'computer-d-vina':
+                st.caption('Computer C: encrypted Vina output is published approximately every 12 seconds; this panel checks every 5 seconds.')
             cancel_key = remote['job_id'] + '_cancel_confirm'
             if st.session_state.get(cancel_key):
                 st.warning('Cancel this calculation? Current progress for the active search may be lost.')
