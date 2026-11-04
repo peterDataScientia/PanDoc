@@ -1048,7 +1048,7 @@ def show_remote_job(remote, local_key, remote_key):
 
     # Computer C snapshots are published every ~12s; poll every 5s to avoid
     # exhausting GitHub API quota without compromising meaningful freshness.
-    refresh_seconds = 15 if remote.get('backend') == 'computer-d-vina' else (5 if remote.get('backend') != 'kaggle-direct' else 2)
+    refresh_seconds = 10 if remote.get('backend') == 'computer-d-vina' else (5 if remote.get('backend') != 'kaggle-direct' else 2)
 
     @st.fragment(run_every=refresh_seconds if polling else None)
     def live_remote_job():
@@ -1066,6 +1066,25 @@ def show_remote_job(remote, local_key, remote_key):
             text=f"{backend_label} {current['state']}",
         )
         st.info(f"{backend_label} · {current['state']} · job {remote['job_id'][:8]}")
+        if remote.get('backend') == 'computer-d-vina':
+            done = max(0, int(current.get('completed') or 0))
+            total = max(0, int(current.get('total') or 0))
+            if total:
+                done = min(done, total)
+                st.progress(done / total, text=f"Docking searches completed: {done}/{total} ({100*done/total:.1f}%)")
+            else:
+                st.caption("Waiting for Computer D to report the number of docking searches.")
+            active_name = current.get('active_ligand') or current.get('current') or 'Waiting for worker'
+            active_seed = current.get('active_seed')
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Completed searches", done)
+            c2.metric("Total searches", total if total else "—")
+            c3.metric("Current seed", active_seed if active_seed is not None else "—")
+            st.caption(f"Currently processing: {active_name}")
+            elapsed = current.get('elapsed_seconds')
+            if elapsed is not None:
+                st.caption(f"Current Vina search elapsed: {float(elapsed):.0f} seconds")
+            st.caption("Progress counts completed ligand–seed docking searches, not Vina's internal optimization iterations. Updates arrive through the GitHub worker approximately every 10 seconds.")
         # A workflow step list is infrastructure metadata, NOT docking progress.
         # Keep the primary view dedicated to the real Vina/Meeko worker stdout.
         if current['state'] == 'queued':
