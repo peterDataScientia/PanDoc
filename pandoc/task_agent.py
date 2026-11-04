@@ -475,8 +475,10 @@ def submit_redocking(root, task_id, *, approved, backend,
             "cpu": cpu,
         }
         core.validate_config(config)
-        if not 1 <= int(cpu) <= 8:
-            raise AgentError("CPU allocation must be between 1 and 8.")
+        # 0 is the documented automatic/all-available-cores setting in the
+        # agent API. Keep this contract aligned with RedockingReview.
+        if not 0 <= int(cpu) <= 256:
+            raise AgentError("CPU allocation must be 0 (auto) or between 1 and 256.")
         for name in ("receptor", "reference"):
             if not Path(config[name]).is_file():
                 raise AgentError("Prepared input is missing: " + name)
