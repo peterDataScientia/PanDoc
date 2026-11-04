@@ -135,12 +135,17 @@ def normalize_structure(data, suffix):
         # duplicate author-chain copies if residue/atom identities overlap.
         # Gemmi otherwise merges those atoms silently. Reject rather than
         # pretend an atom-losing structure was converted faithfully.
+        # Some valid files provide atom/component names only under label_*
+        # (the synthetic regression fixture is one such example).
+        comp_tag = ('_atom_site.auth_comp_id' if block.find_values('_atom_site.auth_comp_id')
+                    else '_atom_site.label_comp_id')
+        atom_tag = ('_atom_site.auth_atom_id' if block.find_values('_atom_site.auth_atom_id')
+                    else '_atom_site.label_atom_id')
         atom_table = block.find(['_atom_site.pdbx_PDB_model_num',
                                  '_atom_site.auth_asym_id',
                                  '_atom_site.auth_seq_id',
                                  '_atom_site.pdbx_PDB_ins_code',
-                                 '_atom_site.auth_comp_id',
-                                 '_atom_site.auth_atom_id',
+                                 comp_tag, atom_tag,
                                  '_atom_site.label_alt_id',
                                  '_atom_site.label_asym_id'])
         if atom_table:
