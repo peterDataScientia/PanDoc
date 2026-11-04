@@ -1661,11 +1661,19 @@ with workspace:
                 other = [r['residue'] for r in rows if r['kind']!='Protein']
                 retained = st.multiselect('Retain waters, ions or cofactors', other)
                 ref_options = [r['residue'] for r in rows if r['kind']=='Other component']
-                ref = st.selectbox('Crystallographic reference ligand', ['None']+ref_options)
-                excluded_reference = ref in retained
+                glycan_options = core.glycan_chain_candidates(pdb)
+                ref = st.selectbox('Crystallographic reference ligand',
+                                   ['None'] + list(glycan_options) + ref_options)
+                reference_residues = glycan_options.get(ref, [ref] if ref != 'None' else [])
+                if ref in glycan_options:
+                    st.info('Multi-residue glycan candidate: ' + ', '.join(reference_residues)
+                            + '. Review covalent LINK/connectivity records. The complete '
+                              'selected chain can define an automatic box, but a CCD '
+                              'SMILES for one sugar is NOT valid chemistry for the whole glycan.')
+                excluded_reference = any(r in retained for r in reference_residues)
                 if excluded_reference:
                     st.info(f'{ref} will be saved separately for redocking and excluded from the receptor.')
-                retained = [residue for residue in retained if residue != ref]
+                retained = [residue for residue in retained if residue not in reference_residues]
                 alt = 'A'
                 overrides = {}
                 with st.expander('Alternate conformations'):
@@ -1683,7 +1691,7 @@ with workspace:
                 if st.button('Use selection and continue', type='primary'):
                     chosen = [r['residue'] for r in rows if r['kind']=='Protein' and r['chain'] in selected_chains]+retained
                     receptor = core.select(pdb, chosen, alt, overrides)
-                    reference = core.select(pdb, [ref], alt, overrides) if ref!='None' else None
+                    reference = core.select(pdb, reference_residues, alt, overrides) if reference_residues else None
                     selection = dict(chains=selected_chains, retained=retained, reference=ref, alternate=alt, overrides=overrides, reference_excluded_from_receptor=excluded_reference, alternate_recommendations=inventory['alternates'])
                     selection_id = core.digest(receptor, reference, selection)
                     if st.session_state.get('selection_id') != selection_id:
@@ -2017,6 +2025,7 @@ with workspace:
                         aa=core.atoms(ref)
                         component=aa[0]['res']
                         residue=core.key(aa[0])
+                        multi_residue = len({core.key(a) for a in aa}) > 1
                         identity=core.digest(ref)
                         input_key='reference_input_'+identity
                         definition_key='ccd_definition_'+identity
@@ -2024,7 +2033,15 @@ with workspace:
                         ui.card(st, 'Reference ligand', '', badge_text='Review', badge_kind='review')
                         st.write('Find its PDB chemical definition, review the molecule, then prepare it using the original crystal coordinates.')
                         left,right=st.columns([2,1])
-                        if left.button('Find ligand chemistry from PDB', type='primary'):
+                        if multi_residue:
+                            st.warning('This reference contains multiple residues. A single '
+                                       'CCD component cannot describe the full glycan. '
+                                       'PanDoc can use its crystallographic atoms to define '
+                                       'the search box, but whole-glycan chemistry and '
+                                       'connectivity must be reconstructed and checked '
+                                       'before redocking is enabled.')
+                        if left.button('Find ligand chemistry from PDB', type='primary',
+                                       disabled=multi_residue):
                             try:
                                 with st.spinner('Finding '+component+' in the Chemical Component Dictionary…'):
                                     definition=lookup_chemistry(component)
@@ -2155,7 +2172,9 @@ with workspace:
                         with st.expander('Inspect selected crystal ligand'):
                             viewer(pdb=ref)
                         reviewed=st.checkbox('I reviewed the ligand identity, stereochemistry and chemical state.',key='reference_review_'+identity)
-                        if st.button('Prepare reference ligand',disabled=not comparison['valid'] or not reviewed, key='prepare_reference_ligand'):
+                        if st.button('Prepare reference ligand',
+                                     disabled=multi_residue or not comparison['valid'] or not reviewed,
+                                     key='prepare_reference_ligand'):
                             try:
                                 mol = core.reference_from_pdb(ref, selected_smiles)
                                 ident = core.digest(ref, selected_smiles.strip(), ligand_ph)
