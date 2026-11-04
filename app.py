@@ -33,12 +33,14 @@ def _pandoc_logo_data_uri():
     except OSError:
         return ""
 
-def _brand_logo(width=250):
+def _brand_logo(width=250, floating=False):
     data_uri = _pandoc_logo_data_uri()
     if data_uri:
         st.markdown(
             f'<img src="{data_uri}" alt="PanDoc logo" '
-            f'style="display:block;width:{int(width)}px;max-width:100%;height:auto;margin:0.25rem 0 0.75rem 0;" />',
+            f'style="display:block;width:{int(width)}px;max-width:100%;height:auto;'
+            + ('position:fixed;top:4.2rem;right:1.8rem;z-index:50;margin:0;' if floating else
+               'margin:0.25rem 0 0.75rem 0;') + '" />',
             unsafe_allow_html=True,
         )
     else:
@@ -1170,7 +1172,7 @@ st.session_state.setdefault('workflow_stage', '1 · Load complex')
 stage = st.session_state.workflow_stage
 
 # Keep the brand visible even while the sidebar is collapsed.
-_brand_logo(width=85)
+_brand_logo(width=85, floating=True)
 with st.sidebar:
     _brand_logo(width=250)
     # One workflow navigator, inside Streamlit's collapsible sidebar.
