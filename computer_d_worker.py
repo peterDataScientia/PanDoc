@@ -174,6 +174,8 @@ def run_job(branch,job_id):
             put_file(branch,base+"status.json",json.dumps({"state":state,"completed":completed,**extra}).encode(),"Computer D "+state)
         except (requests.RequestException,RuntimeError) as exc:
             print("Status deferred (network):",type(exc).__name__,flush=True)
+            return False
+        return True
     def log():
         try:
             put_file(branch,base+"log.bin",cipher.encrypt("\n".join(logs)[-20000:].encode()),"Encrypted Vina log")
@@ -264,8 +266,8 @@ def run_job(branch,job_id):
         pending.write_bytes(encrypted)
         try:
             put_file(branch,base+"result.bin",encrypted,"Encrypted Computer D docking result")
-            status("completed",total=total,current="Vina docking finished")
-            pending.unlink(missing_ok=True)
+            if status("completed",total=total,current="Vina docking finished"):
+                pending.unlink(missing_ok=True)
         except (requests.RequestException,RuntimeError) as exc:
             print("Result queued locally for retry:",type(exc).__name__,flush=True)
     except Exception as exc:
@@ -349,6 +351,21 @@ def main():
                     if info.get("state") in ("completed","failed","cancelled"):continue
                     if info.get("state")=="running":
                         pending=folder/"pending_result.bin"
+                        # Recover completed local results from workers installed
+                        # before the durable result-spool fix.
+                        if not pending.is_file() and (folder/"raw_results.json").is_file():
+                            records=json.loads((folder/"raw_results.json").read_text())
+                            if records and all((folder/rec["pdbqt"]).is_file() for rec in records):
+                                stream=io.BytesIO()
+                                with zipfile.ZipFile(stream,"w",zipfile.ZIP_DEFLATED) as z:
+                                    for path in folder.rglob("*"):
+                                        if path.is_file() and path!=pending:
+                                            z.write(path,path.relative_to(folder).as_posix())
+                                encrypted=Fernet(KEY.encode()).encrypt(stream.getvalue())
+                                if len(encrypted)>35_000_000:
+                                    raise RuntimeError("Result exceeds 35 MB transport limit")
+                                pending.write_bytes(encrypted)
+                                print("Rebuilt completed local result:",job_id,flush=True)
                         if pending.is_file():
                             put_file(branch,base+"result.bin",pending.read_bytes(),
                                      "Encrypted Computer D docking result")
