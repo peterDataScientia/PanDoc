@@ -190,28 +190,32 @@ def run_job(branch,job_id):
                       "--out",str(folder/out)]
                 current=f"{ligand['id']} / seed {seed}"
                 search_start=time.monotonic()
-                logs.append("Starting "+current+" CPU="+str(cpu))
+                logs.append(f"Docking {ligand['name']} | seed {seed} | CPU threads {cpu} | exhaustiveness {config['exhaustiveness']}")
                 if completed == 0 or time.monotonic()-last_report >= 12:
                     status("running", current=current, total=total,
                            active_ligand=str(ligand["name"]), active_seed=int(seed))
                     log()
                     last_report=time.monotonic()
                 def publish_live(output, elapsed, changed):
-                    if changed and output:
-                        logs.append(output[-6000:])
-                        log()
+                    # Preserve full raw Vina stdout locally in vina_live.log,
+                    # but never duplicate its citation banner, paths or progress
+                    # ruler in the user-facing encrypted activity log.
                     status("running", current=current, total=total,
                            active_ligand=str(ligand["name"]), active_seed=int(seed),
                            elapsed_seconds=round(elapsed, 1))
                 returncode, output = run_vina_live(args, folder, publish_live,
                                                     local_log=folder/"vina_live.log")
                 search_elapsed=time.monotonic()-search_start
-                logs.append(f"Finished {current}: Vina elapsed {search_elapsed:.1f} s")
-                logs.append(output[-12000:])
                 if returncode or not (folder/out).is_file():
+                    logs.append(f"Failed {current} after {search_elapsed:.1f} s (exit code {returncode})")
                     log()
                     raise RuntimeError("Vina returned failure for "+current)
                 scores=score_table(folder/out)
+                logs.append(
+                    f"Completed {ligand['name']} | seed {seed} | "
+                    f"{search_elapsed:.1f} s | best affinity {min(scores):.3f} kcal/mol | "
+                    f"{len(scores)} poses"
+                )
                 records.append({"ligand":str(ligand["name"]),"ligand_id":str(ligand["id"]),
                                 "seed":int(seed),"pdbqt":out,"scores":scores})
                 completed+=1
@@ -221,7 +225,7 @@ def run_job(branch,job_id):
                     last_report=time.monotonic()
         log()
         (folder/"raw_results.json").write_text(json.dumps(records,indent=2))
-        (folder/"worker.log").write_text("\n".join(logs))
+        (folder/"worker.log").write_text("\n".join(logs))\n        # Full unmodified stdout remains available separately in vina_live.log.
         stream=io.BytesIO()
         with zipfile.ZipFile(stream,"w",zipfile.ZIP_DEFLATED) as z:
             for path in folder.rglob("*"):
