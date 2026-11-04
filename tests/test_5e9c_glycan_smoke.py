@@ -27,5 +27,9 @@ def main():
     print('5E9C glycan preparation succeeded',audit)
     print('NOTE: This tests preparation, not redocking RMSD or Vina suitability.')
 
+def test_live_5e9c_glycan_preparation():
+    """Run against deposited 5E9C and official CCDs in GitHub Actions."""
+    main()
+
 if __name__=='__main__':
     main()
