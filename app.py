@@ -11,6 +11,10 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+# PDF-to-SMILES was retired from PanDoc; structure extraction belongs in panChem.
+# No PDF_to_SMILES page is registered or shipped in this app.
+
+
 from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review, profile_engine, profile_quality, compute, compute_options, structure_view, viewer_runtime, pubchem_search
 
 PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.png'
