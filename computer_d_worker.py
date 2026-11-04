@@ -83,10 +83,11 @@ def score_table(path):
     if not values: raise RuntimeError("Vina produced no scored poses")
     return [float(v) for v in values]
 
-def run_vina_live(args, folder, on_update, timeout_seconds=3600, publish_interval=10):
+def run_vina_live(args, folder, on_update, timeout_seconds=3600, publish_interval=10, local_log=None):
     """Publish actual Vina stdout and heartbeat while its subprocess is alive."""
     output = []
     events = queue.Queue()
+    local_stream = open(local_log, "a", encoding="utf-8", buffering=1) if local_log else None
     proc = subprocess.Popen(
         args, cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, errors="replace", bufsize=1,
@@ -113,6 +114,10 @@ def run_vina_live(args, folder, on_update, timeout_seconds=3600, publish_interva
                     eof = True
                 elif line:
                     output.append(line)
+                    print(line, flush=True)
+                    if local_stream:
+                        local_stream.write(line + "\\n")
+                        local_stream.flush()
                     dirty = True
             except queue.Empty:
                 pass
@@ -130,6 +135,8 @@ def run_vina_live(args, folder, on_update, timeout_seconds=3600, publish_interva
             proc.wait()
         if proc.stdout:
             proc.stdout.close()
+        if local_stream:
+            local_stream.close()
 
 
 def run_job(branch,job_id):
@@ -179,7 +186,8 @@ def run_job(branch,job_id):
                     status("running", current=current, total=total,
                            active_ligand=str(ligand["name"]), active_seed=int(seed),
                            elapsed_seconds=round(elapsed, 1))
-                returncode, output = run_vina_live(args, folder, publish_live)
+                returncode, output = run_vina_live(args, folder, publish_live,
+                                                    local_log=folder/"vina_live.log")
                 logs.append(output[-15000:])
                 log()
                 if returncode or not (folder/out).is_file():
