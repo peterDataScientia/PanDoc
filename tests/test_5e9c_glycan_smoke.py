@@ -13,7 +13,7 @@ def main():
     selected=candidates[keys[0]]
     assert len(selected)==4, f'Expected four glycan residues, observed {selected}'
     ref=core.select(pdb,selected)
-    molecule,audit=glycans.reconstruct_glycan(ref,pdb)
+    molecule,audit=glycans.reconstruct_glycan(ref,pdb,pH=5.5)
     assert len(audit['residues'])==4
     assert audit['links']>=3
     # 5E9C DP4 has two uronates and five sulfate substituents.
