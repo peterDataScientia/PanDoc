@@ -1,5 +1,6 @@
 """Regression tests for long mmCIF chain identifiers in legacy PDB export."""
 import gemmi
+import pytest
 
 from pandoc import core
 
@@ -83,12 +84,8 @@ def test_multimodel_chain_order_and_membership_change():
     assert pdb.count("REMARK 950 PANDOC CHAIN_MAP AAA occurrence=1 -> B") == 1
 
 
-def test_duplicate_author_ids_get_separate_pdb_chains():
-    pdb = core.normalize_structure(_structure(["AAA", "AAA", "B"]), ".cif")
-    atoms = [line for line in pdb.splitlines() if line.startswith("ATOM")]
-    assert len(atoms) == 3
-    assert len({line[21] for line in atoms}) == 3
-    assert atoms[-1][21] == "B"
-    assert "AAA occurrence=1" in pdb
-    assert "AAA occurrence=2" in pdb
-    assert [float(line[30:38]) for line in atoms] == [1.0, 2.0, 3.0]
+def test_duplicate_author_ids_without_asym_ids_are_rejected():
+    # Gemmi writes '.' for label_asym_id for these artificial duplicate chains.
+    # It is impossible to recover which copy contains each atom by auth ID.
+    with pytest.raises(ValueError, match="Ambiguous duplicate mmCIF atom identity"):
+        core.normalize_structure(_structure(["AAA", "AAA", "B"]), ".cif")
