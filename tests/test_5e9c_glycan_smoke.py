@@ -18,6 +18,7 @@ def main():
     assert audit['links']>=3
     # 5E9C DP4 has two uronates and five sulfate substituents.
     # At pH 5.5 the expected dominant formal charge is -7.
+    assert audit['ionized_groups'] == {'sulfate': 5, 'carboxylate': 2}
     assert audit['formal_charge'] == -7, (
         'Incorrect deposited CCD ionization for pH 5.5; do not proceed to docking. '
         + repr(audit))
