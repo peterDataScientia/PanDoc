@@ -83,7 +83,7 @@ def score_table(path):
     if not values: raise RuntimeError("Vina produced no scored poses")
     return [float(v) for v in values]
 
-def run_vina_live(args, folder, on_update, timeout_seconds=3600, publish_interval=45, local_log=None):
+def run_vina_live(args, folder, on_update, timeout_seconds=3600, publish_interval=15, local_log=None):
     """Publish actual Vina stdout and heartbeat while its subprocess is alive."""
     output = []
     events = queue.Queue()
@@ -191,7 +191,7 @@ def run_job(branch,job_id):
                 current=f"{ligand['id']} / seed {seed}"
                 search_start=time.monotonic()
                 logs.append("Starting "+current+" CPU="+str(cpu))
-                if completed == 0 or time.monotonic()-last_report >= 30:
+                if completed == 0 or time.monotonic()-last_report >= 12:
                     status("running", current=current, total=total,
                            active_ligand=str(ligand["name"]), active_seed=int(seed))
                     log()
@@ -215,7 +215,7 @@ def run_job(branch,job_id):
                 records.append({"ligand":str(ligand["name"]),"ligand_id":str(ligand["id"]),
                                 "seed":int(seed),"pdbqt":out,"scores":scores})
                 completed+=1
-                if time.monotonic()-last_report >= 30 and completed < total:
+                if time.monotonic()-last_report >= 12 and completed < total:
                     status("running",current=current,total=total)
                     log()
                     last_report=time.monotonic()
@@ -312,6 +312,6 @@ def main():
                 run_job(branch,job_id)
         except (requests.RequestException,RuntimeError) as exc:
             print("Queue error:",exc,flush=True)
-        time.sleep(8)
+        time.sleep(4)
 
 if __name__=="__main__":main()
