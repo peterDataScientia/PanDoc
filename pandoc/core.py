@@ -101,8 +101,11 @@ def select(pdb, residues, alternate='A', per_residue=None):
     if not selected:
         raise ValueError('Selection contains no atoms.')
     # Preserve retained atom connectivity; discard bonds to excluded atoms.
+    # PDB LINK/SSBOND records precede coordinates, while CONECT records must
+    # follow coordinates. OpenMM/PDBFixer rejects CONECT before the first model.
     serials = {int(line[6:11]) for line in selected}
-    metadata = []
+    header_connections = []
+    connectivity = []
     for line in pdb.splitlines():
         if line.startswith('ENDMDL'):
             break
@@ -111,7 +114,7 @@ def select(pdb, residues, alternate='A', per_residue=None):
             if ids and ids[0] in serials:
                 targets = [n for n in ids[1:] if n in serials]
                 if targets:
-                    metadata.append('CONECT'+''.join(f'{n:5d}' for n in [ids[0]]+targets))
+                    connectivity.append('CONECT'+''.join(f'{n:5d}' for n in [ids[0]]+targets))
         elif line.startswith(('LINK  ', 'SSBOND')):
             if line.startswith('LINK'):
                 endpoints = [(line[21:22].strip() or '_', line[22:26].strip()+line[26:27].strip(), line[17:20].strip()),
@@ -120,8 +123,8 @@ def select(pdb, residues, alternate='A', per_residue=None):
                 endpoints = [(line[15:16].strip() or '_', line[17:21].strip()+line[21:22].strip(), 'CYS'),
                              (line[29:30].strip() or '_', line[31:35].strip()+line[35:36].strip(), 'CYS')]
             if all(':'.join(e) in residues for e in endpoints):
-                metadata.append(line)
-    return '\n'.join(metadata + selected) + '\nEND\n'
+                header_connections.append(line)
+    return '\n'.join(header_connections + selected + connectivity) + '\nEND\n'
 
 
 def normalize_structure(data, suffix):
