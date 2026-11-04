@@ -1170,7 +1170,7 @@ st.session_state.setdefault('workflow_stage', '1 · Load complex')
 stage = st.session_state.workflow_stage
 
 # Keep the brand visible even while the sidebar is collapsed.
-_brand_logo(width=220)
+_brand_logo(width=85)
 with st.sidebar:
     _brand_logo(width=250)
     # One workflow navigator, inside Streamlit's collapsible sidebar.
