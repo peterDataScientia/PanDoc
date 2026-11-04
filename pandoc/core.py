@@ -130,7 +130,33 @@ def select(pdb, residues, alternate='A', per_residue=None):
 def normalize_structure(data, suffix):
     if suffix.lower() in ('.cif', '.mmcif'):
         import gemmi
-        structure = gemmi.make_structure_from_block(gemmi.cif.read_string(data).sole_block())
+        block = gemmi.cif.read_string(data).sole_block()
+        # An mmCIF lacking unique label_asym_id values cannot distinguish
+        # duplicate author-chain copies if residue/atom identities overlap.
+        # Gemmi otherwise merges those atoms silently. Reject rather than
+        # pretend an atom-losing structure was converted faithfully.
+        atom_table = block.find(['_atom_site.pdbx_PDB_model_num',
+                                 '_atom_site.auth_asym_id',
+                                 '_atom_site.auth_seq_id',
+                                 '_atom_site.pdbx_PDB_ins_code',
+                                 '_atom_site.auth_comp_id',
+                                 '_atom_site.auth_atom_id',
+                                 '_atom_site.label_alt_id',
+                                 '_atom_site.label_asym_id'])
+        if atom_table:
+            seen = {}
+            for row in atom_table:
+                vals = tuple(str(value) for value in row)
+                identity = vals[:7]
+                label_asym = vals[7]
+                if identity in seen and (label_asym in ('.', '?', '')
+                                         or seen[identity] in ('.', '?', '')
+                                         or seen[identity] == label_asym):
+                    raise ValueError('Ambiguous duplicate mmCIF atom identity: '
+                                     'author-chain labels are repeated without '
+                                     'distinct label_asym_id; use a corrected mmCIF.')
+                seen[identity] = label_asym
+        structure = gemmi.make_structure_from_block(block)
         # mmCIF author IDs may repeat for distinct asym instances.
         # Key by (author chain name, occurrence within a model).
         models = list(structure)
