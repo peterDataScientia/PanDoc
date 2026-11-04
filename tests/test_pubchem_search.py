@@ -48,3 +48,34 @@ def test_pubchem_not_found_and_invalid_structure(monkeypatch):
                         FakeResponse(props=[{"CID": 2, "SMILES": "garbage!"}]))
     with pytest.raises(pubchem_search.PubChemLookupError, match="RDKit"):
         pubchem_search.find_compound("2")
+
+
+def test_pubchem_search_details_render_as_table_columns(monkeypatch):
+    monkeypatch.setattr(pubchem_search.requests, "get", lambda url, **kwargs:
+        FakeResponse(props=[{
+            "CID": 2244, "Title": "Aspirin",
+            "SMILES": "CC(=O)Oc1ccccc1C(=O)O",
+            "MolecularFormula": "C9H8O4", "MolecularWeight": "180.16",
+            "XLogP": 1.2, "TPSA": 63.6, "HBondDonorCount": 1,
+            "HBondAcceptorCount": 4, "RotatableBondCount": 3,
+            "IUPACName": "2-acetyloxybenzoic acid",
+        }]))
+    result = pubchem_search.find_compound("2244")
+    row = pubchem_search.compound_details_row(result)
+    assert row["CID"] == 2244
+    assert row["MW (g/mol)"] == "180.16"
+    assert row["XLogP"] == 1.2
+    assert row["TPSA (Å²)"] == 63.6
+    assert row["HBD"] == 1 and row["HBA"] == 4
+    assert row["SMILES"] == result["smiles"]
+    assert row["PubChem"] == "https://pubchem.ncbi.nlm.nih.gov/compound/2244"
+
+
+def test_pubchem_missing_optional_properties_remain_visible():
+    row = pubchem_search.compound_details_row({
+        "cid": 1, "name": "Ligand", "smiles": "CCO",
+        "url": "https://pubchem.ncbi.nlm.nih.gov/compound/1",
+    })
+    assert row["Molecular formula"] == "—"
+    assert row["XLogP"] is None
+    assert row["IUPAC name"] == "—"
