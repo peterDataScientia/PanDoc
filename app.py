@@ -2185,7 +2185,7 @@ with workspace:
                                     from pandoc import glycans
                                     from rdkit import Chem
                                     mol, glycan_audit = glycans.reconstruct_glycan(
-                                        ref, st.session_state.pdb)
+                                        ref, st.session_state.pdb, pH=ligand_ph)
                                     ident = core.digest(ref, glycan_audit, ligand_ph)
                                     directory = root/'references'/ident
                                     directory.mkdir(parents=True, exist_ok=True)
