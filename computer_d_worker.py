@@ -225,7 +225,8 @@ def run_job(branch,job_id):
                     last_report=time.monotonic()
         log()
         (folder/"raw_results.json").write_text(json.dumps(records,indent=2))
-        (folder/"worker.log").write_text("\n".join(logs))\n        # Full unmodified stdout remains available separately in vina_live.log.
+        (folder/"worker.log").write_text("\n".join(logs))
+        # Full unmodified stdout remains available separately in vina_live.log.
         stream=io.BytesIO()
         with zipfile.ZipFile(stream,"w",zipfile.ZIP_DEFLATED) as z:
             for path in folder.rglob("*"):
