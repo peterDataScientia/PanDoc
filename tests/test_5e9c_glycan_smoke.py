@@ -31,5 +31,12 @@ def test_live_5e9c_glycan_preparation():
     """Run against deposited 5E9C and official CCDs in GitHub Actions."""
     main()
 
+def test_live_5e9c_redocking_diagnostic():
+    """Attempt whole-glycan pH-aware Vina recovery; report rather than assume RMSD."""
+    from scripts.validate_5e9c_redocking import run
+    result=run()
+    assert len(result['docking_results']) >= 1
+    assert all('reference_rmsd_A' in row for row in result['docking_results'])
+
 if __name__=='__main__':
     main()
