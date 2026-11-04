@@ -31,7 +31,7 @@ def concise_vina_activity(value, tail=80):
             event = "Docking " + latest_search
         elif re.match(r"^Finished [A-Za-z0-9_-]+ / seed [0-9]+: Vina elapsed [0-9.]+ s$", line):
             event = line.replace("Finished ", "Completed ")
-        elif latest_search and re.match(r"^1\\s+-?[0-9]+(?:\\.[0-9]+)?\\s+", line):
+        elif latest_search and re.match(r"^1\s+-?[0-9]+(?:\.[0-9]+)?\s+", line):
             event = f"Best pose: {latest_search} | affinity {line.split()[1]} kcal/mol"
         else:
             continue
