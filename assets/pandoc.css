@@ -52,7 +52,7 @@ html,body{
 .block-container{
   width:100%;
   max-width:1440px;
-  padding:.55rem 2rem 4rem;
+  padding:0 2rem 4rem;
 }
 
 hr{
