@@ -6,13 +6,13 @@ PanDoc **stays on Streamlit Community Cloud**. Runtime Computer D submits an enc
 
 The worker expects `C:\Program Files (x86)\vina_1.2\vina.exe`, already verified as AutoDock Vina v1.2.7.
 
-1. In CMD, run `py -3.13 -m pip install requests cryptography`.
+1. In CMD, run `py -3.13 -m pip install requests cryptography keyring`.
 2. Copy `computer_d_worker.py` and `start_computer_d.cmd` from this repository to `%USERPROFILE%\PanDoc-Vina-Worker`.
 3. Open `start_computer_d.cmd` (without Administrator privileges).
-4. Enter the dedicated fine-grained GitHub token and the **same** Fernet `PANDOC_JOB_KEY` that Streamlit already uses. Inputs are hidden, not saved. Never share these credentials.
+4. On the first launch, enter the dedicated fine-grained GitHub token and the **same** Fernet `PANDOC_JOB_KEY` used by Streamlit. Inputs are hidden. The worker verifies GitHub authentication and stores the secrets under the current Windows user's **Windows Credential Manager**. Later launches load them automatically; never share these credentials.
 5. In PanDoc Streamlit, select **Computer D · Tailscale Vina**, prepare a receptor and ligand as normal, and run a small docking test.
 
-The GitHub token must have Contents read/write permission for `peterDataScientia/PanDoc`. Streamlit still requires its existing `GITHUB_TOKEN` and `PANDOC_JOB_KEY` secrets. To use a dedicated worker-only token, enter it in the worker prompt. Keep the worker CMD open while you want to receive jobs.
+The GitHub token must have Contents read/write permission for `peterDataScientia/PanDoc`. Streamlit still requires its existing `GITHUB_TOKEN` and `PANDOC_JOB_KEY` secrets. To use a dedicated worker-only token, enter it in the worker prompt. Keep the worker CMD open while you want to receive jobs. To erase locally stored credentials, run `py -3.13 computer_d_worker.py --reset-credentials` from the worker directory. The next run prompts again.
 
 Only docking runs on Windows: receptor/ligand preparation, PDBQT-to-SDF conversion, and symmetry-aware RMSD remain on the Streamlit host. Computer A/B/C are unchanged.
 
