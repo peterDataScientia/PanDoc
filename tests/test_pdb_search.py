@@ -49,9 +49,10 @@ def test_search_review_load_workflow(tmp_path, monkeypatch):
     revealed = []
     monkeypatch.setattr(ui, 'auto_scroll', lambda st, name: revealed.append(name))
     monkeypatch.setattr(pdb_search, 'search', lambda **kwargs: dict(ids=['1LF2'], total=1, query={'fixture': True}))
-    def should_not_fetch_all_summaries(ids):
-        raise AssertionError('PDB search must not request metadata for every hit')
-    monkeypatch.setattr(pdb_search, 'summaries', should_not_fetch_all_summaries)
+    monkeypatch.setattr(pdb_search, 'summaries', lambda ids: [
+        dict(PDB=pdb_id, Title='Plasmepsin II', Method='X-RAY DIFFRACTION',
+             Resolution='1.90', Ligands='1 component types') for pdb_id in ids
+    ])
     monkeypatch.setattr(pdb_search, 'details', lambda _: dict(entry={'struct': {'title': 'Test complex'}}, proteins=[], ligands=[], warnings=[]))
     # A valid coordinate file, passed through the same normalization as a fetched mmCIF.
     import gemmi
@@ -96,3 +97,26 @@ def test_download_size_limit_and_provenance(monkeypatch):
     monkeypatch.setattr(pdb_search, 'MAX_BYTES', 2)
     with pytest.raises(ValueError, match='25-MB'):
         pdb_search.download('1LF2')
+
+
+def test_pdb_search_metadata_rows_are_informative(monkeypatch):
+    monkeypatch.setattr(pdb_search, 'entry', lambda pdb_id: {
+        'struct': {'title': 'Plasmepsin II complex'},
+        'exptl': [{'method': 'X-RAY DIFFRACTION'}],
+        'rcsb_entry_info': {'resolution_combined': [1.9], 'nonpolymer_entity_count': 2},
+    })
+    row = pdb_search.summary('1LF2')
+    assert row == {
+        'PDB': '1LF2', 'Title': 'Plasmepsin II complex',
+        'Method': 'X-RAY DIFFRACTION', 'Resolution': '1.9',
+        'Ligands': '2 component types',
+    }
+
+
+def test_pdb_metadata_failure_does_not_hide_search_result(monkeypatch):
+    def missing(pdb_id):
+        raise RuntimeError('network unavailable')
+    monkeypatch.setattr(pdb_search, 'entry', missing)
+    row = pdb_search.summary('1LF2')
+    assert row['PDB'] == '1LF2'
+    assert 'Metadata unavailable' in row['Title']
