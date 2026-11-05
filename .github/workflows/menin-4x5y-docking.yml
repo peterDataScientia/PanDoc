@@ -47,3 +47,5 @@ jobs:
           retention-days: 30
 
 # Rerun: audited far-residue receptor fallback, no near-site deletions
+
+# Re-run after residue-ID parser correction
