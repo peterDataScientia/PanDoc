@@ -99,13 +99,32 @@ jobs:
             try:
               with urllib.request.urlopen('https://data.rcsb.org/rest/v1/core/chemcomp/3XW',timeout=60) as response:
                 ccd=json.load(response)
-              candidates=[x.get('descriptor') for x in ccd.get('pdbx_chem_comp_descriptor',[]) if x.get('type') in ('SMILES_CANONICAL','SMILES')]
-              smiles=candidates[0] if candidates else None
-              if not smiles:
-                descriptor=ccd.get('rcsb_chem_comp_descriptor',{})
-                smiles=descriptor.get('SMILES_stereo') or descriptor.get('SMILES')
-              if not smiles: raise RuntimeError('CCD 3XW chemical SMILES unavailable')
-              refmol=core.reference_from_pdb(ref,smiles)
+              descriptors=ccd.get('pdbx_chem_comp_descriptor',[])
+              smiles_candidates=[x.get('descriptor') for x in descriptors
+                  if x.get('type') in ('SMILES_CANONICAL','SMILES') and x.get('descriptor')]
+              descriptor=ccd.get('rcsb_chem_comp_descriptor',{})
+              smiles_candidates += [descriptor.get('SMILES_stereo'), descriptor.get('SMILES')]
+              molecule_choices=[]
+              from rdkit import RDLogger
+              RDLogger.DisableLog('rdApp.error')
+              for candidate in smiles_candidates:
+                if not candidate: continue
+                cmol=Chem.MolFromSmiles(candidate)
+                if cmol is not None and cmol.GetNumHeavyAtoms()==40:
+                  molecule_choices.append(candidate)
+              if not molecule_choices:
+                manifest['reference_CCD_descriptors']=descriptors
+                raise RuntimeError('CCD 3XW has no valid 40-heavy-atom ligand representation')
+              refmol=None
+              errors=[]
+              for candidate in molecule_choices:
+                try:
+                  refmol=core.reference_from_pdb(ref,candidate)
+                  manifest['reference_selected_smiles']=candidate
+                  break
+                except Exception as exc:
+                  errors.append(repr(exc))
+              if refmol is None: raise RuntimeError('CCD ligand bond-order assignment failed: '+str(errors))
               core.write_ligand(refmol,root/'reference_3XW.pdbqt')
               (root/'reference_3XW.sdf').write_text(Chem.MolToMolBlock(refmol)+'\n$$$$\n')
               manifest['reference_preparation']='success'
