@@ -48,7 +48,49 @@ def run():
  assignments=phprep.template_assignments([v for v in states if not v.get("review_required")])
  manifest["auto_applied_template_assignments"]=assignments
  save("manifest.json",manifest)
- receptor=core.prepare_receptor(repaired,ROOT/"receptor",template_assignments=assignments)
+ try:
+  receptor=core.prepare_receptor(repaired,ROOT/"receptor",template_assignments=assignments)
+  manifest["receptor_preparation"]="PanDoc strict preparation: no exclusions"
+ except ValueError as error:
+  # Apply a documented, audited fallback only for remote malformed crystal residues.
+  import re, sys, subprocess
+  import numpy as np
+  failed=set(re.findall(r"A:\\d+",str(error).split("Review coordinates")[0]))
+  if not failed: raise
+  ligand_coords=np.array([[float(line[i:i+8]) for i in (30,38,46)] for line in ref_lines])
+  distances={}
+  for rid in sorted(failed):
+   idx=int(rid.split(":")[1])
+   xyz=np.array([[float(line[i:i+8]) for i in (30,38,46)]
+           for line in repaired.splitlines()
+           if line.startswith("ATOM") and int(line[22:26])==idx])
+   if not len(xyz): raise RuntimeError("No coordinate set for "+rid)
+   distances[rid]=float(np.linalg.norm(xyz[:,None,:]-ligand_coords[None,:,:],axis=2).min())
+  if any(v<=20.0 for v in distances.values()):
+   raise RuntimeError("Refusing to omit near-binding-site residues: "+str(distances))
+  manifest["receptor_preparation"]="explicit distant bad-residue exclusion (non-publication diagnostic)"
+  manifest["excluded_residues_distance_A"]=distances
+  manifest["strict_error"]=str(error)
+  save("manifest.json",manifest)
+  out=ROOT/"fallback_receptor"
+  argv=[sys.executable,"-m","meeko.cli.mk_prepare_receptor",
+       "--read_pdb",str(ROOT/"chain_A_repaired.pdb"),"--allow_bad_res",
+       "-o",str(out),"-p","-j","--write_pdb",str(ROOT/"fallback_receptor_prepared.pdb")]
+  if assignments.strip():argv.extend(["--set_template",assignments.strip()])
+  completed=subprocess.run(argv,capture_output=True,text=True,timeout=240)
+  (ROOT/"fallback_meeko.log").write_text(completed.stdout+"\n"+completed.stderr)
+  receptor=out.with_suffix(".pdbqt")
+  if completed.returncode or not receptor.exists():
+   raise RuntimeError("Audited Meeko fallback did not complete: "+(completed.stdout+completed.stderr)[-3000:])
+  before=set(int(line[22:26]) for line in repaired.splitlines() if line.startswith("ATOM"))
+  after=set(int(line[22:26]) for line in receptor.read_text().splitlines() if line.startswith(("ATOM","HETATM")))
+  removed=before-after
+  allowed={int(s.split(":")[1]) for s in failed}
+  if not removed or not removed.issubset(allowed):
+   raise RuntimeError("Fallback removed unexpected residues: "+str(sorted(removed)))
+  manifest["fallback_removed_residues"]=sorted(removed)
+  if len(after)<300: raise RuntimeError("Fallback receptor contains insufficient residues")
+  save("manifest.json",manifest)
  (ROOT/"prepared_receptor.pdbqt").write_bytes(Path(receptor).read_bytes())
  base=dict(receptor=str(ROOT/"prepared_receptor.pdbqt"),center=center,size=size,exhaustiveness=8,poses=5)
  save("vina_settings.json",dict(**base,seeds=SEEDS))
