@@ -45,3 +45,5 @@ jobs:
           path: menin_4x5y_results/
           if-no-files-found: warn
           retention-days: 30
+
+# Rerun: audited far-residue receptor fallback, no near-site deletions
