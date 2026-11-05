@@ -1,5 +1,5 @@
 name: MEN1 PanDoc repurposing docking (pilot)
-run-name: MEN1 docking 4X5Y / three QSAR candidates
+run-name: MEN1 docking 4GQ3 / three QSAR candidates
 
 on:
   workflow_dispatch:
@@ -29,7 +29,7 @@ jobs:
           from pandoc.worker import run as pandoc_dock
           root=Path('menin_dock_results')
           root.mkdir(exist_ok=True)
-          manifest={'pdb':'4X5Y','receptor_chain':'A','reference_ligand':'3XW','method':'PanDoc core + PanDoc worker + AutoDock Vina', 'exhaustiveness':16,'poses':10,'seeds':[2026,2027,2028],'protein_preparation_pH':7.4,'status':'started','candidates':[]}
+          manifest={'pdb':'4GQ3','receptor_chain':'A','reference_ligand':'0RO','method':'PanDoc core + PanDoc worker + AutoDock Vina', 'exhaustiveness':16,'poses':10,'seeds':[2026,2027,2028],'protein_preparation_pH':7.4,'status':'started','candidates':[]}
           drugs=[
             ('Afatinib','CHEMBL1173655','CN(C)C/C=C/C(=O)Nc1cc2c(Nc3ccc(F)c(Cl)c3)ncnc2cc1O[C@H]1CCOC1',5.972459108384843),
             ('Abacavir','CHEMBL1380','Nc1nc(NC2CC2)c2ncn([C@H]3C=C[C@@H](CO)C3)c2n1',5.970041368227251),
@@ -47,15 +47,15 @@ jobs:
                 if attempt==2: raise
                 time.sleep(2)
           try:
-            pdb_path=root/'4X5Y_original.pdb'
-            download('https://files.rcsb.org/download/4X5Y.pdb',pdb_path)
+            pdb_path=root/'4GQ3_original.pdb'
+            download('https://files.rcsb.org/download/4GQ3.pdb',pdb_path)
             text=pdb_path.read_text()
             protein='\n'.join(line for line in text.splitlines() if line.startswith('ATOM  ') and line[21]=='A' and (line[16] in (' ','A'))) + '\nEND\n'
-            ref='\n'.join(line for line in text.splitlines() if line.startswith('HETATM') and line[17:20]=='3XW' and line[21]=='A' and (line[16] in (' ','A'))) + '\nEND\n'
+            ref='\n'.join(line for line in text.splitlines() if line.startswith('HETATM') and line[17:20]=='0RO' and line[21]=='A' and (line[16] in (' ','A'))) + '\nEND\n'
             if protein.count('\n')<1000: raise RuntimeError('Protein A extraction failed')
-            if ref.count('HETATM')<25: raise RuntimeError('Crystallographic ligand 3XW not found or incomplete')
+            if ref.count('HETATM')<25: raise RuntimeError('Crystallographic ligand 0RO not found or incomplete')
             (root/'menin_chain_A_original.pdb').write_text(protein)
-            (root/'3XW_crystal.pdb').write_text(ref)
+            (root/'0RO_crystal.pdb').write_text(ref)
             manifest['protein_atom_records']=protein.count('ATOM  ')
             manifest['reference_atom_records']=ref.count('HETATM')
             try:
@@ -97,7 +97,7 @@ jobs:
             manifest['center_A']=center;manifest['box_size_A']=size
             core.validate_config(dict(center=center,size=size,exhaustiveness=16,poses=10,seeds=[2026,2027,2028]))
             try:
-              with urllib.request.urlopen('https://data.rcsb.org/rest/v1/core/chemcomp/3XW',timeout=60) as response:
+              with urllib.request.urlopen('https://data.rcsb.org/rest/v1/core/chemcomp/0RO',timeout=60) as response:
                 ccd=json.load(response)
               descriptors=ccd.get('pdbx_chem_comp_descriptor',[])
               smiles_candidates=[x.get('descriptor') for x in descriptors
@@ -110,11 +110,11 @@ jobs:
               for candidate in smiles_candidates:
                 if not candidate: continue
                 cmol=Chem.MolFromSmiles(candidate)
-                if cmol is not None and cmol.GetNumHeavyAtoms()==40:
+                if cmol is not None and cmol.GetNumHeavyAtoms()==ref.count('HETATM'):
                   molecule_choices.append(candidate)
               if not molecule_choices:
                 manifest['reference_CCD_descriptors']=descriptors
-                raise RuntimeError('CCD 3XW has no valid 40-heavy-atom ligand representation')
+                raise RuntimeError('CCD 0RO has no valid 40-heavy-atom ligand representation')
               refmol=None
               errors=[]
               for candidate in molecule_choices:
@@ -125,14 +125,14 @@ jobs:
                 except Exception as exc:
                   errors.append(repr(exc))
               if refmol is None: raise RuntimeError('CCD ligand bond-order assignment failed: '+str(errors))
-              core.write_ligand(refmol,root/'reference_3XW.pdbqt')
-              (root/'reference_3XW.sdf').write_text(Chem.MolToMolBlock(refmol)+'\n$$$$\n')
+              core.write_ligand(refmol,root/'reference_0RO.pdbqt')
+              (root/'reference_0RO.sdf').write_text(Chem.MolToMolBlock(refmol)+'\n$$$$\n')
               manifest['reference_preparation']='success'
             except Exception as exc:
               manifest['reference_preparation']='failed'
               manifest['reference_preparation_error']=repr(exc)
               raise RuntimeError('Reference ligand could not be prepared; docking not validated') from exc
-            ligands=[dict(id='reference_3XW',name='Crystal MI-503 (3XW)',path=str(root/'reference_3XW.pdbqt'))]
+            ligands=[dict(id='reference_0RO',name='Crystal MI-2 (0RO)',path=str(root/'reference_0RO.pdbqt'))]
             for name,chembl,smiles,pic in drugs:
               item={'name':name,'chembl_id':chembl,'predicted_pIC50':pic}
               manifest['candidates'].append(item)
@@ -185,7 +185,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: menin-pilot-4X5Y-docking
+          name: menin-pilot-4GQ3-docking
           path: menin_dock_results/
           if-no-files-found: warn
           retention-days: 14
