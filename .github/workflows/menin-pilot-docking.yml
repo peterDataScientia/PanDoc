@@ -64,8 +64,33 @@ jobs:
               manifest['initial_receptor_preparation_error']=str(exc)
               fixed=core.repair_heavy_atoms(protein)
               (root/'menin_chain_A_repaired.pdb').write_text(fixed)
-              prepared=core.prepare_receptor(fixed,root/'receptor_prep_repaired')
               manifest['heavy_atom_repair_used']=True
+              try:
+                prepared=core.prepare_receptor(fixed,root/'receptor_prep_repaired')
+              except Exception as repeat_exc:
+                manifest['repaired_receptor_preparation_error']=str(repeat_exc)
+                # Distal residues are excluded only after distance verification.
+                # This is a pocket-focused comparison, not a complete receptor.
+                import numpy as np
+                ligand_xyz=np.asarray([[float(line[a:a+8]) for a in (30,38,46)]
+                     for line in ref.splitlines() if line.startswith('HETATM')])
+                dropped=[line for line in fixed.splitlines()
+                         if line.startswith('ATOM  ') and int(line[22:26])>=441]
+                if not dropped: raise RuntimeError('No distal residues found to trim')
+                minimum=min(float(np.linalg.norm(np.asarray(
+                     [float(line[a:a+8]) for a in (30,38,46)])-ligand_xyz,
+                     axis=1).min()) for line in dropped)
+                manifest['distal_cutoff_min_distance_A']=minimum
+                manifest['excluded_residue_range']='A:441-460 and A:549-589'
+                if minimum<12.0: raise RuntimeError(
+                     'Distal segment too close to ligand; refusing truncation')
+                reduced='\n'.join(line for line in fixed.splitlines()
+                     if line.startswith('ATOM  ') and int(line[22:26])<=440)+'\nEND\n'
+                (root/'menin_chain_A_distal_trimmed.pdb').write_text(reduced)
+                reduced=core.repair_heavy_atoms(reduced)
+                (root/'menin_chain_A_distal_trimmed_repaired.pdb').write_text(reduced)
+                prepared=core.prepare_receptor(reduced,root/'receptor_prep_distal_trimmed')
+                manifest['receptor_distal_trimming_used']=True
             manifest['receptor_pdbqt']=str(prepared)
             # Use the bound reference coordinates for docking grid; never use a guessed pocket.
             center,size=core.box(ref,padding=5.0)
