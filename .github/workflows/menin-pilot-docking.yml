@@ -1,0 +1,147 @@
+name: MEN1 PanDoc repurposing docking (pilot)
+run-name: MEN1 docking 4X5Y / three QSAR candidates
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/menin-pilot-docking.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  dock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run using the existing PanDoc compute image
+        run: |
+          docker pull ghcr.io/peterdatascientia/pandoc-compute:latest
+          mkdir -p menin_dock_results
+          docker run --rm -i -v "$GITHUB_WORKSPACE:/workspace" -w /workspace ghcr.io/peterdatascientia/pandoc-compute:latest python - <<'PY'
+          import csv, json, os, sys, traceback, urllib.request, time
+          from pathlib import Path
+          from rdkit import Chem
+          from rdkit.Chem import rdMolDescriptors
+          from pandoc import core
+          from pandoc.worker import run as pandoc_dock
+          root=Path('menin_dock_results')
+          root.mkdir(exist_ok=True)
+          manifest={'pdb':'4X5Y','receptor_chain':'A','reference_ligand':'3XW','method':'PanDoc core + PanDoc worker + AutoDock Vina', 'exhaustiveness':16,'poses':10,'seeds':[2026,2027,2028],'protein_preparation_pH':7.4,'status':'started','candidates':[]}
+          drugs=[
+            ('Afatinib','CHEMBL1173655','CN(C)C/C=C/C(=O)Nc1cc2c(Nc3ccc(F)c(Cl)c3)ncnc2cc1O[C@H]1CCOC1',5.972459108384843),
+            ('Abacavir','CHEMBL1380','Nc1nc(NC2CC2)c2ncn([C@H]3C=C[C@@H](CO)C3)c2n1',5.970041368227251),
+            ('Abiraterone','CHEMBL254328','C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(c3cccnc3)=CC[C@@H]12',5.5937678932689305),
+          ]
+          def save():
+            (root/'manifest.json').write_text(json.dumps(manifest,indent=2))
+          def download(url,dest):
+            for attempt in range(3):
+              try:
+                with urllib.request.urlopen(url,timeout=60) as response: dest.write_bytes(response.read())
+                if dest.stat().st_size < 1000: raise ValueError('Downloaded file unexpectedly small')
+                return
+              except Exception:
+                if attempt==2: raise
+                time.sleep(2)
+          try:
+            pdb_path=root/'4X5Y_original.pdb'
+            download('https://files.rcsb.org/download/4X5Y.pdb',pdb_path)
+            text=pdb_path.read_text()
+            protein='\n'.join(line for line in text.splitlines() if line.startswith('ATOM  ') and line[21]=='A' and (line[16] in (' ','A'))) + '\nEND\n'
+            ref='\n'.join(line for line in text.splitlines() if line.startswith('HETATM') and line[17:20]=='3XW' and line[21]=='A' and (line[16] in (' ','A'))) + '\nEND\n'
+            if protein.count('\n')<1000: raise RuntimeError('Protein A extraction failed')
+            if ref.count('HETATM')<25: raise RuntimeError('Crystallographic ligand 3XW not found or incomplete')
+            (root/'menin_chain_A_original.pdb').write_text(protein)
+            (root/'3XW_crystal.pdb').write_text(ref)
+            manifest['protein_atom_records']=protein.count('ATOM  ')
+            manifest['reference_atom_records']=ref.count('HETATM')
+            try:
+              prepared=core.prepare_receptor(protein,root/'receptor_prep')
+            except Exception as exc:
+              manifest['initial_receptor_preparation_error']=str(exc)
+              fixed=core.repair_heavy_atoms(protein)
+              (root/'menin_chain_A_repaired.pdb').write_text(fixed)
+              prepared=core.prepare_receptor(fixed,root/'receptor_prep_repaired')
+              manifest['heavy_atom_repair_used']=True
+            manifest['receptor_pdbqt']=str(prepared)
+            # Use the bound reference coordinates for docking grid; never use a guessed pocket.
+            center,size=core.box(ref,padding=5.0)
+            manifest['center_A']=center;manifest['box_size_A']=size
+            core.validate_config(dict(center=center,size=size,exhaustiveness=16,poses=10,seeds=[2026,2027,2028]))
+            try:
+              with urllib.request.urlopen('https://data.rcsb.org/rest/v1/core/chemcomp/3XW',timeout=60) as response:
+                ccd=json.load(response)
+              candidates=[x.get('descriptor') for x in ccd.get('pdbx_chem_comp_descriptor',[]) if x.get('type') in ('SMILES_CANONICAL','SMILES')]
+              smiles=candidates[0] if candidates else None
+              if not smiles:
+                descriptor=ccd.get('rcsb_chem_comp_descriptor',{})
+                smiles=descriptor.get('SMILES_stereo') or descriptor.get('SMILES')
+              if not smiles: raise RuntimeError('CCD 3XW chemical SMILES unavailable')
+              refmol=core.reference_from_pdb(ref,smiles)
+              core.write_ligand(refmol,root/'reference_3XW.pdbqt')
+              (root/'reference_3XW.sdf').write_text(Chem.MolToMolBlock(refmol)+'\n$$$$\n')
+              manifest['reference_preparation']='success'
+            except Exception as exc:
+              manifest['reference_preparation']='failed'
+              manifest['reference_preparation_error']=repr(exc)
+              raise RuntimeError('Reference ligand could not be prepared; docking not validated') from exc
+            ligands=[dict(id='reference_3XW',name='Crystal MI-503 (3XW)',path=str(root/'reference_3XW.pdbqt'))]
+            for name,chembl,smiles,pic in drugs:
+              item={'name':name,'chembl_id':chembl,'predicted_pIC50':pic}
+              manifest['candidates'].append(item)
+              try:
+                molecule=core.molecule(smiles=smiles)
+                path=root/(name.lower()+'.pdbqt')
+                core.write_ligand(molecule,path)
+                ligands.append(dict(id=name.lower(),name=name,path=str(path)))
+                item['preparation']='success'
+              except Exception as exc:
+                item['preparation']='failed'
+                item['error']=repr(exc)
+            save()
+            if len(ligands)<2: raise RuntimeError('No candidate ligand could be prepared')
+            # PanDoc worker reports all scores/poses in results.json and individual SDF files.
+            settings=dict(receptor=str(prepared),center=center,size=size,exhaustiveness=16,poses=10,seeds=[2026,2027,2028],cpu=0,ligands=ligands)
+            jobdir=root/'dock_job';jobdir.mkdir(exist_ok=True)
+            (jobdir/'config.json').write_text(json.dumps(settings,indent=2))
+            pandoc_dock(jobdir)
+            status=json.loads((jobdir/'status.json').read_text())
+            manifest['worker_status']=status
+            resultpath=jobdir/'results.json'
+            if not resultpath.exists(): raise RuntimeError('PanDoc worker produced no results.json')
+            data=json.loads(resultpath.read_text())
+            with (root/'all_poses.csv').open('w',newline='') as fout:
+              wr=csv.DictWriter(fout,fieldnames=['ligand','ligand_id','seed','rank','score_kcal_mol','sdf'])
+              wr.writeheader()
+              for row in data: wr.writerow({k:row.get(k,'') for k in wr.fieldnames})
+            top={}
+            for row in data:
+              name=row['ligand']
+              if name not in top or row['score_kcal_mol']<top[name]['score_kcal_mol']:top[name]=row
+            with (root/'best_scores.csv').open('w',newline='') as fout:
+              wr=csv.DictWriter(fout,fieldnames=['ligand','seed','rank','score_kcal_mol','sdf'])
+              wr.writeheader()
+              for row in sorted(top.values(),key=lambda x:x['score_kcal_mol']):
+                wr.writerow({k:row.get(k,'') for k in wr.fieldnames})
+            manifest['status']='docking_finished_unvalidated'
+            manifest['warning']='Best scores are docking estimates; independent redocking RMSD has not yet been computed. Do not treat as validated poses.'
+            save()
+          except Exception as exc:
+            manifest['status']='failed'
+            manifest['error']=repr(exc)
+            manifest['traceback']=traceback.format_exc()
+            save()
+            print(traceback.format_exc(),flush=True)
+            sys.exit(1)
+          PY
+      - name: Upload docking outputs (including errors)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: menin-pilot-4X5Y-docking
+          path: menin_dock_results/
+          if-no-files-found: warn
+          retention-days: 14
