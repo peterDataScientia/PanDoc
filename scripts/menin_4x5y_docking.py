@@ -55,7 +55,7 @@ def run():
   # Apply a documented, audited fallback only for remote malformed crystal residues.
   import re, sys, subprocess
   import numpy as np
-  failed=set(re.findall(r"A:\\d+",str(error).split("Review coordinates")[0]))
+  failed=set(re.findall(r"A:[0-9]+",str(error).split("Review coordinates")[0]))
   if not failed: raise
   ligand_coords=np.array([[float(line[i:i+8]) for i in (30,38,46)] for line in ref_lines])
   distances={}
