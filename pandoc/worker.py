@@ -82,7 +82,6 @@ def _run_vina_cli(config, ligand, seed, cpu_threads, output, checkpoint):
         text=True, errors="replace", bufsize=1,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
-    print(f"Vina CLI started · PID {proc.pid} · threads {cpu_threads}", flush=True)
 
     def collect_output():
         try:
@@ -97,7 +96,6 @@ def _run_vina_cli(config, ligand, seed, cpu_threads, output, checkpoint):
     reader.start()
     output_tail = []
     finished_reading = False
-    last_heartbeat = started
     try:
         while True:
             now = time.monotonic()
@@ -108,18 +106,12 @@ def _run_vina_cli(config, ligand, seed, cpu_threads, output, checkpoint):
                 if line is None:
                     finished_reading = True
                 else:
-                    print(f"[Vina] {line}", flush=True)
+                    print(line, flush=True)
                     output_tail.append(line)
                     if len(output_tail) > 60:
                         output_tail.pop(0)
             except queue.Empty:
                 pass
-
-            if now - last_heartbeat >= 2:
-                elapsed = int(now - started)
-                print(f"[Vina LIVE] Running · elapsed {elapsed}s · PID {proc.pid}", flush=True)
-                checkpoint("vina_search", f"Vina search running · elapsed {elapsed}s", vina_elapsed_seconds=elapsed)
-                last_heartbeat = now
 
             if finished_reading and proc.poll() is not None:
                 break
@@ -134,7 +126,6 @@ def _run_vina_cli(config, ligand, seed, cpu_threads, output, checkpoint):
             proc.stdout.close()
 
     elapsed = int(time.monotonic() - started)
-    print(f"[Vina LIVE] Process exited · code {code} · elapsed {elapsed}s", flush=True)
     if code != 0:
         raise RuntimeError(
             f"Vina executable failed (exit {code}): " + "\n".join(output_tail)[-1600:]
@@ -161,12 +152,12 @@ def _run_search(directory, config, ligand, seed, cpu_threads, stage_callback=Non
 
     def checkpoint(stage, message, **progress):
         """Record the exact step before starting a potentially costly operation."""
-        print(message, flush=True)
+        if not os.environ.get("PANDOC_VINA_EXE"):
+            print(message, flush=True)
         if stage_callback is not None:
             stage_callback(stage, **progress)
 
     print(f"Starting docking: {ligand['name']} / seed {seed}", flush=True)
-    print(f"AutoDock Vina CPU threads: {cpu_threads}", flush=True)
 
     stem = directory / f"{ligand['id']}_seed{seed}"
     output = str(stem.with_suffix(".pdbqt"))
@@ -190,7 +181,8 @@ def _run_search(directory, config, ligand, seed, cpu_threads, stage_callback=Non
     # Vina's native Python binding does not reliably print the final affinity
     # table to captured stdout. Publish the actual returned energies immediately,
     # before optional RDKit/Meeko pose reconstruction and RMSD calculations.
-    print(format_vina_affinities(scores, ligand["name"], seed), flush=True)
+    if not os.environ.get("PANDOC_VINA_EXE"):
+        print(format_vina_affinities(scores, ligand["name"], seed), flush=True)
 
     checkpoint("reconstructing_poses", "Scores retrieved; reconstructing RDKit conformers via Meeko...")
     poses = RDKitMolCreate.from_pdbqt_mol(
@@ -234,11 +226,6 @@ def _run_search(directory, config, ligand, seed, cpu_threads, stage_callback=Non
                 )
                 row["reference_rmsd_A"] = reference_rmsd(reference, pose)
                 pose.SetProp("reference_rmsd_A", str(row["reference_rmsd_A"]))
-                print(
-                    f"Pose {rank}: affinity {score:.3f} kcal/mol · "
-                    f"reference RMSD {row['reference_rmsd_A']:.3f} Å",
-                    flush=True,
-                )
             checkpoint(
                 "writing_sdf",
                 f"Writing SDF pose {rank}/{len(conformers)}...",
@@ -251,7 +238,6 @@ def _run_search(directory, config, ligand, seed, cpu_threads, stage_callback=Non
         writer.close()
 
     checkpoint("search_completed", f"Saved {len(rows)} SDF poses and scores.")
-    print(f"Completed docking: {ligand['name']} / seed {seed}", flush=True)
     return rows
 
 
@@ -288,23 +274,11 @@ def run(directory):
         # Monte-Carlo runs. The user-defined exhaustiveness is never silently
         # increased: doing so would change the scientific search protocol.
 
-        print(
-            f"Vina compute: {available_cpu} CPU(s) allocated; "
-            f"Vina uses {vina_threads} thread(s) per search; "
-            f"exhaustiveness={exhaustiveness}.",
-            flush=True,
-        )
-        print(
-            "Searches run one at a time because Vina parallelizes the "
-            "exhaustiveness runs internally.",
-            flush=True,
-        )
-
-        print(
-            "Per-search Vina affinity maps enabled; serialized shared-map reuse "
-            "disabled to avoid native docking crashes.",
-            flush=True,
-        )
+        if not os.environ.get("PANDOC_VINA_EXE"):
+            print(
+                f"Vina compute: {available_cpu} CPU(s); {vina_threads} threads; "
+                f"exhaustiveness={exhaustiveness}.", flush=True,
+            )
 
         for ligand, seed in tasks:
             if (directory / "cancel.request").exists():
@@ -339,15 +313,6 @@ def run(directory):
             )
             results.extend(rows)
             completed_searches += 1
-            if rows:
-                best = min(rows, key=lambda row: row["score_kcal_mol"])
-                print(
-                    f"Completed search {completed_searches}/{total} | "
-                    f"{ligand['name']} | seed {seed} | "
-                    f"best affinity {best['score_kcal_mol']:.3f} kcal/mol",
-                    flush=True,
-                )
-
             (directory / "results.json").write_text(json.dumps(results, indent=2))
             update(
                 "running",
@@ -355,7 +320,6 @@ def run(directory):
                 current=f"{completed_searches}/{total} docking searches completed",
                 cpu_threads=vina_threads,
             )
-            print(f"Completed docking search {completed_searches}/{total}", flush=True)
 
         if results:
             best = min(results, key=lambda row: row["score_kcal_mol"])
