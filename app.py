@@ -53,6 +53,19 @@ def _brand_logo(width=250, floating=False):
 st.set_page_config(page_title='PanDoc · Docking workbench', page_icon='🧬', layout='wide', initial_sidebar_state='collapsed')
 ui.load_css(st, PANDOC_CSS)
 
+# Computer E is a separate, full local PanDoc instance (not Computer D's Vina worker).
+# Launching it opens its private Tailscale URL; it is not an in-process backend.
+if os.environ.get("PANDOC_RUNTIME_NAME", "").strip() == "Computer E":
+    st.sidebar.success("Computer E · Full Local Runtime")
+else:
+    _computer_e_url = os.environ.get("PANDOC_COMPUTER_E_URL", "").strip()
+    if _computer_e_url.startswith("https://"):
+        st.sidebar.link_button(
+            "Open Computer E · Full Runtime",
+            _computer_e_url,
+            help="Requires authorization on the Computer E Tailscale network. Opens a separate full PanDoc instance.",
+        )
+
 # Isolated publication-export demonstration for browser regression checks.
 if st.query_params.get('publication_demo') == '1':
     from rdkit import Chem
