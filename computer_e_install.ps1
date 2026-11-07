@@ -56,17 +56,12 @@ if ($LASTEXITCODE -ne 0) { throw "Conda Python is not working." }
 # Computer E uses the existing Windows Vina executable instead.
 $requirements = Join-Path $source "requirements.txt"
 $windowsRequirements = Join-Path $Root "requirements-windows.txt"
-Get-Content $requirements |
-    Where-Object { $_ -notmatch '^\s*--only-binary=vina\s*
-Write-Host "Computer E Conda environment installed: $envPath" -ForegroundColor Green
-Write-Host "Start: & `"$source\computer_e_run.ps1`""
-Write-Host "Computer D worker remains unchanged."
- -and $_ -notmatch '^\s*vina==1\.2\.7\s*
-Write-Host "Computer E Conda environment installed: $envPath" -ForegroundColor Green
-Write-Host "Start: & `"$source\computer_e_run.ps1`""
-Write-Host "Computer D worker remains unchanged."
- } |
-    Set-Content -Encoding UTF8 $windowsRequirements
+Get-Content -LiteralPath $requirements |
+    Where-Object {
+        ($_ -notmatch '^\s*--only-binary=vina\s*$') -and
+        ($_ -notmatch '^\s*vina==1\.2\.7\s*$')
+    } |
+    Set-Content -LiteralPath $windowsRequirements -Encoding UTF8
 & $python -m pip install -r $windowsRequirements
 if ($LASTEXITCODE -ne 0) {
     throw "PanDoc Windows requirements failed; inspect the package error. Computer D is unchanged."
