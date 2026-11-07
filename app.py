@@ -58,7 +58,10 @@ ui.load_css(st, PANDOC_CSS)
 if os.environ.get("PANDOC_RUNTIME_NAME", "").strip() == "Computer E":
     st.sidebar.success("Computer E · Full Local Runtime")
 else:
-    _computer_e_url = os.environ.get("PANDOC_COMPUTER_E_URL", "").strip()
+    try:
+        _computer_e_url = st.secrets.get("PANDOC_COMPUTER_E_URL", os.environ.get("PANDOC_COMPUTER_E_URL", "")).strip()
+    except Exception:
+        _computer_e_url = os.environ.get("PANDOC_COMPUTER_E_URL", "").strip()
     if _computer_e_url.startswith("https://"):
         st.sidebar.link_button(
             "Open Computer E · Full Runtime",
@@ -496,6 +499,9 @@ def settings(prefix):
 
 
 def github_backend():
+    # Computer E is intentionally all-local; never silently offload to GitHub.
+    if os.environ.get("PANDOC_RUNTIME_NAME", "").strip() == "Computer E":
+        return None
     try:
         token = st.secrets.get('GITHUB_TOKEN', os.environ.get('GITHUB_TOKEN', ''))
         job_key = st.secrets.get('PANDOC_JOB_KEY', os.environ.get('PANDOC_JOB_KEY', ''))
@@ -1402,13 +1408,16 @@ with st.container(key='runtime_toolbar'):
         with st.popover('Runtime', icon=':material/memory:', help='Choose where new calculations run'):
             st.radio(
                 'Compute runtime',
-                compute_options.OPTIONS,
+                (compute_options.STREAMLIT,) if os.environ.get("PANDOC_RUNTIME_NAME") == "Computer E" else compute_options.OPTIONS,
                 key='compute_mode',
-                format_func=compute_options.runtime_label,
+                format_func=(lambda _: "Computer E · Full Local Runtime") if os.environ.get("PANDOC_RUNTIME_NAME") == "Computer E" else compute_options.runtime_label,
                 help='Computer A runs here; B uses Kaggle; C uses GitHub Actions; D runs Vina on Windows.',
             )
             _selected_runtime = st.session_state.get('compute_mode', compute_options.STREAMLIT)
-            st.caption(compute_options.description(_selected_runtime))
+            if os.environ.get("PANDOC_RUNTIME_NAME") == "Computer E":
+                st.caption("All scientific work runs on this computer. Other backends are disabled here.")
+            else:
+                st.caption(compute_options.description(_selected_runtime))
             if _selected_runtime == compute_options.KAGGLE:
                 _k_url, _k_key = kaggle_config()
                 if not (_k_url and _k_key):
