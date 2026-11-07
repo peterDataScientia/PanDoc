@@ -11,14 +11,16 @@ KAGGLE = "Computer B · High capacity"
 GITHUB_ACTIONS = "Computer C · Backup"
 
 COMPUTER_D = "Computer D · Tailscale Vina"
+COMPUTER_E = "Computer E · Windows Vina"
 
-OPTIONS = (STREAMLIT, KAGGLE, GITHUB_ACTIONS, COMPUTER_D)
+OPTIONS = (STREAMLIT, KAGGLE, GITHUB_ACTIONS, COMPUTER_D, COMPUTER_E)
 
 LABELS = {
     STREAMLIT: "This app (default)",
     KAGGLE: "Kaggle worker",
     GITHUB_ACTIONS: "GitHub Actions",
     COMPUTER_D: "Windows Vina worker",
+    COMPUTER_E: "Windows Vina worker (Computer E)",
 }
 
 RUNTIME_LABELS = {
@@ -26,6 +28,7 @@ RUNTIME_LABELS = {
     KAGGLE: "Computer B · Kaggle",
     GITHUB_ACTIONS: "Computer C · GitHub Actions",
     COMPUTER_D: "Computer D · Tailscale Vina",
+    COMPUTER_E: "Computer E · Windows Vina",
 }
 
 DESCRIPTIONS = {
@@ -33,6 +36,7 @@ DESCRIPTIONS = {
     KAGGLE: "Runs jobs on an external Kaggle worker. Requires a configured, reachable worker; may fall back to GitHub Actions.",
     GITHUB_ACTIONS: "Runs jobs remotely in GitHub Actions. Requires administrator-configured credentials.",
     COMPUTER_D: "Docking-only Windows Vina worker using encrypted outbound GitHub transport.",
+    COMPUTER_E: "Runs prepared docking jobs on Computer E using an independent encrypted outbound GitHub queue. Requires the Computer E worker to be connected.",
 }
 
 
