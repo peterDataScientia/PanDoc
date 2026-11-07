@@ -321,7 +321,7 @@ def run(directory):
                 cpu_threads=vina_threads,
             )
 
-        if results:
+        if results and not os.environ.get("PANDOC_VINA_EXE"):
             best = min(results, key=lambda row: row["score_kcal_mol"])
             print(
                 f"Best docking score across all searches: "
