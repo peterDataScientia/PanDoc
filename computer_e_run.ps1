@@ -27,5 +27,5 @@ $env:STREAMLIT_SERVER_HEADLESS = "true"
 New-Item -ItemType Directory -Force -Path $env:PANDOC_DATA_DIR | Out-Null
 Set-Location $source
 Write-Host "Starting Computer E at http://127.0.0.1:$Port" -ForegroundColor Green
-& $python -m streamlit run app.py --server.address 127.0.0.1 --server.port $Port --server.headless true --browser.gatherUsageStats false
+& $python -m streamlit run app.py --server.address 127.0.0.1 --server.port $Port --server.headless true --server.fileWatcherType none --server.runOnSave false --browser.gatherUsageStats false
 if ($LASTEXITCODE -ne 0) { throw "Computer E failed with exit code $LASTEXITCODE" }
