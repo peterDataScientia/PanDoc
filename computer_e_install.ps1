@@ -61,6 +61,32 @@ Get-Content -LiteralPath $requirements |
         ($_ -notmatch '^\s*--only-binary=vina\s*$') -and
         ($_ -notmatch '^\s*vina==1\.2\.7\s*$')
     } |
+    ForEach-Object { $_ -replace '^streamlit==1\\.66\\.1& $python -m pip install -r $windowsRequirements
+if ($LASTEXITCODE -ne 0) {
+    throw "PanDoc Windows requirements failed; inspect the package error. Computer D is unchanged."
+}
+& $python -c "import streamlit, rdkit, meeko, openmm, pdbfixer, propka; print('Computer E core imports passed')"
+if ($LASTEXITCODE -ne 0) { throw "Core scientific import verification failed." }
+
+$vinaExe = if ($env:PANDOC_VINA_EXE -and (Test-Path $env:PANDOC_VINA_EXE)) {
+    $env:PANDOC_VINA_EXE
+} else {
+    @(
+        "C:\Program Files (x86)\vina_1.2\vina.exe",
+        "C:\Program Files\vina\vina.exe",
+        (Join-Path $Root "tools\vina.exe")
+    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+}
+if (-not $vinaExe) {
+    Write-Warning "Vina CLI not found. Other modules may install, but docking is not ready. Set PANDOC_VINA_EXE to a valid Vina executable before launching Computer E."
+} else {
+    Write-Host "Computer E will use Vina executable: $vinaExe" -ForegroundColor Cyan
+    Set-Content -Path (Join-Path $Root "vina_path.txt") -Value $vinaExe -Encoding UTF8
+}
+Write-Host "Computer E Conda environment installed: $envPath" -ForegroundColor Green
+Write-Host "Start: & `"$source\computer_e_run.ps1`""
+Write-Host "Computer D worker remains unchanged."
+, 'streamlit==1.66.0' } |
     Set-Content -LiteralPath $windowsRequirements -Encoding UTF8
 & $python -m pip install -r $windowsRequirements
 if ($LASTEXITCODE -ne 0) {
