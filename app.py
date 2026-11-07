@@ -1169,7 +1169,7 @@ def show_job(directory):
     active_states = ('queued', 'running', 'starting')
     polling = initial['state'] in active_states
 
-    @st.fragment(run_every=2 if polling else None)
+    @st.fragment(run_every=1 if polling and os.environ.get('PANDOC_RUNTIME_NAME') == 'Computer E' else (2 if polling else None))
     def live_job():
         state = jobs.status(directory)
         # Refresh the surrounding results and run controls once the job finishes.
@@ -1210,7 +1210,7 @@ def show_job(directory):
             completed = state.get('completed', 0)
             st.progress(min(completed / total, 1.0), text=f'{completed}/{total} docking searches completed')
         if state['state'] in active_states:
-            st.caption('Updates automatically every 2 seconds. Cancellation takes effect between docking searches.')
+            st.caption('Computer E · live Vina output / elapsed time updates every ~1–2 seconds.' if os.environ.get('PANDOC_RUNTIME_NAME') == 'Computer E' else 'Updates automatically every 2 seconds. Cancellation takes effect between docking searches.')
             cancel_key = str(directory) + '_cancel_confirm'
             if st.session_state.get(cancel_key):
                 st.warning('Cancel this calculation? Current progress for the active search may be lost.')
@@ -1226,7 +1226,7 @@ def show_job(directory):
                 st.session_state[cancel_key] = True
                 st.rerun()
         log = Path(directory)/'worker.log'
-        with st.expander('Calculation log', expanded=polling or state['state'] == 'failed'):
+        with st.expander('Live Vina log · auto-refresh' if os.environ.get('PANDOC_RUNTIME_NAME') == 'Computer E' else 'Calculation log', expanded=polling or state['state'] == 'failed'):
             st.code(log.read_text(errors='replace')[-16000:] if log.exists() else 'Waiting for worker.')
     live_job()
     return initial
