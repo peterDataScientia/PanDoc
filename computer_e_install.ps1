@@ -7,10 +7,26 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $repoUrl = "https://github.com/peterDataScientia/PanDoc.git"
-$python = (& py -3.11 -c "import sys; print(sys.executable)" 2>$null)
-if ($LASTEXITCODE -ne 0 -or -not $python) {
-    throw "Python 3.11 is required. Install Python 3.11, enable the Windows py launcher, and rerun."
+# Detect Python 3.11 without letting PowerShell treat py.exe's error as a script failure.
+$python = $null
+if (Get-Command py -ErrorAction SilentlyContinue) {
+    $candidate = & py -3.11 -c "import sys; print(sys.executable)" 2>$null
+    if ($LASTEXITCODE -eq 0 -and $candidate) { $python = ($candidate | Select-Object -First 1).Trim() }
 }
+if (-not $python) {
+    $locations = @(
+        (Join-Path $env:LOCALAPPDATA "Programs\Python\Python311\python.exe"),
+        "C:\Program Files\Python311\python.exe",
+        "C:\Python311\python.exe"
+    )
+    foreach ($location in $locations) {
+        if (Test-Path $location) { $python = $location; break }
+    }
+}
+if (-not $python) {
+    throw "Python 3.11 was not found. Run: winget install --id Python.Python.3.11 --exact --source winget --accept-package-agreements --accept-source-agreements ; then reopen PowerShell and rerun this installer. Python 3.13 and Computer D remain unchanged."
+}
+Write-Host "Computer E Python: $python" -ForegroundColor Cyan
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     throw "Git is required to install the PanDoc repository."
 }
