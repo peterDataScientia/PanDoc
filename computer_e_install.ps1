@@ -48,12 +48,43 @@ if (-not (Test-Path $python)) {
 }
 & $python --version
 if ($LASTEXITCODE -ne 0) { throw "Conda Python is not working." }
-& $python -m pip install -r (Join-Path $source "requirements.txt")
+# The Vina Python binding has no Windows 1.2.7 wheel.
+# Computer E uses the existing Windows Vina executable instead.
+$requirements = Join-Path $source "requirements.txt"
+$windowsRequirements = Join-Path $Root "requirements-windows.txt"
+Get-Content $requirements |
+    Where-Object { $_ -notmatch '^\s*--only-binary=vina\s*
+Write-Host "Computer E Conda environment installed: $envPath" -ForegroundColor Green
+Write-Host "Start: & `"$source\computer_e_run.ps1`""
+Write-Host "Computer D worker remains unchanged."
+ -and $_ -notmatch '^\s*vina==1\.2\.7\s*
+Write-Host "Computer E Conda environment installed: $envPath" -ForegroundColor Green
+Write-Host "Start: & `"$source\computer_e_run.ps1`""
+Write-Host "Computer D worker remains unchanged."
+ } |
+    Set-Content -Encoding UTF8 $windowsRequirements
+& $python -m pip install -r $windowsRequirements
 if ($LASTEXITCODE -ne 0) {
-    throw "PanDoc requirements failed; inspect the package error. Computer D is unchanged."
+    throw "PanDoc Windows requirements failed; inspect the package error. Computer D is unchanged."
 }
-& $python -c "import streamlit, rdkit, meeko, vina, openmm, pdbfixer, propka; print('Computer E core imports passed')"
+& $python -c "import streamlit, rdkit, meeko, openmm, pdbfixer, propka; print('Computer E core imports passed')"
 if ($LASTEXITCODE -ne 0) { throw "Core scientific import verification failed." }
+
+$vinaExe = if ($env:PANDOC_VINA_EXE -and (Test-Path $env:PANDOC_VINA_EXE)) {
+    $env:PANDOC_VINA_EXE
+} else {
+    @(
+        "C:\Program Files (x86)\vina_1.2\vina.exe",
+        "C:\Program Files\vina\vina.exe",
+        (Join-Path $Root "tools\vina.exe")
+    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+}
+if (-not $vinaExe) {
+    Write-Warning "Vina CLI not found. Other modules may install, but docking is not ready. Set PANDOC_VINA_EXE to a valid Vina executable before launching Computer E."
+} else {
+    Write-Host "Computer E will use Vina executable: $vinaExe" -ForegroundColor Cyan
+    Set-Content -Path (Join-Path $Root "vina_path.txt") -Value $vinaExe -Encoding UTF8
+}
 Write-Host "Computer E Conda environment installed: $envPath" -ForegroundColor Green
 Write-Host "Start: & `"$source\computer_e_run.ps1`""
 Write-Host "Computer D worker remains unchanged."
