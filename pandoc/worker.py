@@ -66,6 +66,21 @@ def _run_vina_cli(config, ligand, seed, cpu_threads, output, checkpoint):
         "--num_modes", str(int(config["poses"])),
         "--out", str(output),
     ]
+    # Print the reproducible docking settings once per search.
+    # Do not change the user-selected parameters or duplicate Vina scores.
+    def _xyz(values):
+        return ", ".join(f"{float(value):g}" for value in values)
+
+    print(f"=== AutoDock Vina | {ligand['name']} | seed {int(seed)} ===", flush=True)
+    print(f"Receptor: {Path(config['receptor']).name}", flush=True)
+    print(f"Ligand: {Path(ligand['path']).name}", flush=True)
+    print(f"Box center (Å): {_xyz(config['center'])}", flush=True)
+    print(f"Box size (Å): {_xyz(config['size'])}", flush=True)
+    print(
+        f"Exhaustiveness: {int(config['exhaustiveness'])} | "
+        f"CPU: {int(cpu_threads)} | Modes: {int(config['poses'])} | Seed: {int(seed)}",
+        flush=True,
+    )
     checkpoint("preparing_vina_maps", "Preparing Vina maps in external executable...")
     checkpoint("vina_search", "Running external Vina executable...")
     # Stream native Vina stdout/stderr as the search runs instead of waiting
