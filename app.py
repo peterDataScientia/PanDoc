@@ -18,6 +18,7 @@ import streamlit as st
 
 from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui, batch_review, profile_engine, profile_quality, compute, compute_options, structure_view, viewer_runtime, pubchem_search
 from pandoc.computer_d_compute import ComputerDCompute
+from pandoc.computer_e_compute import ComputerECompute
 
 PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.png'
 PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
@@ -562,9 +563,21 @@ def computer_d_backend():
         return None
 
 
+def computer_e_backend():
+    try:
+        token = st.secrets.get('GITHUB_TOKEN', os.environ.get('GITHUB_TOKEN', ''))
+        job_key = st.secrets.get('PANDOC_JOB_KEY', os.environ.get('PANDOC_JOB_KEY', ''))
+        repository = st.secrets.get('PANDOC_GITHUB_REPOSITORY', compute.DEFAULT_REPOSITORY)
+        return ComputerECompute(token, job_key, repository)
+    except Exception:
+        return None
+
+
 def backend_for_handle(handle):
     if handle and handle.get('backend') == 'computer-d-vina':
         return computer_d_backend()
+    if handle and handle.get('backend') == 'computer-e-vina':
+        return computer_e_backend()
     if handle and handle.get('backend') == 'kaggle-direct':
         return kaggle_backend()
     return github_backend()
@@ -1425,6 +1438,11 @@ with st.container(key='runtime_toolbar'):
             elif _selected_runtime == compute_options.COMPUTER_D:
                 if computer_d_backend() is None:
                     st.warning('Computer D requires GITHUB_TOKEN and PANDOC_JOB_KEY.')
+            elif _selected_runtime == compute_options.COMPUTER_E:
+                if computer_e_backend() is None:
+                    st.warning('Computer E requires GITHUB_TOKEN and PANDOC_JOB_KEY on Streamlit Cloud.')
+                else:
+                    st.caption('Computer E uses an encrypted outbound job queue. The Windows worker must be running to pick up submitted jobs.')
             elif _selected_runtime == compute_options.GITHUB_ACTIONS:
                 if github_backend() is None:
                     st.warning('GitHub Actions is not configured on this server.')
@@ -2566,6 +2584,8 @@ with workspace:
 
                 if st.session_state.get('compute_mode') == compute_options.COMPUTER_D:
                     st.caption('Compute · Computer D · Windows Vina')
+                elif st.session_state.get('compute_mode') == compute_options.COMPUTER_E:
+                    st.caption('Compute · Computer E · Windows Vina (remote)')
                 elif cloud_compute_mode():
                     st.caption('Compute · This app · GitHub Actions fallback enabled' if github else 'Compute · This app')
                 elif kaggle_compute_mode():
@@ -2587,6 +2607,18 @@ with workspace:
                                 st.rerun()
                             except Exception as exc:
                                 st.error('Computer D submission failed: ' + str(exc))
+                    elif st.session_state.get('compute_mode') == compute_options.COMPUTER_E:
+                        computer_e = computer_e_backend()
+                        if computer_e is None:
+                            st.error('Computer E requires GITHUB_TOKEN and PANDOC_JOB_KEY.')
+                        else:
+                            try:
+                                remote_job = computer_e.submit(root, config)
+                                st.session_state[prefix+'_github_job'] = remote_job
+                                st.session_state.pop(prefix+'_job', None)
+                                st.rerun()
+                            except Exception as exc:
+                                st.error('Computer E submission failed: ' + str(exc))
                     elif cloud_compute_mode():
                         try:
                             directory = jobs.launch(root, config)
