@@ -68,16 +68,77 @@ def _run_vina_cli(config, ligand, seed, cpu_threads, output, checkpoint):
     ]
     checkpoint("preparing_vina_maps", "Preparing Vina maps in external executable...")
     checkpoint("vina_search", "Running external Vina executable...")
-    proc = subprocess.run(
-        args, capture_output=True, text=True, timeout=3600,
+    # Stream native Vina stdout/stderr as the search runs instead of waiting
+    # for subprocess.run(capture_output=True) to return.
+    import queue
+    import threading
+    import time
+
+    started = time.monotonic()
+    deadline = started + max(1, int(os.environ.get("PANDOC_VINA_TIMEOUT", "3600")))
+    messages = queue.Queue()
+    proc = subprocess.Popen(
+        args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, errors="replace", bufsize=1,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
-    if proc.stdout:
-        print(proc.stdout, flush=True)
-    if proc.stderr:
-        print(proc.stderr, flush=True)
-    if proc.returncode != 0:
-        raise RuntimeError(f"Vina executable failed (exit {proc.returncode}): {(proc.stderr or proc.stdout)[-1600:]}")
+    print(f"Vina CLI started · PID {proc.pid} · threads {cpu_threads}", flush=True)
+
+    def collect_output():
+        try:
+            for line in proc.stdout:
+                messages.put(line.rstrip("\r\n"))
+        except Exception as exc:
+            messages.put(f"Vina output reader error: {exc}")
+        finally:
+            messages.put(None)
+
+    reader = threading.Thread(target=collect_output, daemon=True)
+    reader.start()
+    output_tail = []
+    finished_reading = False
+    last_heartbeat = started
+    try:
+        while True:
+            now = time.monotonic()
+            if now >= deadline:
+                raise TimeoutError(f"Vina exceeded {int(deadline - started)}s runtime limit")
+            try:
+                line = messages.get(timeout=0.25)
+                if line is None:
+                    finished_reading = True
+                else:
+                    print(f"[Vina] {line}", flush=True)
+                    output_tail.append(line)
+                    if len(output_tail) > 60:
+                        output_tail.pop(0)
+            except queue.Empty:
+                pass
+
+            if now - last_heartbeat >= 2:
+                elapsed = int(now - started)
+                print(f"[Vina LIVE] Running · elapsed {elapsed}s · PID {proc.pid}", flush=True)
+                checkpoint("vina_search", f"Vina search running · elapsed {elapsed}s", vina_elapsed_seconds=elapsed)
+                last_heartbeat = now
+
+            if finished_reading and proc.poll() is not None:
+                break
+        code = proc.wait(timeout=5)
+    except BaseException:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+        raise
+    finally:
+        if proc.stdout:
+            proc.stdout.close()
+
+    elapsed = int(time.monotonic() - started)
+    print(f"[Vina LIVE] Process exited · code {code} · elapsed {elapsed}s", flush=True)
+    if code != 0:
+        raise RuntimeError(
+            f"Vina executable failed (exit {code}): " + "\n".join(output_tail)[-1600:]
+        )
     poses_path = Path(output)
     if not poses_path.is_file():
         raise RuntimeError("Vina returned no docked PDBQT file.")
