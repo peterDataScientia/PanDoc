@@ -62,6 +62,20 @@ machine by switching a dropdown.
 
 On Computer E itself the app displays **Computer E · Full Local Runtime**.
 
+## Windows Vina dependency
+
+The published Vina 1.2.7 Python wheels do not support Windows. Computer E
+therefore installs all other packages from a generated
+\`requirements-windows.txt\` (leaving the repository's Linux/Cloud
+\`requirements.txt\` untouched), and uses an existing native Windows
+\`vina.exe\` through \`PANDOC_VINA_EXE\`. The setup checks common executable
+locations, including \`C:\Program Files (x86)\vina_1.2\vina.exe\`, and writes
+the selected path to \`vina_path.txt\`. The launch script reads that file.
+
+If Vina is installed elsewhere, set \`$env:PANDOC_VINA_EXE\` to its full path
+before rerunning the installer. Validate its version and run a reference
+redocking test before treating the backend as production-ready.
+
 ## Compatibility and limitations
 
 - The same-machine CPU/RAM are shared between D and E; running both may
