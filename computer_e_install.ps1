@@ -33,7 +33,11 @@ $data = Join-Path $Root "data"
 $logs = Join-Path $Root "logs"
 New-Item -ItemType Directory -Force -Path $Root,$data,$logs | Out-Null
 if (Test-Path (Join-Path $source ".git")) {
-    Write-Host "Existing source preserved; use git pull explicitly to update it."
+    Write-Host "Updating existing Computer E source (fast-forward only)..."
+    & git -C $source pull --ff-only
+    if ($LASTEXITCODE -ne 0) {
+        throw "Computer E source has local modifications or cannot fast-forward. Resolve manually; other workers are unchanged."
+    }
 } elseif (Test-Path $source) {
     throw "Source directory exists but is not a Git repository."
 } else {
