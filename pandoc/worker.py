@@ -44,10 +44,56 @@ def format_vina_affinities(energies, ligand_name, seed):
     return "\n".join(lines)
 
 
+def _run_vina_cli(config, ligand, seed, cpu_threads, output, checkpoint):
+    """Windows-compatible Vina executable; derive scores from its PDBQT output."""
+    import re
+    import subprocess
+    exe = Path(os.environ["PANDOC_VINA_EXE"])
+    if not exe.is_file():
+        raise FileNotFoundError(f"Vina executable not found: {exe}")
+    args = [
+        str(exe), "--receptor", str(config["receptor"]),
+        "--ligand", str(ligand["path"]),
+        "--center_x", str(float(config["center"][0])),
+        "--center_y", str(float(config["center"][1])),
+        "--center_z", str(float(config["center"][2])),
+        "--size_x", str(float(config["size"][0])),
+        "--size_y", str(float(config["size"][1])),
+        "--size_z", str(float(config["size"][2])),
+        "--cpu", str(cpu_threads),
+        "--seed", str(int(seed)),
+        "--exhaustiveness", str(int(config["exhaustiveness"])),
+        "--num_modes", str(int(config["poses"])),
+        "--out", str(output),
+    ]
+    checkpoint("preparing_vina_maps", "Preparing Vina maps in external executable...")
+    checkpoint("vina_search", "Running external Vina executable...")
+    proc = subprocess.run(
+        args, capture_output=True, text=True, timeout=3600,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    if proc.stdout:
+        print(proc.stdout, flush=True)
+    if proc.stderr:
+        print(proc.stderr, flush=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"Vina executable failed (exit {proc.returncode}): {(proc.stderr or proc.stdout)[-1600:]}")
+    poses_path = Path(output)
+    if not poses_path.is_file():
+        raise RuntimeError("Vina returned no docked PDBQT file.")
+    checkpoint("reading_scores", "Reading scores from Vina PDBQT output...")
+    values = re.findall(
+        r"^REMARK VINA RESULT:\s*(-?\d+(?:\.\d+)?)",
+        poses_path.read_text(errors="replace"), re.M,
+    )
+    if not values:
+        raise RuntimeError("Vina PDBQT has no REMARK VINA RESULT scores.")
+    return [[float(value)] for value in values]
+
+
 def _run_search(directory, config, ligand, seed, cpu_threads, stage_callback=None):
     from rdkit import Chem
     from meeko import PDBQTMolecule, RDKitMolCreate
-    from vina import Vina
 
     directory = Path(directory)
     cpu_threads = max(1, int(cpu_threads))
@@ -61,35 +107,25 @@ def _run_search(directory, config, ligand, seed, cpu_threads, stage_callback=Non
     print(f"Starting docking: {ligand['name']} / seed {seed}", flush=True)
     print(f"AutoDock Vina CPU threads: {cpu_threads}", flush=True)
 
-    vina = Vina(
-        sf_name="vina",
-        cpu=cpu_threads,
-        seed=int(seed),
-        verbosity=2,
-    )
-    vina.set_receptor(config["receptor"])
-    vina.set_ligand_from_file(ligand["path"])
-
-    # Compute the affinity maps in the same Vina object used for docking.
-    # Reloading serialized shared maps caused a reproducible native Vina crash
-    # in our real docking smoke test, even though the map files loaded cleanly.
-    checkpoint("preparing_vina_maps", "Computing Vina affinity maps for this search...")
-    vina.compute_vina_maps(center=config["center"], box_size=config["size"])
-
-    print(f"=== AutoDock Vina live output · {ligand['name']} · seed {seed} ===", flush=True)
-    print(vina, flush=True)
-    checkpoint("vina_search", "Performing Vina search...")
-    vina.dock(
-        exhaustiveness=config["exhaustiveness"],
-        n_poses=config["poses"],
-    )
-
     stem = directory / f"{ligand['id']}_seed{seed}"
     output = str(stem.with_suffix(".pdbqt"))
-    checkpoint("writing_poses", "Vina search returned; exporting docked PDBQT poses...")
-    vina.write_poses(output, n_poses=config["poses"], overwrite=True)
-    checkpoint("reading_scores", "PDBQT poses saved; retrieving Vina scores...")
-    scores = vina.energies(n_poses=config["poses"])
+    if os.environ.get("PANDOC_VINA_EXE"):
+        scores = _run_vina_cli(config, ligand, seed, cpu_threads, output, checkpoint)
+    else:
+        from vina import Vina
+        vina = Vina(sf_name="vina", cpu=cpu_threads, seed=int(seed), verbosity=2)
+        vina.set_receptor(config["receptor"])
+        vina.set_ligand_from_file(ligand["path"])
+        checkpoint("preparing_vina_maps", "Computing Vina affinity maps for this search...")
+        vina.compute_vina_maps(center=config["center"], box_size=config["size"])
+        print(f"=== AutoDock Vina live output · {ligand['name']} · seed {seed} ===", flush=True)
+        print(vina, flush=True)
+        checkpoint("vina_search", "Performing Vina search...")
+        vina.dock(exhaustiveness=config["exhaustiveness"], n_poses=config["poses"])
+        checkpoint("writing_poses", "Vina search returned; exporting docked PDBQT poses...")
+        vina.write_poses(output, n_poses=config["poses"], overwrite=True)
+        checkpoint("reading_scores", "PDBQT poses saved; retrieving Vina scores...")
+        scores = vina.energies(n_poses=config["poses"])
     # Vina's native Python binding does not reliably print the final affinity
     # table to captured stdout. Publish the actual returned energies immediately,
     # before optional RDKit/Meeko pose reconstruction and RMSD calculations.
