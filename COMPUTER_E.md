@@ -8,7 +8,7 @@ and Windows Scheduled Task remain unchanged.
 ## First installation (on the Windows machine)
 
 Prerequisites:
-- Python **3.11** with Windows `py` launcher, Git, and Tailscale.
+- Conda (Miniforge or Miniconda), Git, and Tailscale. Python 3.11 is installed inside the isolated Conda environment.
 - Sufficient free disk space for packages, downloads, jobs, and outputs.
 - Tailscale connected to the intended private tailnet.
 
@@ -22,7 +22,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dir "computer_e_
 ```
 
 Installer clones PanDoc to `%USERPROFILE%\PanDoc-Computer-E\source`,
-creates an isolated venv and separate data/log folders, installs dependencies,
+creates an isolated Conda environment under `PanDoc-Computer-E\\conda-env` and separate data/log folders, installs dependencies,
 then checks imports. Check the script before executing it.
 
 ## Start (ordinary PowerShell)
@@ -66,7 +66,7 @@ On Computer E itself the app displays **Computer E · Full Local Runtime**.
 
 - The same-machine CPU/RAM are shared between D and E; running both may
   contend for resources. Limit simultaneous docking as needed.
-- Computer E has its **own** `source`, `.venv`, and `data` folders.
+- Computer E has its **own** `source`, `conda-env`, and `data` folders.
 - Python packages required by PanDoc are installed in the isolated environment.
   External executables/toolchains must still be present where required.
 - Some package installs may fail on Windows, especially optional chemistry
