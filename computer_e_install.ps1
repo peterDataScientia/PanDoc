@@ -11,6 +11,8 @@ if (-not $conda) {
     foreach ($candidate in @(
         (Join-Path $env:USERPROFILE "miniforge3\Scripts\conda.exe"),
         "C:\Miniforge3\Scripts\conda.exe",
+        "C:\conda\Scripts\conda.exe",
+        "C:\conda\condabin\conda.bat",
         (Join-Path $env:USERPROFILE "miniconda3\Scripts\conda.exe"),
         (Join-Path $env:USERPROFILE "anaconda3\Scripts\conda.exe"),
         (Join-Path $env:LOCALAPPDATA "miniconda3\Scripts\conda.exe"),
