@@ -1,61 +1,55 @@
-# Computer E - independent full PanDoc runtime installer.
-# Run in an ordinary PowerShell window on the machine hosting Computer D.
-# Does not change the existing Computer D worker or scheduled task.
+# Computer E full local PanDoc runtime — isolated Conda environment.
+# No changes to Computer D or system Python.
 [CmdletBinding()]
-param(
-    [string]$Root = (Join-Path $env:USERPROFILE "PanDoc-Computer-E")
-)
+param([string]$Root = (Join-Path $env:USERPROFILE "PanDoc-Computer-E"))
 $ErrorActionPreference = "Stop"
 $repoUrl = "https://github.com/peterDataScientia/PanDoc.git"
-# Detect Python 3.11 without letting PowerShell treat py.exe's error as a script failure.
-$python = $null
-if (Get-Command py -ErrorAction SilentlyContinue) {
-    $candidate = & py -3.11 -c "import sys; print(sys.executable)" 2>$null
-    if ($LASTEXITCODE -eq 0 -and $candidate) { $python = ($candidate | Select-Object -First 1).Trim() }
-}
-if (-not $python) {
-    $locations = @(
-        (Join-Path $env:LOCALAPPDATA "Programs\Python\Python311\python.exe"),
-        "C:\Program Files\Python311\python.exe",
-        "C:\Python311\python.exe"
-    )
-    foreach ($location in $locations) {
-        if (Test-Path $location) { $python = $location; break }
+$conda = $null
+$command = Get-Command conda.exe -ErrorAction SilentlyContinue
+if ($command) { $conda = $command.Source }
+if (-not $conda) {
+    foreach ($candidate in @(
+        (Join-Path $env:USERPROFILE "miniconda3\Scripts\conda.exe"),
+        (Join-Path $env:USERPROFILE "anaconda3\Scripts\conda.exe"),
+        (Join-Path $env:LOCALAPPDATA "miniconda3\Scripts\conda.exe"),
+        "C:\ProgramData\miniconda3\Scripts\conda.exe",
+        "C:\ProgramData\anaconda3\Scripts\conda.exe",
+        "C:\Miniconda3\Scripts\conda.exe"
+    )) {
+        if (Test-Path $candidate) { $conda = $candidate; break }
     }
 }
-if (-not $python) {
-    throw "Python 3.11 was not found. Run: winget install --id Python.Python.3.11 --exact --source winget --accept-package-agreements --accept-source-agreements ; then reopen PowerShell and rerun this installer. Python 3.13 and Computer D remain unchanged."
+if (-not $conda) {
+    throw "Conda not found. Install Miniforge or Miniconda (free), reopen PowerShell and rerun. Computer D was not modified."
 }
-Write-Host "Computer E Python: $python" -ForegroundColor Cyan
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-    throw "Git is required to install the PanDoc repository."
-}
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw "Git is required." }
 $source = Join-Path $Root "source"
-$venv = Join-Path $Root ".venv"
+$envPath = Join-Path $Root "conda-env"
 $data = Join-Path $Root "data"
 $logs = Join-Path $Root "logs"
 New-Item -ItemType Directory -Force -Path $Root,$data,$logs | Out-Null
 if (Test-Path (Join-Path $source ".git")) {
-    Write-Host "Repository already exists. Preserving it; update explicitly with git pull if desired."
+    Write-Host "Existing source preserved; use git pull explicitly to update it."
 } elseif (Test-Path $source) {
-    throw "Source folder exists without a git repository: $source"
+    throw "Source directory exists but is not a Git repository."
 } else {
     & git clone --depth 1 $repoUrl $source
-    if ($LASTEXITCODE -ne 0) { throw "PanDoc clone failed" }
+    if ($LASTEXITCODE -ne 0) { throw "Git clone failed." }
 }
-if (-not (Test-Path (Join-Path $venv "Scripts\python.exe"))) {
-    & $python -m venv $venv
-    if ($LASTEXITCODE -ne 0) { throw "Computer E venv creation failed" }
+$python = Join-Path $envPath "python.exe"
+if (-not (Test-Path $python)) {
+    Write-Host "Creating isolated Python 3.11 Conda environment..."
+    & $conda create --prefix $envPath python=3.11 pip -y
+    if ($LASTEXITCODE -ne 0) { throw "Conda environment creation failed." }
 }
-$venvPython = Join-Path $venv "Scripts\python.exe"
-& $venvPython -m pip install --upgrade pip
-if ($LASTEXITCODE -ne 0) { throw "pip upgrade failed" }
-& $venvPython -m pip install -r (Join-Path $source "requirements.txt")
-if ($LASTEXITCODE -ne 0) { throw "Dependency installation failed; Computer D is untouched" }
-& $venvPython -c "import streamlit,rdkit,meeko,vina,openmm,pdbfixer,propka; print('Computer E core packages OK')"
-if ($LASTEXITCODE -ne 0) { throw "Computer E dependency verification failed" }
-Write-Host ""
-Write-Host "Computer E installed in $Root" -ForegroundColor Green
-Write-Host "Launch: powershell -ExecutionPolicy Bypass -File `"$source\computer_e_run.ps1`" -Root `"$Root`""
-Write-Host "Then, in an Administrator terminal (private tailnet only): tailscale serve --bg 8502"
-Write-Host "Existing Computer D scheduled task and worker were not changed."
+& $python --version
+if ($LASTEXITCODE -ne 0) { throw "Conda Python is not working." }
+& $python -m pip install -r (Join-Path $source "requirements.txt")
+if ($LASTEXITCODE -ne 0) {
+    throw "PanDoc requirements failed; inspect the package error. Computer D is unchanged."
+}
+& $python -c "import streamlit, rdkit, meeko, vina, openmm, pdbfixer, propka; print('Computer E core imports passed')"
+if ($LASTEXITCODE -ne 0) { throw "Core scientific import verification failed." }
+Write-Host "Computer E Conda environment installed: $envPath" -ForegroundColor Green
+Write-Host "Start: & `"$source\computer_e_run.ps1`""
+Write-Host "Computer D worker remains unchanged."
