@@ -61,7 +61,11 @@ Get-Content -LiteralPath $requirements |
         ($_ -notmatch '^\s*--only-binary=vina\s*$') -and
         ($_ -notmatch '^\s*vina==1\.2\.7\s*$')
     } |
-    ForEach-Object { $_ -replace '^streamlit==1\\.66\\.1& $python -m pip install -r $windowsRequirements
+    ForEach-Object {
+        if ($_.Trim() -eq 'streamlit==1.66.1') { 'streamlit==1.66.0' } else { $_ }
+    } |
+    Set-Content -LiteralPath $windowsRequirements -Encoding UTF8
+& $python -m pip install -r $windowsRequirements
 if ($LASTEXITCODE -ne 0) {
     throw "PanDoc Windows requirements failed; inspect the package error. Computer D is unchanged."
 }
