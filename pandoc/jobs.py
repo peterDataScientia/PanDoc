@@ -1,6 +1,7 @@
 """Background workers survive Streamlit reruns; each job has isolated outputs."""
 import json
 import os
+import ctypes
 import subprocess
 import sys
 import uuid
@@ -22,7 +23,33 @@ def launch(root, config):
 
 
 def _worker_alive(pid):
-    """A Linux zombie is not a live worker, even though os.kill(pid, 0) succeeds."""
+    """Check the child process without modifying or signaling it.
+
+    On Windows, os.kill(pid, 0) is NOT a harmless POSIX existence probe;
+    it can terminate the process. Use a read-only process handle instead.
+    """
+    if os.name == 'nt':
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        STILL_ACTIVE = 259
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+        kernel32.GetExitCodeProcess.restype = ctypes.c_int
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        kernel32.CloseHandle.restype = ctypes.c_int
+
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, int(pid))
+        if not handle:
+            return False
+        try:
+            exit_code = ctypes.c_uint32()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                return False
+            return exit_code.value == STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
