@@ -1074,7 +1074,7 @@ def show_heme_prep_job():
 def show_remote_job(remote, local_key, remote_key):
     backend = backend_for_handle(remote)
     if backend is None:
-        label = 'Kaggle worker' if remote.get('backend') == 'kaggle-direct' else 'GitHub Actions'
+        label = 'Computer E' if remote.get('backend') == 'computer-e-vina' else ('Computer D' if remote.get('backend') == 'computer-d-vina' else ('Kaggle worker' if remote.get('backend') == 'kaggle-direct' else 'GitHub Actions'))
         st.error(label + ' is not configured or reachable.')
         return {'state': 'failed'}
     try:
@@ -1088,7 +1088,7 @@ def show_remote_job(remote, local_key, remote_key):
 
     # Computer C snapshots are published every ~12s; poll every 5s to avoid
     # exhausting GitHub API quota without compromising meaningful freshness.
-    refresh_seconds = 4 if remote.get('backend') == 'computer-d-vina' else (5 if remote.get('backend') != 'kaggle-direct' else 2)
+    refresh_seconds = 4 if remote.get('backend') in ('computer-d-vina', 'computer-e-vina') else (5 if remote.get('backend') != 'kaggle-direct' else 2)
 
     @st.fragment(run_every=refresh_seconds if polling else None)
     def live_remote_job():
@@ -1097,7 +1097,7 @@ def show_remote_job(remote, local_key, remote_key):
         except compute.ComputeBackendError as exc:
             st.error(str(exc))
             return
-        backend_label = ('Computer D · Windows Vina' if remote.get('backend') == 'computer-d-vina' else ('Kaggle worker' if remote.get('backend') == 'kaggle-direct' else 'GitHub Actions'))
+        backend_label = ('Computer D · Windows Vina' if remote.get('backend') == 'computer-d-vina' else ('Computer E · Windows Vina' if remote.get('backend') == 'computer-e-vina' else ('Kaggle worker' if remote.get('backend') == 'kaggle-direct' else 'GitHub Actions')))
         ui.automation_marker(
             st,
             'job-status',
@@ -1106,14 +1106,14 @@ def show_remote_job(remote, local_key, remote_key):
             text=f"{backend_label} {current['state']}",
         )
         st.info(f"{backend_label} · {current['state']} · job {remote['job_id'][:8]}")
-        if remote.get('backend') == 'computer-d-vina':
+        if remote.get('backend') in ('computer-d-vina', 'computer-e-vina'):
             done = max(0, int(current.get('completed') or 0))
             total = max(0, int(current.get('total') or 0))
             if total:
                 done = min(done, total)
                 st.progress(done / total, text=f"Docking searches completed: {done}/{total} ({100*done/total:.1f}%)")
             else:
-                st.caption("Waiting for Computer D to report the number of docking searches.")
+                st.caption(f"Waiting for {backend_label} to report the number of docking searches.")
             active_name = current.get('active_ligand') or current.get('current') or 'Waiting for worker'
             active_seed = current.get('active_seed')
             c1, c2, c3 = st.columns(3)
@@ -1124,7 +1124,7 @@ def show_remote_job(remote, local_key, remote_key):
             elapsed = current.get('elapsed_seconds')
             if elapsed is not None:
                 st.caption(f"Current Vina search elapsed: {float(elapsed):.0f} seconds")
-            st.caption("Progress counts completed ligand–seed docking searches, not Vina's internal iterations. Computer D checks for new jobs every 4 seconds; GitHub progress snapshots are periodic, not continuous.")
+            st.caption("Progress counts completed ligand–seed docking searches, not Vina internal iterations. Remote worker queue and GitHub progress snapshots are periodic, not continuous.")
         # A workflow step list is infrastructure metadata, NOT docking progress.
         # Keep the primary view dedicated to the real Vina/Meeko worker stdout.
         if current['state'] == 'queued':
@@ -1134,13 +1134,13 @@ def show_remote_job(remote, local_key, remote_key):
             live_log = backend.logs(remote, tail=220)
         except Exception:
             live_log = 'Docking output is temporarily unavailable. The computation may still be running.'
-        st.markdown('#### Docking activity' if remote.get('backend') == 'computer-d-vina' else '#### AutoDock Vina · Live docking output')
+        st.markdown('#### Docking activity' if remote.get('backend') in ('computer-d-vina', 'computer-e-vina') else '#### AutoDock Vina · Live docking output')
         st.code(live_log or 'Waiting for docking worker output.', language=None)
 
         if current['state'] in active_states:
             if remote.get('backend') == 'kaggle-direct':
                 st.caption('Running on Kaggle worker. Status and log refresh every 2 seconds.')
-            elif remote.get('backend') != 'computer-d-vina':
+            elif remote.get('backend') not in ('computer-d-vina', 'computer-e-vina'):
                 st.caption('Computer C: encrypted Vina output is published approximately every 12 seconds; this panel checks every 5 seconds.')
             cancel_key = remote['job_id'] + '_cancel_confirm'
             if st.session_state.get(cancel_key):
