@@ -11,6 +11,18 @@ if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyCon
 }
 $env:PANDOC_DATA_DIR = Join-Path $Root "data"
 $env:PANDOC_RUNTIME_NAME = "Computer E"
+$vinaPathFile = Join-Path $Root "vina_path.txt"
+if (Test-Path $vinaPathFile) {
+    $candidateVina = (Get-Content $vinaPathFile -TotalCount 1).Trim()
+    if ($candidateVina -and (Test-Path $candidateVina)) {
+        $env:PANDOC_VINA_EXE = $candidateVina
+        Write-Host "Computer E Vina executable: $candidateVina"
+    } else {
+        Write-Warning "Saved Vina executable not found. Docking via native CLI is unavailable."
+    }
+} else {
+    Write-Warning "Vina executable is not configured. Docking needs PANDOC_VINA_EXE."
+}
 $env:STREAMLIT_SERVER_HEADLESS = "true"
 New-Item -ItemType Directory -Force -Path $env:PANDOC_DATA_DIR | Out-Null
 Set-Location $source
