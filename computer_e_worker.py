@@ -189,7 +189,7 @@ def run_job(branch,job_id):
         total=len(config["ligands"])*len(config["seeds"])
         # Use every logical processor visible to Windows; no 4-thread or
         # exhaustiveness-derived cap. Vina manages the search threads.
-        cpu=max(1, os.cpu_count() or 1)
+        cpu=max(1, min(os.cpu_count() or 1, int(config["exhaustiveness"])))
         print(f"Computer E: {cpu} logical CPUs visible; exhaustiveness={config['exhaustiveness']}",flush=True)
         # GitHub is a remote control plane, not a live per-second log stream.
         # Limit network uploads while keeping all scientific output in local Vina log.
@@ -307,6 +307,11 @@ def load_credentials():
 
     token_saved = keyring.get_password(service, "GITHUB_TOKEN")
     key_saved = keyring.get_password(service, "PANDOC_JOB_KEY")
+    # Reuse credentials previously saved for Computer D under the same Windows
+    # user and repository, without exposing secrets in logs.
+    previous_service = "PanDoc-Computer-D:" + REPO
+    token_saved = token_saved or keyring.get_password(previous_service, "GITHUB_TOKEN")
+    key_saved = key_saved or keyring.get_password(previous_service, "PANDOC_JOB_KEY")
     if not TOKEN:
         TOKEN = (token_saved or getpass("GitHub token (hidden, first run only): ")).strip()
     if not KEY:
@@ -325,9 +330,9 @@ def load_credentials():
         raise SystemExit(
             "GitHub authentication failed; credentials were not saved: " + str(exc)
         ) from exc
-    if not token_saved and not os.environ.get("GITHUB_TOKEN"):
+    if not keyring.get_password(service, "GITHUB_TOKEN") and not os.environ.get("GITHUB_TOKEN"):
         keyring.set_password(service, "GITHUB_TOKEN", TOKEN)
-    if not key_saved and not os.environ.get("PANDOC_JOB_KEY"):
+    if not keyring.get_password(service, "PANDOC_JOB_KEY") and not os.environ.get("PANDOC_JOB_KEY"):
         keyring.set_password(service, "PANDOC_JOB_KEY", KEY)
     print("Computer E credentials loaded from Windows Credential Manager.")
 
@@ -336,6 +341,9 @@ def main():
     load_credentials()
     if not VINA.is_file():raise SystemExit("Cannot find Vina executable: "+str(VINA))
     WORK.mkdir(parents=True,exist_ok=True)
+    if "--check-credentials" in __import__("sys").argv:
+        print("Computer E credentials verified; worker can run at sign-in.", flush=True)
+        return
     print("Computer E ready. Vina:",VINA,flush=True)
     while True:
         try:
