@@ -59,6 +59,12 @@ ui.load_css(st, PANDOC_CSS)
 if os.environ.get("PANDOC_DESKTOP_APP") == "1":
     from pandoc.desktop_updater import render_update_controls
     render_update_controls(st)
+    # Suppress Streamlit's hosted-app deployment chrome in the native window.
+    st.markdown(
+        '<style>[data-testid="stDeployButton"], '
+        '[data-testid="stToolbar"] {display:none!important;}</style>',
+        unsafe_allow_html=True,
+    )
 
 
 # Computer E is a separate, full local PanDoc instance (not Computer D's Vina worker).
@@ -1420,41 +1426,46 @@ with st.sidebar:
             key='profile_bundle_download_sidebar',
         )
 
-# Runtime selector stays at the top-right of the workspace, not in the sidebar.
-# Preserve the original session-state values used by existing compute routing.
-with st.container(key='runtime_toolbar'):
-    _runtime_spacer, _runtime_column = st.columns([8, 1.5], gap='small')
-    with _runtime_column:
-        with st.popover('Runtime', icon=':material/memory:', help='Choose where new calculations run'):
-            st.radio(
-                'Compute runtime',
-                (compute_options.STREAMLIT,) if os.environ.get("PANDOC_RUNTIME_NAME") == "Computer E" else compute_options.OPTIONS,
-                key='compute_mode',
-                format_func=(lambda _: "Computer E · Full Local Runtime") if os.environ.get("PANDOC_RUNTIME_NAME") == "Computer E" else compute_options.runtime_label,
-                help='Computer A runs here; B uses Kaggle; C uses GitHub Actions; D runs Vina on Windows.',
-            )
-            _selected_runtime = st.session_state.get('compute_mode', compute_options.STREAMLIT)
-            if os.environ.get("PANDOC_RUNTIME_NAME") == "Computer E":
-                st.caption("All scientific work runs on this computer. Other backends are disabled here.")
-            else:
-                st.caption(compute_options.description(_selected_runtime))
-            if _selected_runtime == compute_options.KAGGLE:
-                _k_url, _k_key = kaggle_config()
-                if not (_k_url and _k_key):
-                    st.warning('Kaggle is not configured. GitHub Actions fallback requires separate configuration.')
-            elif _selected_runtime == compute_options.COMPUTER_D:
-                if computer_d_backend() is None:
-                    st.warning('Computer D requires GITHUB_TOKEN and PANDOC_JOB_KEY.')
-            elif _selected_runtime == compute_options.COMPUTER_E:
-                if computer_e_backend() is None:
-                    st.warning('Computer E requires GITHUB_TOKEN and PANDOC_JOB_KEY on Streamlit Cloud.')
+# The Windows installer is a self-contained local compute application.
+# Never expose Streamlit Cloud, Kaggle, GitHub or remote workers in its UI.
+# Keep all existing hosted runtime choices and routing unchanged.
+if os.environ.get("PANDOC_DESKTOP_APP") == "1":
+    st.session_state["compute_mode"] = compute_options.STREAMLIT
+else:
+    # Runtime selector stays at the top-right of the workspace, not in the sidebar.
+    # Preserve the original session-state values used by existing compute routing.
+    with st.container(key='runtime_toolbar'):
+        _runtime_spacer, _runtime_column = st.columns([8, 1.5], gap='small')
+        with _runtime_column:
+            with st.popover('Runtime', icon=':material/memory:', help='Choose where new calculations run'):
+                st.radio(
+                    'Compute runtime',
+                    (compute_options.STREAMLIT,) if os.environ.get("PANDOC_RUNTIME_NAME") == "Computer E" else compute_options.OPTIONS,
+                    key='compute_mode',
+                    format_func=(lambda _: "Computer E · Full Local Runtime") if os.environ.get("PANDOC_RUNTIME_NAME") == "Computer E" else compute_options.runtime_label,
+                    help='Computer A runs here; B uses Kaggle; C uses GitHub Actions; D runs Vina on Windows.',
+                )
+                _selected_runtime = st.session_state.get('compute_mode', compute_options.STREAMLIT)
+                if os.environ.get("PANDOC_RUNTIME_NAME") == "Computer E":
+                    st.caption("All scientific work runs on this computer. Other backends are disabled here.")
                 else:
-                    st.caption('Computer E uses an encrypted outbound job queue. The Windows worker must be running to pick up submitted jobs.')
-            elif _selected_runtime == compute_options.GITHUB_ACTIONS:
-                if github_backend() is None:
-                    st.warning('GitHub Actions is not configured on this server.')
-            st.caption('Runtime changes apply to new calculations; active jobs keep their original backend.')
-
+                    st.caption(compute_options.description(_selected_runtime))
+                if _selected_runtime == compute_options.KAGGLE:
+                    _k_url, _k_key = kaggle_config()
+                    if not (_k_url and _k_key):
+                        st.warning('Kaggle is not configured. GitHub Actions fallback requires separate configuration.')
+                elif _selected_runtime == compute_options.COMPUTER_D:
+                    if computer_d_backend() is None:
+                        st.warning('Computer D requires GITHUB_TOKEN and PANDOC_JOB_KEY.')
+                elif _selected_runtime == compute_options.COMPUTER_E:
+                    if computer_e_backend() is None:
+                        st.warning('Computer E requires GITHUB_TOKEN and PANDOC_JOB_KEY on Streamlit Cloud.')
+                    else:
+                        st.caption('Computer E uses an encrypted outbound job queue. The Windows worker must be running to pick up submitted jobs.')
+                elif _selected_runtime == compute_options.GITHUB_ACTIONS:
+                    if github_backend() is None:
+                        st.warning('GitHub Actions is not configured on this server.')
+                st.caption('Runtime changes apply to new calculations; active jobs keep their original backend.')
 
 # Standalone preparation for large GPU docking libraries: no receptor/docking required.
 with st.expander("Bulk ligand preparation · CSV → up to 10,000 PDBQT files", expanded=False):
