@@ -880,7 +880,11 @@ def show_profile_prep_jobs():
     for target_name, remote in remotes.items():
         backend = backend_for_handle(remote)
         if backend is None:
-            states[target_name] = {'state': 'failed', 'error': 'GitHub Actions is not configured.'}
+            states[target_name] = {'state': 'failed', 'error': (
+                'This saved remote preparation job cannot run in the local Windows desktop.'
+                if os.environ.get("PANDOC_DESKTOP_APP") == "1"
+                else 'GitHub Actions is not configured.'
+            )}
             continue
         try:
             states[target_name] = backend.status(remote)
@@ -899,7 +903,9 @@ def show_profile_prep_jobs():
         for target_name, remote in profile_quality.snapshot_profile_jobs(current_jobs):
             backend = backend_for_handle(remote)
             if backend is None:
-                st.error(f'{target_name} · GitHub Actions is not configured.')
+                st.error(f'{target_name} · Remote preparation is unavailable in this Windows app.'
+                         if os.environ.get("PANDOC_DESKTOP_APP") == "1"
+                         else f'{target_name} · GitHub Actions is not configured.')
                 continue
 
             try:
@@ -992,7 +998,9 @@ def show_heme_prep_job():
             st.rerun()
         return
     if backend is None:
-        st.error('GitHub Actions is not configured for retained-HEM preparation.')
+        st.error('This retained-HEM preparation was started on a remote backend and cannot resume locally.'
+                 if os.environ.get("PANDOC_DESKTOP_APP") == "1"
+                 else 'GitHub Actions is not configured for retained-HEM preparation.')
         return
     try:
         first = backend.status(handle)
@@ -1383,8 +1391,11 @@ with st.sidebar:
                         errors.append({
                             'target': target_name,
                             'error': (
-                                'Curated heme preparation requires GitHub Actions. '
-                                'Configure GITHUB_TOKEN and PANDOC_JOB_KEY.'
+                                ('Curated heme profile preparation is not supported by this local Windows '
+                                 'workflow yet; use the web workflow for these profiles.'
+                                 if os.environ.get("PANDOC_DESKTOP_APP") == "1"
+                                 else 'Curated heme preparation requires GitHub Actions. '
+                                      'Configure GITHUB_TOKEN and PANDOC_JOB_KEY.')
                             ),
                         })
                     local_result['errors'] = errors
@@ -1569,7 +1580,9 @@ with st.expander("Bulk ligand preparation · CSV → up to 10,000 PDBQT files", 
     if remote_bulk:
         remote_backend = backend_for_handle(remote_bulk)
         if remote_backend is None:
-            st.error("GitHub Actions is not configured for the active bulk-preparation job.")
+            st.error("This earlier remote bulk-preparation job cannot resume in the local Windows app."
+                     if os.environ.get("PANDOC_DESKTOP_APP") == "1"
+                     else "GitHub Actions is not configured for the active bulk-preparation job.")
         else:
             @st.fragment(run_every="8s")
             def _bulk_remote_progress():
