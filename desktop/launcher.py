@@ -45,6 +45,16 @@ def run_server() -> None:
 
 
 def main() -> None:
+    # Meeko receptor preparation invokes sys.executable -m ... .
+    # In a frozen app sys.executable points to PanDoc.exe, not python.exe.
+    if getattr(sys, "frozen", False) and len(sys.argv) > 2 and sys.argv[1] == "-m":
+        import runpy
+        module = sys.argv[2]
+        if module not in {"meeko.cli.mk_prepare_receptor"}:
+            raise SystemExit("Unsupported bundled module invocation")
+        sys.argv = [module, *sys.argv[3:]]
+        runpy.run_module(module, run_name="__main__", alter_sys=True)
+        return
     # The frozen executable runs itself with a private server flag.
     if len(sys.argv) > 1 and sys.argv[1] == "--pandoc-server":
         run_server()
