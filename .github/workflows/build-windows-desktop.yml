@@ -68,8 +68,22 @@ jobs:
 
       - name: Bundle desktop application
         run: |
-          conda run -n pandoc-desktop python -m PyInstaller --noconfirm --clean --onedir --windowed --name PanDoc --paths . --add-data "app.py;." --add-data "pandoc;pandoc" --add-data "assets;assets" --add-binary "desktop/vendor/vina.exe;bin" --collect-all streamlit --collect-all rdkit --collect-all meeko --collect-all openmm --collect-all pdbfixer --collect-all py3Dmol --collect-all webview --collect-all propka --collect-all molscrub --hidden-import meeko.cli.mk_prepare_receptor --hidden-import streamlit.web.cli desktop/launcher.py
+          conda run -n pandoc-desktop python -m PyInstaller --noconfirm --clean --onedir --windowed --name PanDoc --paths . --add-data "app.py;." --add-data "pandoc;pandoc" --add-data "assets;assets" --add-binary "desktop/vendor/vina.exe;bin" --collect-all streamlit --collect-all rdkit --collect-all meeko --collect-all cryptography --collect-all openmm --collect-all pdbfixer --collect-all py3Dmol --collect-all webview --collect-all propka --collect-all molscrub --hidden-import meeko.cli.mk_prepare_receptor --hidden-import streamlit.web.cli desktop/launcher.py
           if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed" }
+
+      - name: Verify frozen application imports and encryption
+        timeout-minutes: 1
+        run: |
+          $env:PANDOC_SELFTEST_LOG = Join-Path $env:RUNNER_TEMP "pandoc-frozen-selftest.log"
+          $process = Start-Process -FilePath "dist\\PanDoc\\PanDoc.exe" -ArgumentList "--pandoc-selftest" -PassThru -Wait
+          if (Test-Path $env:PANDOC_SELFTEST_LOG) {
+            Write-Host "=== Frozen application self-test ==="
+            Get-Content $env:PANDOC_SELFTEST_LOG
+          } else { throw "Frozen app did not create self-test log" }
+          if ($process.ExitCode -ne 0) { throw "Frozen app imports/cryptography self-test failed ($($process.ExitCode))" }
+          if (-not (Select-String -Path $env:PANDOC_SELFTEST_LOG -Pattern "PanDoc application imports: OK" -Quiet)) {
+            throw "Frozen application did not complete all imports"
+          }
 
       - name: Smoke-test frozen Streamlit server
         timeout-minutes: 2
