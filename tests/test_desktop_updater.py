@@ -67,6 +67,7 @@ class UpdaterTests(unittest.TestCase):
                   mock.patch.object(updates.urllib.request, "urlopen", return_value=io.BytesIO(binary))):
                 result = updates.download_verified(metadata, directory)
                 self.assertEqual(result.read_bytes(), binary)
+                self.assertEqual(metadata["verified_sha256"], checksum)
                 self.assertFalse(list(directory.glob("*.partial")))
             with (mock.patch.object(updates, "_get", return_value=b"0" * 64 + b"  " + updates.ASSET_NAME.encode()),
                   mock.patch.object(updates.urllib.request, "urlopen", return_value=io.BytesIO(binary))):
@@ -81,8 +82,10 @@ class UpdaterTests(unittest.TestCase):
             verified_dir.mkdir()
             other = base / "elsewhere.exe"
             other.write_bytes(b"fake")
-            with self.assertRaises(updates.UpdateError):
-                updates.schedule_install(other, other, verified_dir)
+            with (mock.patch.object(updates.sys, "platform", "win32"),
+                  mock.patch.object(updates.sys, "frozen", True, create=True)):
+                with self.assertRaises(updates.UpdateError):
+                    updates.schedule_install(other, other, verified_dir, "0" * 64)
 
 
 if __name__ == "__main__":
