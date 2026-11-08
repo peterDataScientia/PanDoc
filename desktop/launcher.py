@@ -36,6 +36,11 @@ def run_server() -> None:
         "streamlit", "run", str(app),
         "--server.address=127.0.0.1",
         "--global.developmentMode=false",
+        "--theme.base=light",
+        "--theme.primaryColor=#0b6672",
+        "--theme.backgroundColor=#e9eff6",
+        "--theme.secondaryBackgroundColor=#f5f8fc",
+        "--theme.textColor=#16293f",
         "--server.port=" + port,
         "--server.headless=true",
         "--server.enableCORS=false",
@@ -57,6 +62,9 @@ def run_selftest() -> None:
             key = Fernet.generate_key()
             assert Fernet(key).decrypt(Fernet(key).encrypt(b"pandoc-check")) == b"pandoc-check"
             print("cryptography Fernet round-trip: OK", file=log, flush=True)
+            import importlib.util
+            assert importlib.util.find_spec("propka.__main__") is not None, "PROPKA CLI missing"
+            print("PROPKA command entrypoint: OK", file=log, flush=True)
             from pandoc import (core, jobs, figures, pdb_search, structure_checks,
                                 phprep, ui, batch_review, profile_engine,
                                 profile_quality, compute, compute_options,
@@ -78,10 +86,21 @@ def main() -> None:
     if getattr(sys, "frozen", False) and len(sys.argv) > 2 and sys.argv[1] == "-m":
         import runpy
         module = sys.argv[2]
-        if module not in {"meeko.cli.mk_prepare_receptor"}:
+        if module not in {"meeko.cli.mk_prepare_receptor", "propka"}:
             raise SystemExit("Unsupported bundled module invocation")
-        sys.argv = [module, *sys.argv[3:]]
-        runpy.run_module(module, run_name="__main__", alter_sys=True)
+        # A GUI/windowed bootloader has no stdout/stderr, which command-line
+        # scientific packages expect. Preserve their diagnostic output.
+        cli_log = Path.cwd() / ("propka_cli.log" if module == "propka" else "meeko_cli.log")
+        with cli_log.open("w", encoding="utf-8", buffering=1) as output:
+            sys.stdout = output
+            sys.stderr = output
+            sys.argv = [module, *sys.argv[3:]]
+            try:
+                runpy.run_module(module, run_name="__main__", alter_sys=True)
+            except BaseException:
+                import traceback
+                traceback.print_exc(file=output)
+                raise
         return
     # The frozen executable runs itself with a private server flag.
     if len(sys.argv) > 1 and sys.argv[1] == "--pandoc-server":
