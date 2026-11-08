@@ -15,6 +15,19 @@ If CI succeeds, download the `PanDoc-Setup-Windows-x64` workflow artifact. It co
 - Docking software may need extra validation on actual Windows hosts (including binary compatibility, scientific package resources, and subprocess executables).
 - Installer is currently unsigned; Windows SmartScreen may warn until code signing is arranged.
 
+
+## In-app updates (Windows desktop only)
+
+The **Software updates** panel is in the PanDoc sidebar. Select **Check for updates**, then **Download and install update** when a newer stable release exists. The download is verified against the matching SHA-256 release manifest before installation; if verification fails the installed application remains untouched. **Save running experiments and close the PanDoc window** once the verified updater reports it is ready. A detached Windows helper waits until that installed PanDoc executable exits, installs the update in place, and reopens PanDoc. A failed update leaves a diagnostic in `%USERPROFILE%\\PanDocData\\updates\\update-result.log`.
+
+- The first updater-enabled installer must be installed manually. Older beta installers cannot acquire the updater automatically.
+- Only published non-prerelease `pandoc-desktop-vX.Y.Z` tags in the official `peterDataScientia/PanDoc` GitHub repository are considered.
+- Each release must include both `PanDoc-Setup-Windows-x64.exe` and `PanDoc-Setup-Windows-x64.exe.sha256`.
+- Tag releases only after testing. GitHub Actions builds the executable and publishes both files on a `pandoc-desktop-vX.Y.Z` tag push; `desktop/VERSION` must match `X.Y.Z`.
+- The updater does not run on the hosted Streamlit app, and does not modify data in `PanDocData`.
+- A SHA-256 checksum checks download integrity; it is not a substitute for Windows Authenticode signing. The installer is currently unsigned and Windows may show a SmartScreen prompt.
+- A GitHub Actions ZIP artifact is a test build, **not** an update release.
+
 ## Developer quick test
 
 In a Windows Python 3.11 environment with repository requirements installed:
