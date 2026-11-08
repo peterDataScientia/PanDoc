@@ -68,7 +68,7 @@ jobs:
 
       - name: Bundle desktop application
         run: |
-          conda run -n pandoc-desktop python -m PyInstaller --noconfirm --clean --onedir --windowed --name PanDoc --paths . --add-data "app.py;." --add-data "pandoc;pandoc" --add-data "assets;assets" --add-binary "desktop/vendor/vina.exe;bin" --collect-all streamlit --collect-all rdkit --collect-all meeko --collect-all cryptography --collect-all openmm --collect-all pdbfixer --collect-all py3Dmol --collect-all webview --collect-all propka --collect-all molscrub --hidden-import meeko.cli.mk_prepare_receptor --hidden-import propka.__main__ --hidden-import streamlit.web.cli desktop/launcher.py
+          conda run -n pandoc-desktop python -m PyInstaller --noconfirm --clean --onedir --windowed --name PanDoc --paths . --add-data "app.py;." --add-data "pandoc;pandoc" --add-data "assets;assets" --add-binary "desktop/vendor/vina.exe;bin" --collect-all streamlit --collect-all rdkit --collect-all meeko --collect-all cryptography --collect-all openmm --collect-all pdbfixer --collect-all py3Dmol --collect-all webview --collect-all propka --collect-all molscrub --hidden-import meeko.cli.mk_prepare_receptor --hidden-import propka.__main__ --hidden-import pandoc.worker --hidden-import streamlit.web.cli desktop/launcher.py
           if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed" }
 
       - name: Verify frozen application imports and encryption
@@ -98,6 +98,29 @@ jobs:
             Get-Content $logPath -Tail 60
           } else { throw "Frozen PROPKA CLI did not execute" }
           if ($process.ExitCode -ne 0) { throw "Frozen PROPKA CLI failed ($($process.ExitCode))" }
+
+      - name: Verify frozen local docking worker launches
+        timeout-minutes: 1
+        run: |
+          $scratch = Join-Path $env:RUNNER_TEMP "PanDocWorkerTest"
+          New-Item -ItemType Directory -Force -Path $scratch | Out-Null
+          '{}' | Set-Content (Join-Path $scratch "config.json")
+          $exe = (Resolve-Path "dist\\PanDoc\\PanDoc.exe").Path
+          $process = Start-Process -FilePath $exe -ArgumentList "-u", "-m", "pandoc.worker", $scratch -PassThru -Wait
+          $statusPath = Join-Path $scratch "status.json"
+          $logPath = Join-Path $scratch "worker.log"
+          if (Test-Path $logPath) {
+            Write-Host "=== Frozen docking worker log ==="
+            Get-Content $logPath -Tail 80
+          }
+          if (-not (Test-Path $statusPath)) {
+            throw "Frozen worker never produced status.json (launcher may not dispatch -u -m)"
+          }
+          $state = Get-Content $statusPath -Raw | ConvertFrom-Json
+          if ($state.state -ne "failed" -or -not $state.error) {
+            throw "Expected controlled validation failure for empty test config, got: $($state.state)"
+          }
+          Write-Host "Frozen local docking worker dispatched and wrote expected failure diagnostics."
 
       - name: Smoke-test frozen Streamlit server
         timeout-minutes: 2
