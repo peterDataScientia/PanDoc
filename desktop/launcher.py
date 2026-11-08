@@ -35,6 +35,7 @@ def run_server() -> None:
     sys.argv = [
         "streamlit", "run", str(app),
         "--server.address=127.0.0.1",
+        "--global.developmentMode=false",
         "--server.port=" + port,
         "--server.headless=true",
         "--server.enableCORS=false",
