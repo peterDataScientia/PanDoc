@@ -26,6 +26,11 @@ def run_server() -> None:
     from streamlit.web import cli as streamlit_cli
 
     app = resource_path("app.py")
+    if getattr(sys, "frozen", False):
+        vina = resource_path("bin/vina.exe")
+        if not vina.is_file():
+            raise RuntimeError(f"Bundled Vina executable missing: {vina}")
+        os.environ["PANDOC_VINA_EXE"] = str(vina)
     port = os.environ["PANDOC_DESKTOP_PORT"]
     sys.argv = [
         "streamlit", "run", str(app),
