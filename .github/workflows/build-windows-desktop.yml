@@ -2,6 +2,10 @@ name: Build PanDoc Windows Installer
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/build-windows-desktop.yml'
   push:
     paths:
       - 'desktop/**'
@@ -51,6 +55,27 @@ jobs:
       - name: Bundle desktop application
         run: |
           conda run -n pandoc-desktop python -m PyInstaller --noconfirm --clean --onedir --windowed --name PanDoc --paths . --add-data "app.py;." --add-data "pandoc;pandoc" --add-data "assets;assets" --collect-all streamlit --collect-all rdkit --collect-all meeko --collect-all vina --collect-all openmm --collect-all pdbfixer --collect-all py3Dmol --collect-all webview --collect-all propka --collect-all molscrub --hidden-import streamlit.web.cli desktop/launcher.py
+
+      - name: Smoke-test frozen Streamlit server
+        run: |
+          $env:PANDOC_DESKTOP_PORT = "18762"
+          $env:PANDOC_DATA_DIR = Join-Path $env:RUNNER_TEMP "PanDocTestData"
+          $process = Start-Process -FilePath "dist\\PanDoc\\PanDoc.exe" -ArgumentList "--pandoc-server" -PassThru -WindowStyle Hidden
+          try {
+            $healthy = $false
+            for ($i = 0; $i -lt 90; $i++) {
+              if ($process.HasExited) { throw "Frozen PanDoc server exited with code $($process.ExitCode)" }
+              try {
+                $response = Invoke-WebRequest "http://127.0.0.1:18762/_stcore/health" -TimeoutSec 2 -UseBasicParsing
+                if ($response.StatusCode -eq 200) { $healthy = $true; break }
+              } catch {}
+              Start-Sleep -Seconds 2
+            }
+            if (-not $healthy) { throw "Frozen PanDoc server failed health check" }
+            Write-Host "Frozen PanDoc Streamlit health endpoint passed."
+          } finally {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+          }
 
       - name: Compile Windows installer
         run: |
