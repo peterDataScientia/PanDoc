@@ -73,7 +73,13 @@ jobs:
       - name: Validate desktop release version
         run: |
           $version = (Get-Content desktop/VERSION -Raw).Trim()
-          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+
+          if ($version -notmatch '^[0-9]+\\.[0-9]+\\.[0-9]+$') { throw "Invalid desktop version" }
+          if ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -ne "pandoc-desktop-v$version") {
+            throw "Desktop version does not match the release tag"
+          }
+          Write-Host "Desktop v$version"
+
+      - name: Bundle desktop application
         run: |
           conda run -n pandoc-desktop python -m PyInstaller --noconfirm --clean --onedir --windowed --name PanDoc --paths . --add-data "app.py;." --add-data "desktop/VERSION;desktop" --add-data "pandoc;pandoc" --add-data "assets;assets" --add-binary "desktop/vendor/vina.exe;bin" --collect-all streamlit --collect-all rdkit --collect-all meeko --collect-all cryptography --collect-all openmm --collect-all pdbfixer --collect-all py3Dmol --collect-all webview --collect-all propka --collect-all molscrub --hidden-import meeko.cli.mk_prepare_receptor --hidden-import propka.__main__ --hidden-import pandoc.worker --hidden-import streamlit.web.cli desktop/launcher.py
           if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed" }
@@ -197,7 +203,7 @@ jobs:
         run: |
           $version = (Get-Content desktop/VERSION -Raw).Trim()
           if ($env:GITHUB_REF_NAME -ne "pandoc-desktop-v$version") { throw "Release tag mismatch" }
-          gh release create $env:GITHUB_REF_NAME "dist-installer/PanDoc-Setup-Windows-x64.exe" "dist-installer/PanDoc-Setup-Windows-x64.exe.sha256" --title "PanDoc Desktop v$version" --notes "Windows x64 installer. Download directly; no Python or Conda required. Back up active docking jobs and close PanDoc to upgrade."
+          gh release create $env:GITHUB_REF_NAME "dist-installer/PanDoc-Setup-Windows-x64.exe" "dist-installer/PanDoc-Setup-Windows-x64.exe.sha256" --title "PanDoc Desktop v$version" --notes "Windows x64 installer. Download directly; no Python or Conda required. Save active docking jobs and close PanDoc to upgrade."
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
@@ -206,123 +212,4 @@ jobs:
           path: |
             dist-installer/PanDoc-Setup-Windows-x64.exe
             dist-installer/PanDoc-Setup-Windows-x64.exe.sha256
-          if-no-files-found: error
-) { throw "Invalid desktop version" }
-          if ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -ne "pandoc-desktop-v$version") {
-            throw "Desktop version does not match signed-off release tag"
-          }
-          Write-Host "Desktop v$version"
-
-      - name: Bundle desktop application
-        run: |
-          conda run -n pandoc-desktop python -m PyInstaller --noconfirm --clean --onedir --windowed --name PanDoc --paths . --add-data "app.py;." --add-data "pandoc;pandoc" --add-data "assets;assets" --add-binary "desktop/vendor/vina.exe;bin" --collect-all streamlit --collect-all rdkit --collect-all meeko --collect-all cryptography --collect-all openmm --collect-all pdbfixer --collect-all py3Dmol --collect-all webview --collect-all propka --collect-all molscrub --hidden-import meeko.cli.mk_prepare_receptor --hidden-import propka.__main__ --hidden-import pandoc.worker --hidden-import streamlit.web.cli desktop/launcher.py
-          if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed" }
-
-      - name: Verify frozen application imports and encryption
-        timeout-minutes: 1
-        run: |
-          $env:PANDOC_SELFTEST_LOG = Join-Path $env:RUNNER_TEMP "pandoc-frozen-selftest.log"
-          $process = Start-Process -FilePath "dist\\PanDoc\\PanDoc.exe" -ArgumentList "--pandoc-selftest" -PassThru -Wait
-          if (Test-Path $env:PANDOC_SELFTEST_LOG) {
-            Write-Host "=== Frozen application self-test ==="
-            Get-Content $env:PANDOC_SELFTEST_LOG
-          } else { throw "Frozen app did not create self-test log" }
-          if ($process.ExitCode -ne 0) { throw "Frozen app imports/cryptography self-test failed ($($process.ExitCode))" }
-          if (-not (Select-String -Path $env:PANDOC_SELFTEST_LOG -Pattern "PanDoc application imports: OK" -Quiet)) {
-            throw "Frozen application did not complete all imports"
-          }
-
-      - name: Verify frozen PROPKA command
-        timeout-minutes: 1
-        run: |
-          $scratch = Join-Path $env:RUNNER_TEMP "PanDocPropkaCli"
-          New-Item -ItemType Directory -Force -Path $scratch | Out-Null
-          $exe = (Resolve-Path "dist\\PanDoc\\PanDoc.exe").Path
-          $process = Start-Process -FilePath $exe -WorkingDirectory $scratch -ArgumentList "-m", "propka", "--help" -PassThru -Wait
-          $logPath = Join-Path $scratch "propka_cli.log"
-          if (Test-Path $logPath) {
-            Write-Host "=== Frozen PROPKA CLI ==="
-            Get-Content $logPath -Tail 60
-          } else { throw "Frozen PROPKA CLI did not execute" }
-          if ($process.ExitCode -ne 0) { throw "Frozen PROPKA CLI failed ($($process.ExitCode))" }
-          # Actual pKa computation, not only the --help entrypoint.
-          & curl.exe --fail --location --retry 2 --output (Join-Path $scratch "1CRN.pdb") "https://files.rcsb.org/download/1CRN.pdb"
-          if ($LASTEXITCODE -ne 0) { throw "Cannot obtain public 1CRN PROPKA test protein" }
-          $pka = Join-Path $scratch "1CRN.pka"
-          $run = Start-Process -FilePath $exe -WorkingDirectory $scratch -ArgumentList "-m", "propka", "1CRN.pdb" -PassThru -Wait
-          if ($run.ExitCode -ne 0 -or -not (Test-Path $pka)) {
-            if (Test-Path $logPath) { Get-Content $logPath -Tail 100 }
-            throw "Frozen PROPKA failed real 1CRN pKa computation"
-          }
-          if (-not (Select-String -Path $pka -Pattern "SUMMARY OF THIS PREDICTION" -Quiet)) {
-            throw "PROPKA output missing pKa prediction summary"
-          }
-          Write-Host "Frozen PROPKA completed real protein pKa prediction."
-
-      - name: Verify frozen local docking worker launches
-        timeout-minutes: 1
-        run: |
-          $scratch = Join-Path $env:RUNNER_TEMP "PanDocWorkerTest"
-          New-Item -ItemType Directory -Force -Path $scratch | Out-Null
-          '{}' | Set-Content (Join-Path $scratch "config.json")
-          $exe = (Resolve-Path "dist\\PanDoc\\PanDoc.exe").Path
-          $process = Start-Process -FilePath $exe -ArgumentList "-u", "-m", "pandoc.worker", $scratch -PassThru -Wait
-          $statusPath = Join-Path $scratch "status.json"
-          $logPath = Join-Path $scratch "worker.log"
-          if (Test-Path $logPath) {
-            Write-Host "=== Frozen docking worker log ==="
-            Get-Content $logPath -Tail 80
-          }
-          if (-not (Test-Path $statusPath)) {
-            throw "Frozen worker never produced status.json (launcher may not dispatch -u -m)"
-          }
-          $state = Get-Content $statusPath -Raw | ConvertFrom-Json
-          if ($state.state -ne "failed" -or -not $state.error) {
-            throw "Expected controlled validation failure for empty test config, got: $($state.state)"
-          }
-          Write-Host "Frozen local docking worker dispatched and wrote expected failure diagnostics."
-
-      - name: Smoke-test frozen Streamlit server
-        timeout-minutes: 2
-        run: |
-          $env:PANDOC_DESKTOP_PORT = "18762"
-          $env:PANDOC_DATA_DIR = Join-Path $env:RUNNER_TEMP "PanDocTestData"
-          $env:PANDOC_DESKTOP_LOG = Join-Path $env:RUNNER_TEMP "pandoc-desktop-server.log"
-          $process = Start-Process -FilePath "dist\\PanDoc\\PanDoc.exe" -ArgumentList "--pandoc-server" -PassThru -WindowStyle Hidden
-          try {
-            $healthy = $false
-            for ($i = 0; $i -lt 35; $i++) {
-              if ($process.HasExited) { throw "Frozen PanDoc server exited with code $($process.ExitCode)" }
-              if (Test-Path $env:PANDOC_DESKTOP_LOG) {
-                $lastLines = Get-Content $env:PANDOC_DESKTOP_LOG -Tail 40 -ErrorAction SilentlyContinue
-                if ($lastLines -match "Traceback \(most recent call last\)|ModuleNotFoundError:|ImportError:|FileNotFoundError:") {
-                  throw "Frozen PanDoc reported a startup exception; see log below"
-                }
-              }
-              try {
-                $response = Invoke-WebRequest "http://127.0.0.1:18762/_stcore/health" -TimeoutSec 1 -UseBasicParsing
-                if ($response.StatusCode -eq 200) { $healthy = $true; break }
-              } catch {}
-              Start-Sleep -Seconds 1
-            }
-            if (-not $healthy) { throw "Frozen PanDoc health check timed out; inspect log below" }
-            Write-Host "Frozen PanDoc Streamlit health endpoint passed."
-          } finally {
-            if (Test-Path $env:PANDOC_DESKTOP_LOG) {
-              Write-Host "=== Frozen PanDoc startup log ==="
-              Get-Content $env:PANDOC_DESKTOP_LOG -Tail 150
-            } else { Write-Warning "No PanDoc server log created" }
-            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-          }
-
-      - name: Compile Windows installer
-        run: |
-          choco install innosetup --no-progress -y
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "desktop\installer.iss"
-
-      - name: Upload Windows installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: PanDoc-Setup-Windows-x64
-          path: dist-installer/PanDoc-Setup-Windows-x64.exe
           if-no-files-found: error
