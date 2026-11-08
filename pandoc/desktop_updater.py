@@ -147,6 +147,7 @@ def download_verified(update: dict, destination: Path) -> Path:
         if digest.hexdigest() != checksum:
             raise UpdateError("SHA-256 mismatch. Download rejected; nothing was installed.")
         temporary.replace(target)
+        update["verified_sha256"] = checksum
     except UpdateError:
         raise
     except Exception as exc:
@@ -156,7 +157,7 @@ def download_verified(update: dict, destination: Path) -> Path:
     return target
 
 
-def schedule_install(installer: Path, executable: Path, update_dir: Path) -> None:
+def schedule_install(installer: Path, executable: Path, update_dir: Path, expected_sha256: str) -> None:
     """Start independent helper, then user closes PanDoc; never overwrite a live EXE.
 
     The helper waits for this install's PanDoc processes to finish before
@@ -169,6 +170,13 @@ def schedule_install(installer: Path, executable: Path, update_dir: Path) -> Non
     update_dir = update_dir.resolve(strict=True)
     if installer.parent != update_dir or not installer.name.startswith("PanDoc-Setup-v"):
         raise UpdateError("Update installer is outside the approved update directory.")
+    if not re.fullmatch(r"[a-f0-9]{64}", expected_sha256):
+        raise UpdateError("Verified installer SHA-256 is missing.")
+    # Recheck immediately before launching helper. Helper checks once more
+    # after the installed PanDoc process closes (protects the wait period).
+    with installer.open("rb") as handle:
+        if hashlib.file_digest(handle, "sha256").hexdigest() != expected_sha256:
+            raise UpdateError("Installer changed after verification; update cancelled.")
 
     def ps_quote(value: str) -> str:
         return "'" + value.replace("'", "''") + "'"
@@ -178,6 +186,7 @@ $ErrorActionPreference = "Stop"
 $installer = INSTALLER
 $program = PROGRAM
 $log = LOGPATH
+$expectedSha = EXPECTEDSHA
 try {
     $until = (Get-Date).AddMinutes(15)
     do {
@@ -187,6 +196,8 @@ try {
         Start-Sleep -Seconds 2
     } while ((Get-Date) -lt $until)
     if ($active.Count -gt 0) { throw "PanDoc was not closed; update cancelled." }
+    $actualSha = (Get-FileHash -Path $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualSha -ne $expectedSha) { throw "Installer checksum changed before installation." }
     $result = Start-Process -FilePath $installer -ArgumentList @(
         '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS'
     ) -PassThru -Wait
@@ -199,7 +210,8 @@ try {
 '''
     helper = (helper.replace("INSTALLER", ps_quote(str(installer)))
                     .replace("PROGRAM", ps_quote(str(executable)))
-                    .replace("LOGPATH", ps_quote(str(update_dir / "update-result.log"))))
+                    .replace("LOGPATH", ps_quote(str(update_dir / "update-result.log")))
+                    .replace("EXPECTEDSHA", ps_quote(expected_sha256)))
     encoded = base64.b64encode(helper.encode("utf-16le")).decode("ascii")
     flags = (getattr(subprocess, "DETACHED_PROCESS", 0x8)
              | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)
@@ -246,7 +258,8 @@ def render_update_controls(st) -> None:
                     update_dir = Path.home() / "PanDocData" / "updates"
                     with st.spinner("Downloading and verifying installer (SHA-256)..."):
                         installer = download_verified(available, update_dir)
-                    schedule_install(installer, Path(sys.executable), update_dir)
+                    schedule_install(installer, Path(sys.executable), update_dir,
+                                     available["verified_sha256"])
                     st.success("Verified installer ready. Close the PanDoc window to finish updating; PanDoc will reopen.")
                 except (UpdateError, OSError) as exc:
                     st.error(str(exc))
