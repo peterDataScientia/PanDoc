@@ -81,27 +81,40 @@ def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "--pandoc-selftest":
         run_selftest()
         return
-    # Meeko receptor preparation invokes sys.executable -m ... .
-    # In a frozen app sys.executable points to PanDoc.exe, not python.exe.
-    if getattr(sys, "frozen", False) and len(sys.argv) > 2 and sys.argv[1] == "-m":
-        import runpy
-        module = sys.argv[2]
-        if module not in {"meeko.cli.mk_prepare_receptor", "propka"}:
-            raise SystemExit("Unsupported bundled module invocation")
-        # A GUI/windowed bootloader has no stdout/stderr, which command-line
-        # scientific packages expect. Preserve their diagnostic output.
-        cli_log = Path.cwd() / ("propka_cli.log" if module == "propka" else "meeko_cli.log")
-        with cli_log.open("w", encoding="utf-8", buffering=1) as output:
-            sys.stdout = output
-            sys.stderr = output
-            sys.argv = [module, *sys.argv[3:]]
-            try:
+    # Reproduce the supported Python -m invocations used by PanDoc.
+    # PyInstaller replaces sys.executable with PanDoc.exe in frozen apps.
+    if getattr(sys, "frozen", False) and len(sys.argv) > 2:
+        args = sys.argv[1:]
+        if args and args[0] == "-u":
+            args = args[1:]
+        if len(args) >= 2 and args[0] == "-m":
+            import runpy
+            module = args[1]
+            if module not in {"meeko.cli.mk_prepare_receptor", "propka", "pandoc.worker"}:
+                raise SystemExit("Unsupported bundled module invocation")
+            sys.argv = [module, *args[2:]]
+            if module == "pandoc.worker":
+                # jobs.launch already redirects stdout and stderr to worker.log.
+                # The windowed bootloader can provide null streams; provide
+                # writable fallbacks without replacing the worker log handles.
+                import os as _os
+                if sys.stdout is None:
+                    sys.stdout = open(_os.devnull, "w")
+                if sys.stderr is None:
+                    sys.stderr = open(_os.devnull, "w")
                 runpy.run_module(module, run_name="__main__", alter_sys=True)
-            except BaseException:
-                import traceback
-                traceback.print_exc(file=output)
-                raise
-        return
+                return
+            cli_log = Path.cwd() / ("propka_cli.log" if module == "propka" else "meeko_cli.log")
+            with cli_log.open("w", encoding="utf-8", buffering=1) as output:
+                sys.stdout = output
+                sys.stderr = output
+                try:
+                    runpy.run_module(module, run_name="__main__", alter_sys=True)
+                except BaseException:
+                    import traceback
+                    traceback.print_exc(file=output)
+                    raise
+            return
     # The frozen executable runs itself with a private server flag.
     if len(sys.argv) > 1 and sys.argv[1] == "--pandoc-server":
         # --windowed executables have no console streams. Log startup exceptions
