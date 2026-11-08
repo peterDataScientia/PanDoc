@@ -57,7 +57,20 @@ def main() -> None:
         return
     # The frozen executable runs itself with a private server flag.
     if len(sys.argv) > 1 and sys.argv[1] == "--pandoc-server":
-        run_server()
+        # --windowed executables have no console streams. Log startup exceptions
+        # explicitly so CI and installed desktops can diagnose failures.
+        import traceback
+        log_path = Path(os.environ.get("PANDOC_DESKTOP_LOG", str(Path.home() / "PanDocData" / "desktop-server.log")))
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("w", encoding="utf-8", buffering=1) as logfile:
+            sys.stdout = logfile
+            sys.stderr = logfile
+            try:
+                print(f"PanDoc server starting: {sys.executable}", flush=True)
+                run_server()
+            except BaseException:
+                traceback.print_exc(file=logfile)
+                raise
         return
 
     try:
@@ -70,6 +83,7 @@ def main() -> None:
     env = os.environ.copy()
     env["PANDOC_DESKTOP_PORT"] = str(port)
     env.setdefault("PANDOC_DATA_DIR", str(Path.home() / "PanDocData"))
+    env.setdefault("PANDOC_DESKTOP_LOG", str(Path.home() / "PanDocData" / "desktop-server.log"))
     if getattr(sys, "frozen", False):
         args = [sys.executable, "--pandoc-server"]
     else:
