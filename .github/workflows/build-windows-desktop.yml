@@ -36,21 +36,28 @@ jobs:
       - name: Install scientific libraries
         shell: pwsh
         run: |
-          conda install -y -n pandoc-desktop -c conda-forge python=3.11 rdkit openmm pdbfixer
+          conda install -y -n pandoc-desktop -c conda-forge python=3.11 rdkit openmm pdbfixer boost-cpp libboost swig
 
       - name: Install application requirements
         shell: pwsh
         run: |
           $lines = Get-Content requirements.txt | Where-Object {
-            $_ -notmatch '^\s*(pdbfixer|openmm|rdkit|--only-binary)' -and $_ -notmatch '^\s*#'
+            $_ -notmatch '^\s*(pdbfixer|openmm|rdkit|vina|--only-binary)' -and $_ -notmatch '^\s*#'
           }
           $lines | Set-Content requirements-desktop-build.txt
+          # Force PowerShell to fail on subprocess errors (native commands do not throw by default).
           conda run -n pandoc-desktop python -m pip install -r requirements-desktop-build.txt
+          if ($LASTEXITCODE -ne 0) { throw "PanDoc dependency installation failed" }
           conda run -n pandoc-desktop python -m pip install -r desktop/requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw "Desktop dependency installation failed" }
+          # Vina has no official Windows wheel; build its Python binding against conda Boost and SWIG.
+          conda run -n pandoc-desktop python -m pip install --no-build-isolation "vina==1.2.7"
+          if ($LASTEXITCODE -ne 0) { throw "Windows Vina binding compilation failed" }
 
       - name: Verify critical imports
         run: |
           conda run -n pandoc-desktop python -c "import streamlit, rdkit, meeko, vina, openmm, pdbfixer, webview; print('PanDoc desktop dependencies OK')"
+          if ($LASTEXITCODE -ne 0) { throw "Scientific import check failed" }
 
       - name: Bundle desktop application
         run: |
