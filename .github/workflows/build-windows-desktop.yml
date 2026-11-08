@@ -85,6 +85,20 @@ jobs:
             throw "Frozen application did not complete all imports"
           }
 
+      - name: Verify frozen PROPKA command
+        timeout-minutes: 1
+        run: |
+          $scratch = Join-Path $env:RUNNER_TEMP "PanDocPropkaCli"
+          New-Item -ItemType Directory -Force -Path $scratch | Out-Null
+          $exe = (Resolve-Path "dist\\PanDoc\\PanDoc.exe").Path
+          $process = Start-Process -FilePath $exe -WorkingDirectory $scratch -ArgumentList "-m", "propka", "--help" -PassThru -Wait
+          $logPath = Join-Path $scratch "propka_cli.log"
+          if (Test-Path $logPath) {
+            Write-Host "=== Frozen PROPKA CLI ==="
+            Get-Content $logPath -Tail 60
+          } else { throw "Frozen PROPKA CLI did not execute" }
+          if ($process.ExitCode -ne 0) { throw "Frozen PROPKA CLI failed ($($process.ExitCode))" }
+
       - name: Smoke-test frozen Streamlit server
         timeout-minutes: 2
         run: |
