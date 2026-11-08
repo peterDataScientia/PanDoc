@@ -100,21 +100,41 @@ def main() -> None:
                 if len(args) < 3:
                     raise SystemExit("Missing docking worker job directory")
                 worker_log = Path(args[2]) / "worker.log"
-                with worker_log.open("a", encoding="utf-8", buffering=1) as output:
+                old_stdout, old_stderr = sys.stdout, sys.stderr
+                try:
+                    with worker_log.open("a", encoding="utf-8", buffering=1) as output:
+                        sys.stdout = output
+                        sys.stderr = output
+                        runpy.run_module(module, run_name="__main__", alter_sys=True)
+                finally:
+                    sys.stdout, sys.stderr = old_stdout, old_stderr
+                return
+            # PROPKA has an explicit writable working directory. Meeko does
+            # not set cwd, so put its diagnostic log beside its output files,
+            # not under the application's read-only installation directory.
+            if module == "propka":
+                cli_log = Path.cwd() / "propka_cli.log"
+            else:
+                output_dir = None
+                if "-o" in sys.argv:
+                    index = sys.argv.index("-o")
+                    if index + 1 < len(sys.argv):
+                        output_dir = Path(sys.argv[index + 1]).parent
+                cli_log = (output_dir or Path(os.environ.get("PANDOC_DATA_DIR", str(Path.home() / "PanDocData")))) / "meeko_cli.log"
+            cli_log.parent.mkdir(parents=True, exist_ok=True)
+            old_stdout, old_stderr = sys.stdout, sys.stderr
+            try:
+                with cli_log.open("w", encoding="utf-8", buffering=1) as output:
                     sys.stdout = output
                     sys.stderr = output
-                    runpy.run_module(module, run_name="__main__", alter_sys=True)
-                return
-            cli_log = Path.cwd() / ("propka_cli.log" if module == "propka" else "meeko_cli.log")
-            with cli_log.open("w", encoding="utf-8", buffering=1) as output:
-                sys.stdout = output
-                sys.stderr = output
-                try:
-                    runpy.run_module(module, run_name="__main__", alter_sys=True)
-                except BaseException:
-                    import traceback
-                    traceback.print_exc(file=output)
-                    raise
+                    try:
+                        runpy.run_module(module, run_name="__main__", alter_sys=True)
+                    except BaseException:
+                        import traceback
+                        traceback.print_exc(file=output)
+                        raise
+            finally:
+                sys.stdout, sys.stderr = old_stdout, old_stderr
             return
     # The frozen executable runs itself with a private server flag.
     if len(sys.argv) > 1 and sys.argv[1] == "--pandoc-server":
