@@ -98,6 +98,19 @@ jobs:
             Get-Content $logPath -Tail 60
           } else { throw "Frozen PROPKA CLI did not execute" }
           if ($process.ExitCode -ne 0) { throw "Frozen PROPKA CLI failed ($($process.ExitCode))" }
+          # Actual pKa computation, not only the --help entrypoint.
+          & curl.exe --fail --location --retry 2 --output (Join-Path $scratch "1CRN.pdb") "https://files.rcsb.org/download/1CRN.pdb"
+          if ($LASTEXITCODE -ne 0) { throw "Cannot obtain public 1CRN PROPKA test protein" }
+          $pka = Join-Path $scratch "1CRN.pka"
+          $run = Start-Process -FilePath $exe -WorkingDirectory $scratch -ArgumentList "-m", "propka", "1CRN.pdb" -PassThru -Wait
+          if ($run.ExitCode -ne 0 -or -not (Test-Path $pka)) {
+            if (Test-Path $logPath) { Get-Content $logPath -Tail 100 }
+            throw "Frozen PROPKA failed real 1CRN pKa computation"
+          }
+          if (-not (Select-String -Path $pka -Pattern "SUMMARY OF THIS PREDICTION" -Quiet)) {
+            throw "PROPKA output missing pKa prediction summary"
+          }
+          Write-Host "Frozen PROPKA completed real protein pKa prediction."
 
       - name: Verify frozen local docking worker launches
         timeout-minutes: 1
