@@ -75,6 +75,7 @@ jobs:
         run: |
           $env:PANDOC_DESKTOP_PORT = "18762"
           $env:PANDOC_DATA_DIR = Join-Path $env:RUNNER_TEMP "PanDocTestData"
+          $env:PANDOC_DESKTOP_LOG = Join-Path $env:RUNNER_TEMP "pandoc-desktop-server.log"
           $process = Start-Process -FilePath "dist\\PanDoc\\PanDoc.exe" -ArgumentList "--pandoc-server" -PassThru -WindowStyle Hidden
           try {
             $healthy = $false
@@ -86,9 +87,13 @@ jobs:
               } catch {}
               Start-Sleep -Seconds 2
             }
-            if (-not $healthy) { throw "Frozen PanDoc server failed health check" }
+            if (-not $healthy) { throw "Frozen PanDoc server failed health check; inspect the startup log below" }
             Write-Host "Frozen PanDoc Streamlit health endpoint passed."
           } finally {
+            if (Test-Path $env:PANDOC_DESKTOP_LOG) {
+              Write-Host "=== Frozen PanDoc startup log ==="
+              Get-Content $env:PANDOC_DESKTOP_LOG -Tail 150
+            } else { Write-Warning "No PanDoc server log created" }
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
           }
 
