@@ -68,6 +68,9 @@ def run_selftest() -> None:
     with log_path.open("w", encoding="utf-8", buffering=1) as log:
         try:
             print("Checking bundled PanDoc modules", file=log, flush=True)
+            from pandoc.desktop_updater import version_tuple
+            assert version_tuple("0.2.0") == (0, 2, 0)
+            print("PanDoc in-app updater import: OK", file=log, flush=True)
             from cryptography.fernet import Fernet
             key = Fernet.generate_key()
             assert Fernet(key).decrypt(Fernet(key).encrypt(b"pandoc-check")) == b"pandoc-check"
