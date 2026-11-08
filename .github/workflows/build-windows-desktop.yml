@@ -53,7 +53,7 @@ jobs:
 
       - name: Verify critical imports
         run: |
-          conda run -n pandoc-desktop python -c "import streamlit, rdkit, meeko, openmm, pdbfixer, webview; print('PanDoc desktop dependencies OK')"
+          conda run -n pandoc-desktop python -c "import streamlit, rdkit, meeko, openmm, pdbfixer, propka.__main__, webview; print('PanDoc desktop dependencies OK')"
           if ($LASTEXITCODE -ne 0) { throw "Scientific import check failed" }
 
       - name: Download verified official Windows Vina executable
@@ -68,7 +68,7 @@ jobs:
 
       - name: Bundle desktop application
         run: |
-          conda run -n pandoc-desktop python -m PyInstaller --noconfirm --clean --onedir --windowed --name PanDoc --paths . --add-data "app.py;." --add-data "pandoc;pandoc" --add-data "assets;assets" --add-binary "desktop/vendor/vina.exe;bin" --collect-all streamlit --collect-all rdkit --collect-all meeko --collect-all cryptography --collect-all openmm --collect-all pdbfixer --collect-all py3Dmol --collect-all webview --collect-all propka --collect-all molscrub --hidden-import meeko.cli.mk_prepare_receptor --hidden-import streamlit.web.cli desktop/launcher.py
+          conda run -n pandoc-desktop python -m PyInstaller --noconfirm --clean --onedir --windowed --name PanDoc --paths . --add-data "app.py;." --add-data "pandoc;pandoc" --add-data "assets;assets" --add-binary "desktop/vendor/vina.exe;bin" --collect-all streamlit --collect-all rdkit --collect-all meeko --collect-all cryptography --collect-all openmm --collect-all pdbfixer --collect-all py3Dmol --collect-all webview --collect-all propka --collect-all molscrub --hidden-import meeko.cli.mk_prepare_receptor --hidden-import propka.__main__ --hidden-import streamlit.web.cli desktop/launcher.py
           if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed" }
 
       - name: Verify frozen application imports and encryption
