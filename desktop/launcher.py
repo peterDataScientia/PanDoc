@@ -31,6 +31,16 @@ def run_server() -> None:
         if not vina.is_file():
             raise RuntimeError(f"Bundled Vina executable missing: {vina}")
         os.environ["PANDOC_VINA_EXE"] = str(vina)
+    # Mark only this frozen local server as eligible for desktop updates.
+    # Keep the hosted Streamlit app and remote compute nodes unaffected.
+    version_file = resource_path("desktop/VERSION")
+    if getattr(sys, "frozen", False) and not version_file.is_file():
+        raise RuntimeError("Bundled desktop version metadata missing.")
+    os.environ["PANDOC_DESKTOP_APP"] = "1" if getattr(sys, "frozen", False) else "0"
+    os.environ["PANDOC_DESKTOP_VERSION"] = (
+        version_file.read_text(encoding="utf-8").strip() if version_file.is_file()
+        else "0.2.0"
+    )
     port = os.environ["PANDOC_DESKTOP_PORT"]
     sys.argv = [
         "streamlit", "run", str(app),
