@@ -1,0 +1,65 @@
+name: Build PanDoc Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/build-windows-desktop.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          python-version: '3.11'
+          activate-environment: pandoc-desktop
+          channels: conda-forge
+          channel-priority: strict
+          auto-activate-base: false
+
+      - name: Install scientific libraries
+        shell: pwsh
+        run: |
+          conda install -y -n pandoc-desktop -c conda-forge python=3.11 rdkit openmm pdbfixer
+
+      - name: Install application requirements
+        shell: pwsh
+        run: |
+          $lines = Get-Content requirements.txt | Where-Object {
+            $_ -notmatch '^\s*(pdbfixer|openmm|rdkit|--only-binary)' -and $_ -notmatch '^\s*#'
+          }
+          $lines | Set-Content requirements-desktop-build.txt
+          conda run -n pandoc-desktop python -m pip install -r requirements-desktop-build.txt
+          conda run -n pandoc-desktop python -m pip install -r desktop/requirements.txt
+
+      - name: Verify critical imports
+        run: |
+          conda run -n pandoc-desktop python -c "import streamlit, rdkit, meeko, vina, openmm, pdbfixer, webview; print('PanDoc desktop dependencies OK')"
+
+      - name: Bundle desktop application
+        run: |
+          conda run -n pandoc-desktop python -m PyInstaller --noconfirm --clean --onedir --windowed --name PanDoc --paths . --add-data "app.py;." --add-data "pandoc;pandoc" --add-data "assets;assets" --collect-all streamlit --collect-all rdkit --collect-all meeko --collect-all vina --collect-all openmm --collect-all pdbfixer --collect-all py3Dmol --collect-all webview --collect-all propka --collect-all molscrub --hidden-import streamlit.web.cli desktop/launcher.py
+
+      - name: Compile Windows installer
+        run: |
+          choco install innosetup --no-progress -y
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "desktop\installer.iss"
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: PanDoc-Setup-Windows-x64
+          path: dist-installer/PanDoc-Setup-Windows-x64.exe
+          if-no-files-found: error
