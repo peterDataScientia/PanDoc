@@ -36,7 +36,7 @@ jobs:
       - name: Install scientific libraries
         shell: pwsh
         run: |
-          conda install -y -n pandoc-desktop -c conda-forge python=3.11 rdkit openmm pdbfixer boost-cpp libboost swig
+          conda install -y -n pandoc-desktop -c conda-forge python=3.11 rdkit openmm pdbfixer
 
       - name: Install application requirements
         shell: pwsh
@@ -50,18 +50,26 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "PanDoc dependency installation failed" }
           conda run -n pandoc-desktop python -m pip install -r desktop/requirements.txt
           if ($LASTEXITCODE -ne 0) { throw "Desktop dependency installation failed" }
-          # Vina has no official Windows wheel; build its Python binding against conda Boost and SWIG.
-          conda run -n pandoc-desktop python -m pip install --no-build-isolation "vina==1.2.7"
-          if ($LASTEXITCODE -ne 0) { throw "Windows Vina binding compilation failed" }
 
       - name: Verify critical imports
         run: |
-          conda run -n pandoc-desktop python -c "import streamlit, rdkit, meeko, vina, openmm, pdbfixer, webview; print('PanDoc desktop dependencies OK')"
+          conda run -n pandoc-desktop python -c "import streamlit, rdkit, meeko, openmm, pdbfixer, webview; print('PanDoc desktop dependencies OK')"
           if ($LASTEXITCODE -ne 0) { throw "Scientific import check failed" }
+
+      - name: Download verified official Windows Vina executable
+        run: |
+          New-Item -ItemType Directory -Force -Path "desktop/vendor" | Out-Null
+          $url = "https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_win.exe"
+          & curl.exe --fail --location --retry 3 --output "desktop/vendor/vina.exe" $url
+          if ($LASTEXITCODE -ne 0) { throw "Official Vina binary download failed" }
+          if ((Get-Item "desktop/vendor/vina.exe").Length -lt 100000) { throw "Downloaded Vina binary unexpectedly small" }
+          & "desktop/vendor/vina.exe" --help | Select-Object -First 12
+          if ($LASTEXITCODE -ne 0) { throw "Vina Windows executable cannot run" }
 
       - name: Bundle desktop application
         run: |
-          conda run -n pandoc-desktop python -m PyInstaller --noconfirm --clean --onedir --windowed --name PanDoc --paths . --add-data "app.py;." --add-data "pandoc;pandoc" --add-data "assets;assets" --collect-all streamlit --collect-all rdkit --collect-all meeko --collect-all vina --collect-all openmm --collect-all pdbfixer --collect-all py3Dmol --collect-all webview --collect-all propka --collect-all molscrub --hidden-import streamlit.web.cli desktop/launcher.py
+          conda run -n pandoc-desktop python -m PyInstaller --noconfirm --clean --onedir --windowed --name PanDoc --paths . --add-data "app.py;." --add-data "pandoc;pandoc" --add-data "assets;assets" --add-binary "desktop/vendor/vina.exe;bin" --collect-all streamlit --collect-all rdkit --collect-all meeko --collect-all openmm --collect-all pdbfixer --collect-all py3Dmol --collect-all webview --collect-all propka --collect-all molscrub --hidden-import streamlit.web.cli desktop/launcher.py
+          if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed" }
 
       - name: Smoke-test frozen Streamlit server
         run: |
