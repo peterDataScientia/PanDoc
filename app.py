@@ -54,6 +54,13 @@ def _brand_logo(width=250, floating=False):
 st.set_page_config(page_title='PanDoc · Docking workbench', page_icon='🧬', layout='wide', initial_sidebar_state='collapsed')
 ui.load_css(st, PANDOC_CSS)
 
+# Installer updates appear only inside the packaged Windows desktop.
+# Streamlit Cloud and the remote compute backends have no updater controls.
+if os.environ.get("PANDOC_DESKTOP_APP") == "1":
+    from pandoc.desktop_updater import render_update_controls
+    render_update_controls(st)
+
+
 # Computer E is a separate, full local PanDoc instance (not Computer D's Vina worker).
 # Launching it opens its private Tailscale URL; it is not an in-process backend.
 if os.environ.get("PANDOC_RUNTIME_NAME", "").strip() == "Computer E":
