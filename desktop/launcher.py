@@ -94,15 +94,16 @@ def main() -> None:
                 raise SystemExit("Unsupported bundled module invocation")
             sys.argv = [module, *args[2:]]
             if module == "pandoc.worker":
-                # jobs.launch already redirects stdout and stderr to worker.log.
-                # The windowed bootloader can provide null streams; provide
-                # writable fallbacks without replacing the worker log handles.
-                import os as _os
-                if sys.stdout is None:
-                    sys.stdout = open(_os.devnull, "w")
-                if sys.stderr is None:
-                    sys.stderr = open(_os.devnull, "w")
-                runpy.run_module(module, run_name="__main__", alter_sys=True)
+                # In --windowed builds Python streams are None despite the
+                # parent's OS-level redirection. Explicitly append to the same
+                # job logfile so the Streamlit live-log panel keeps working.
+                if len(args) < 3:
+                    raise SystemExit("Missing docking worker job directory")
+                worker_log = Path(args[2]) / "worker.log"
+                with worker_log.open("a", encoding="utf-8", buffering=1) as output:
+                    sys.stdout = output
+                    sys.stderr = output
+                    runpy.run_module(module, run_name="__main__", alter_sys=True)
                 return
             cli_log = Path.cwd() / ("propka_cli.log" if module == "propka" else "meeko_cli.log")
             with cli_log.open("w", encoding="utf-8", buffering=1) as output:
