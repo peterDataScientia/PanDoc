@@ -45,7 +45,34 @@ def run_server() -> None:
     streamlit_cli.main()
 
 
+def run_selftest() -> None:
+    """Import the actual application dependency graph inside the frozen EXE."""
+    import traceback
+    log_path = Path(os.environ.get("PANDOC_SELFTEST_LOG", str(Path.home() / "PanDocData" / "desktop-selftest.log")))
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("w", encoding="utf-8", buffering=1) as log:
+        try:
+            print("Checking bundled PanDoc modules", file=log, flush=True)
+            from cryptography.fernet import Fernet
+            key = Fernet.generate_key()
+            assert Fernet(key).decrypt(Fernet(key).encrypt(b"pandoc-check")) == b"pandoc-check"
+            print("cryptography Fernet round-trip: OK", file=log, flush=True)
+            from pandoc import (core, jobs, figures, pdb_search, structure_checks,
+                                phprep, ui, batch_review, profile_engine,
+                                profile_quality, compute, compute_options,
+                                structure_view, viewer_runtime, pubchem_search)
+            from pandoc.computer_d_compute import ComputerDCompute
+            from pandoc.computer_e_compute import ComputerECompute
+            print("PanDoc application imports: OK", file=log, flush=True)
+        except BaseException:
+            traceback.print_exc(file=log)
+            raise SystemExit(1)
+
+
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "--pandoc-selftest":
+        run_selftest()
+        return
     # Meeko receptor preparation invokes sys.executable -m ... .
     # In a frozen app sys.executable points to PanDoc.exe, not python.exe.
     if getattr(sys, "frozen", False) and len(sys.argv) > 2 and sys.argv[1] == "-m":
