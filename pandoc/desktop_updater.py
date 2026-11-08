@@ -229,51 +229,56 @@ try {
 
 
 def render_update_controls(st) -> None:
-    """Show native Streamlit controls only in frozen, local desktop sessions."""
+    """Always-visible updater status and opt-in install controls for the EXE."""
     if os.environ.get("PANDOC_DESKTOP_APP") != "1":
         return
     current = installed_version()
-    # Once per desktop session: a short bounded network check, never downloads
-    # or installs in the background. Manual Check retries with the full timeout.
+    # Check once per app session. Network failure never prevents launching.
     if not st.session_state.get("pandoc_desktop_auto_checked", False):
         st.session_state["pandoc_desktop_auto_checked"] = True
         try:
             st.session_state["pandoc_desktop_update"] = find_update(current, timeout=3)
             st.session_state["pandoc_desktop_update_checked"] = True
         except UpdateError:
-            pass  # Offline users can still open PanDoc normally.
-    available = st.session_state.get("pandoc_desktop_update")
-    if available:
-        st.sidebar.info(f"PanDoc Desktop v{available['version']} is available.")
-    with st.sidebar.expander("Software updates", expanded=bool(available)):
-        st.caption(f"Installed PanDoc Desktop v{current}")
-        if st.button("Check for updates", key="pandoc_desktop_check_updates"):
+            st.session_state["pandoc_desktop_update_checked"] = False
+    with st.sidebar.container(border=True):
+        st.markdown("**PanDoc Desktop · Updates**")
+        st.caption(f"Installed version: v{current}")
+        if st.button("Check for updates", key="pandoc_desktop_check_updates", use_container_width=True):
             try:
                 st.session_state["pandoc_desktop_update"] = find_update(current)
                 st.session_state["pandoc_desktop_update_checked"] = True
                 st.session_state.pop("pandoc_desktop_update_error", None)
             except UpdateError as exc:
+                st.session_state["pandoc_desktop_update_checked"] = False
                 st.session_state["pandoc_desktop_update_error"] = str(exc)
+
         if st.session_state.get("pandoc_desktop_update_error"):
             st.warning(st.session_state["pandoc_desktop_update_error"])
         available = st.session_state.get("pandoc_desktop_update")
         if available:
-            st.success(f"PanDoc Desktop v{available['version']} is available.")
+            st.success(f"New version v{available['version']} is available.")
             url = available.get("release_url", "")
             if isinstance(url, str) and url.startswith(
                 "https://github.com/" + REPOSITORY + "/releases/tag/"
             ):
-                st.link_button("View release notes", url)
-            st.caption("Save your work first. Close PanDoc after approving the installer.")
-            if st.button("Download and install update", key="pandoc_desktop_install_update"):
+                st.link_button("Release notes", url)
+            st.caption("Save your work and finish docking jobs before installing.")
+            if st.button("Download and install update", key="pandoc_desktop_install_update",
+                         type="primary", use_container_width=True):
                 try:
                     update_dir = Path.home() / "PanDocData" / "updates"
                     with st.spinner("Downloading and verifying installer (SHA-256)..."):
                         installer = download_verified(available, update_dir)
                     schedule_install(installer, Path(sys.executable), update_dir,
                                      available["verified_sha256"])
-                    st.success("Verified installer ready. Close the PanDoc window to finish updating; PanDoc will reopen.")
+                    st.success(
+                        "Verified installer ready. Close PanDoc after saving your work; "
+                        "the updater will install the new version and reopen PanDoc."
+                    )
                 except (UpdateError, OSError) as exc:
                     st.error(str(exc))
         elif st.session_state.get("pandoc_desktop_update_checked"):
-            st.success("No newer stable desktop release is available.")
+            st.caption("No newer published stable desktop release.")
+        else:
+            st.caption("Could not check releases. PanDoc remains usable offline.")
