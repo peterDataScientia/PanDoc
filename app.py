@@ -513,6 +513,9 @@ def settings(prefix):
 
 
 def github_backend():
+    # The installed Windows application must never submit work to remote CI.
+    if os.environ.get("PANDOC_DESKTOP_APP") == "1":
+        return None
     # Computer E is intentionally all-local; never silently offload to GitHub.
     if os.environ.get("PANDOC_RUNTIME_NAME", "").strip() == "Computer E":
         return None
@@ -662,6 +665,8 @@ def prepare_candidates_on_streamlit(ligands, ph, enumerate_states):
 
 
 def cloud_compute_mode():
+    if os.environ.get("PANDOC_DESKTOP_APP") == "1":
+        return True  # Existing local-compute path, never a remote provider.
     mode = st.session_state.get('compute_mode', 'Computer A · Fast')
     return mode.startswith('Computer A') or mode.startswith('Streamlit Cloud') or mode == compute_options.COMPUTER_D
 
@@ -1495,11 +1500,15 @@ with st.expander("Bulk ligand preparation · CSV → up to 10,000 PDBQT files", 
             st.error("Cannot read the CSV: " + str(exc))
     st.caption("Input SMILES are prepared as supplied; pH-dependent protonation must be curated upstream "
                "if required. Invalid molecules are listed rather than silently skipped.")
-    bulk_backend_choice = st.radio(
-        "Preparation execution", ["GitHub Actions · recommended for 1–10,000 ligands",
-                                  "This Streamlit session · small libraries"],
-        horizontal=True, key="bulk_execution",
-        help="GitHub Actions prepares ligands outside the browser; the Streamlit option requires the page to stay open.")
+    if os.environ.get("PANDOC_DESKTOP_APP") == "1":
+        bulk_backend_choice = "This computer · local preparation"
+        st.caption("Preparation execution · This Windows computer")
+    else:
+        bulk_backend_choice = st.radio(
+            "Preparation execution", ["GitHub Actions · recommended for 1–10,000 ligands",
+                                      "This Streamlit session · small libraries"],
+            horizontal=True, key="bulk_execution",
+            help="GitHub Actions prepares ligands outside the browser; the Streamlit option requires the page to stay open.")
     bulk_ph = st.number_input("pH context for preparation record", min_value=0.0, max_value=14.0,
                                value=7.4, step=0.1, key="bulk_ph")
     bulk_existing = st.session_state.get("bulk_prepare_dir")
@@ -1546,8 +1555,11 @@ with st.expander("Bulk ligand preparation · CSV → up to 10,000 PDBQT files", 
                                        data=archive.read_bytes(), file_name="PanDoc_GPU_ready_ligands.zip",
                                        mime="application/zip", key="bulk_ready_download")
                 else:
-                    st.caption("Automatic preparation is running. Keep this page open; "
-                               "Streamlit Cloud sessions are temporary.")
+                    st.caption(
+                        "Automatic preparation is running. Keep PanDoc open."
+                        if os.environ.get("PANDOC_DESKTOP_APP") == "1"
+                        else "Automatic preparation is running. Keep this page open; Streamlit Cloud sessions are temporary."
+                    )
             except Exception as exc:
                 st.error("Preparation interrupted: " + str(exc))
         _bulk_prepare_progress()
@@ -2179,16 +2191,18 @@ with workspace:
                                 st.warning('Enter or retrieve the ligand SMILES first.')
                             elif cloud_compute_mode():
                                 try:
-                                    with st.spinner('Enumerating ligand states on Streamlit Cloud…'):
+                                    with st.spinner('Enumerating ligand states locally…' if os.environ.get("PANDOC_DESKTOP_APP") == "1" else 'Enumerating ligand states on Streamlit Cloud…'):
                                         states = phprep.enumerate_ligand_states(smiles, ligand_ph, 16)
                                     st.session_state[state_key] = [
                                         dict(index=s['index'], smiles=s['smiles'], formal_charge=s['formal_charge'])
                                         for s in states
                                     ]
-                                    st.success('Completed on Streamlit Cloud.')
+                                    st.success('Completed locally.' if os.environ.get("PANDOC_DESKTOP_APP") == "1" else 'Completed on Streamlit Cloud.')
                                 except (RuntimeError, MemoryError, OSError) as exc:
                                     backend = github_backend()
-                                    if backend is None:
+                                    if os.environ.get("PANDOC_DESKTOP_APP") == "1":
+                                        st.error(f"Local ligand-state enumeration failed: {exc}")
+                                    elif backend is None:
                                         st.warning(f'This app failed and GitHub Actions fallback is unavailable: {exc}')
                                     else:
                                         st.warning('Streamlit Cloud compute was unavailable. Switching to GitHub Actions…')
@@ -2527,14 +2541,16 @@ with workspace:
                             raise ValueError('Prepare between one and 500 input candidate ligands.')
                         if cloud_compute_mode():
                             try:
-                                with st.spinner('Preparing candidate ligands on Streamlit Cloud…'):
+                                with st.spinner('Preparing candidate ligands locally…' if os.environ.get("PANDOC_DESKTOP_APP") == "1" else 'Preparing candidate ligands on Streamlit Cloud…'):
                                     st.session_state.candidate_paths = prepare_candidates_on_streamlit(
                                         ligand_inputs, candidate_ph, enumerate_states
                                     )
-                                st.success('Candidate preparation completed on Streamlit Cloud.')
+                                st.success('Candidate preparation completed locally.' if os.environ.get("PANDOC_DESKTOP_APP") == "1" else 'Candidate preparation completed on Streamlit Cloud.')
                             except (RuntimeError, MemoryError, OSError) as exc:
                                 backend = github_backend()
-                                if backend is None:
+                                if os.environ.get("PANDOC_DESKTOP_APP") == "1":
+                                    st.error(f"Local candidate preparation failed: {exc}")
+                                elif backend is None:
                                     st.warning(f'Streamlit Cloud preparation failed and GitHub fallback is unavailable: {exc}')
                                 else:
                                     st.warning('Streamlit Cloud resources were unavailable. Switching preparation to GitHub Actions…')
@@ -2605,7 +2621,8 @@ with workspace:
                 elif st.session_state.get('compute_mode') == compute_options.COMPUTER_E:
                     st.caption('Compute · Computer E · Windows Vina (remote)')
                 elif cloud_compute_mode():
-                    st.caption('Compute · This app · GitHub Actions fallback enabled' if github else 'Compute · This app')
+                    st.caption('Compute · This Windows computer' if os.environ.get("PANDOC_DESKTOP_APP") == "1" else
+                           ('Compute · This app · GitHub Actions fallback enabled' if github else 'Compute · This app'))
                 elif kaggle_compute_mode():
                     st.caption('Compute · Kaggle worker · GitHub Actions fallback enabled' if github else 'Compute · Kaggle worker')
                 else:
@@ -2644,7 +2661,9 @@ with workspace:
                             st.session_state.pop(prefix+'_github_job', None)
                             st.rerun()
                         except (RuntimeError, MemoryError, OSError, subprocess.SubprocessError) as exc:
-                            if github is None:
+                            if os.environ.get("PANDOC_DESKTOP_APP") == "1":
+                                st.error(f"Local docking could not start: {exc}")
+                            elif github is None:
                                 st.error(f'This app failed and GitHub Actions fallback is unavailable: {exc}')
                             else:
                                 st.warning('This app could not start. Switching to GitHub Actions…')
