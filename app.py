@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import base64
+from io import BytesIO
+from PIL import Image
 import os
 import subprocess
 import tempfile
@@ -22,28 +24,38 @@ from pandoc.computer_e_compute import ComputerECompute
 
 PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
 
-PANDOCKLAB_LOGO = Path(__file__).parent / 'assets' / 'pandocklab_logo.svg'
-PANDOCKLAB_ICON = Path(__file__).parent / 'assets' / 'pandocklab_icon.svg'
+PANDOCKLAB_SELECTED_LOGO = Path(__file__).parent / 'assets' / 'pandocklab_selected_logo.webp.b64'
 
 @st.cache_data(show_spinner=False)
-def _pandocklab_logo_data_uri():
-    """Bundle the vector logo inline for both offline Windows and hosted web."""
+def _pandocklab_logo_base64():
+    """Use the approved PanDockLab artwork with no subtitle; shared with Windows."""
     try:
-        return "data:image/svg+xml;base64," + base64.b64encode(
-            PANDOCKLAB_LOGO.read_bytes()
-        ).decode("ascii")
+        return PANDOCKLAB_SELECTED_LOGO.read_text(encoding="ascii").strip()
     except OSError:
         return ""
 
+def _pandocklab_icon():
+    """Crop the emblem from the same approved logo for a legible tiny app icon."""
+    data = _pandocklab_logo_base64()
+    if not data:
+        return "🧬"
+    try:
+        full = Image.open(BytesIO(base64.b64decode(data, validate=True))).convert("RGBA")
+        # Full logo has an upper protein/flask emblem and lower wordmark.
+        # Crop the upper artwork to remain legible at taskbar and favicon sizes.
+        return full.crop((0, 0, full.width, round(full.height * 0.73)))
+    except (OSError, ValueError):
+        return "🧬"
+
 def _brand_logo(width=250, floating=False):
-    uri = _pandocklab_logo_data_uri()
+    data = _pandocklab_logo_base64()
     placement = (
         "position:fixed;top:4.2rem;right:1.8rem;z-index:50;margin:0;"
         if floating else "margin:0.25rem 0 0.75rem;"
     )
-    if uri:
+    if data:
         st.markdown(
-            f'<img src="{uri}" alt="PanDockLab scientific logo" '
+            f'<img src="data:image/webp;base64,{data}" alt="PanDockLab scientific logo" '
             f'style="display:block;width:{int(width)}px;max-width:100%;'
             f'height:auto;{placement}" />', unsafe_allow_html=True
         )
@@ -51,7 +63,7 @@ def _brand_logo(width=250, floating=False):
         st.markdown("**PanDockLab**")
 
 
-st.set_page_config(page_title='PanDockLab · Docking workbench', page_icon=str(PANDOCKLAB_ICON), layout='wide', initial_sidebar_state='expanded' if os.environ.get('PANDOC_DESKTOP_APP') == '1' else 'collapsed')
+st.set_page_config(page_title='PanDockLab · Docking workbench', page_icon=_pandocklab_icon(), layout='wide', initial_sidebar_state='expanded' if os.environ.get('PANDOC_DESKTOP_APP') == '1' else 'collapsed')
 ui.load_css(st, PANDOC_CSS)
 
 # Installer updates appear only inside the packaged Windows desktop.
