@@ -1,4 +1,4 @@
-#define MyAppName "PanDoc"
+#define MyAppName "PanDockLab"
 #ifndef MyAppVersion
 #define MyAppVersion "0.1.0"
 #endif
@@ -8,9 +8,9 @@
 AppId={{A91B9777-8E67-47BE-A712-7C23418C5275}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-AppPublisher=PanDoc
+AppPublisher=PanDockLab
 DefaultDirName={localappdata}\Programs\PanDoc
-DefaultGroupName=PanDoc
+DefaultGroupName=PanDockLab
 OutputDir=..\dist-installer
 OutputBaseFilename=PanDoc-Setup-Windows-x64
 Compression=lzma2
@@ -25,11 +25,11 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 Source: "..\dist\PanDoc\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\PanDoc"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\PanDoc"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{group}\PanDockLab"; Filename: "{app}\{#MyAppExeName}"
+Name: "{autodesktop}\PanDockLab"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Tasks]
 Name: desktopicon; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch PanDoc"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch PanDockLab"; Flags: nowait postinstall skipifsilent
