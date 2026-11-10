@@ -1547,7 +1547,7 @@ with st.expander("Bulk ligand preparation · CSV → up to 10,000 PDBQT files", 
                     st.success(f"Finished: {state['success']:,} PDBQT files ready for GPU docking.")
                     archive = bulk_ligands.build_zip(directory)
                     st.download_button("Download GPU-ready ligand ZIP",
-                                       data=archive.read_bytes(), file_name="PanDockLab_GPU_ready_ligands.zip",
+                                       data=archive.read_bytes(), file_name="PanDoc_GPU_ready_ligands.zip",
                                        mime="application/zip", key="bulk_ready_download")
                 else:
                     st.caption(
@@ -1618,16 +1618,16 @@ with st.expander("Bulk ligand preparation · CSV → up to 10,000 PDBQT files", 
                             st.caption("Awaiting encrypted molecular log...")
                     if state["state"] == "completed":
                         target = root / "bulk_ligands" / ("remote_" + remote_bulk["job_id"])
-                        if not (target / "PanDockLab_GPU_ready_ligands.zip").is_file():
+                        if not (target / "PanDoc_GPU_ready_ligands.zip").is_file():
                             remote_backend.materialize(remote_bulk, target)
-                        archive = target / "PanDockLab_GPU_ready_ligands.zip"
+                        archive = target / "PanDoc_GPU_ready_ligands.zip"
                         if not archive.is_file():
                             raise FileNotFoundError("GitHub Actions artifact is missing the prepared ligand ZIP.")
                         summary = json.loads((target / "results.json").read_text())
                         st.success(f"{summary['success']:,}/{summary['total']:,} ligands prepared; "
                                    f"{summary['failed']:,} failed and were reported.")
                         st.download_button("Download GPU-ready ligand ZIP", archive.read_bytes(),
-                                           file_name="PanDockLab_GPU_ready_ligands.zip",
+                                           file_name="PanDoc_GPU_ready_ligands.zip",
                                            mime="application/zip", key="remote_bulk_download")
                     elif state["state"] in ("failed", "cancelled"):
                         st.error(state.get("error") or f"Bulk preparation {state['state']}. Check Actions logs.")
