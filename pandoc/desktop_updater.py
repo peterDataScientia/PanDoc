@@ -1,4 +1,4 @@
-"""User-approved Windows desktop updates from official PanDoc GitHub Releases.
+"""User-approved PanDockLab Windows desktop updates with legacy PanDoc compatibility.
 
 No updater is active on Streamlit Cloud. Release assets require a matching
 SHA-256 checksum file; a workflow artifact ZIP is never treated as a release.
@@ -15,9 +15,9 @@ import sys
 import urllib.request
 import json
 
-REPOSITORY = "peterDataScientia/PanDoc"
-TAG_PREFIX = "pandoc-desktop-v"
-ASSET_NAME = "PanDoc-Setup-Windows-x64.exe"
+REPOSITORY = "peterDataScientia/PanDoc"  # Legacy route until GitHub repository migration
+TAG_PREFIX = "pandoc-desktop-v"  # Keep legacy clients able to discover v0.3.0+
+ASSET_NAME = "PanDoc-Setup-Windows-x64.exe"  # Required by already-installed updater
 CHECKSUM_NAME = ASSET_NAME + ".sha256"
 API_URL = "https://api.github.com/repos/" + REPOSITORY + "/releases?per_page=30"
 VERSION_PATTERN = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
@@ -37,12 +37,12 @@ def version_tuple(value: str) -> tuple[int, int, int]:
 
 
 def installed_version() -> str:
-    return os.environ.get("PANDOC_DESKTOP_VERSION", "0.2.0")
+    return os.environ.get("PANDOC_DESKTOP_VERSION", "0.3.0")
 
 
 def _get(url: str, *, timeout: int = 8) -> bytes:
     req = urllib.request.Request(
-        url, headers={"User-Agent": "PanDoc-Windows-Updater/1", "Accept": "application/vnd.github+json"}
+        url, headers={"User-Agent": "PanDockLab-Windows-Updater/1", "Accept": "application/vnd.github+json"}
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as response:
@@ -242,7 +242,7 @@ def render_update_controls(st) -> None:
         except UpdateError:
             st.session_state["pandoc_desktop_update_checked"] = False
     with st.sidebar.container(border=True):
-        st.markdown("**PanDoc Desktop · Updates**")
+        st.markdown("**PanDockLab Desktop · Updates**")
         st.caption(f"Installed version: v{current}")
         if st.button("Check for updates", key="pandoc_desktop_check_updates", use_container_width=True):
             try:
@@ -273,12 +273,12 @@ def render_update_controls(st) -> None:
                     schedule_install(installer, Path(sys.executable), update_dir,
                                      available["verified_sha256"])
                     st.success(
-                        "Verified installer ready. Close PanDoc after saving your work; "
-                        "the updater will install the new version and reopen PanDoc."
+                        "Verified installer ready. Close PanDockLab after saving your work; "
+                        "the updater will install the new version and reopen PanDockLab."
                     )
                 except (UpdateError, OSError) as exc:
                     st.error(str(exc))
         elif st.session_state.get("pandoc_desktop_update_checked"):
             st.caption("No newer published stable desktop release.")
         else:
-            st.caption("Could not check releases. PanDoc remains usable offline.")
+            st.caption("Could not check releases. PanDockLab remains usable offline.")
