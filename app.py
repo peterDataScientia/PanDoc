@@ -43,7 +43,7 @@ def _pandocklab_icon():
         full = Image.open(BytesIO(base64.b64decode(data, validate=True))).convert("RGBA")
         # Full logo has an upper protein/flask emblem and lower wordmark.
         # Crop the upper artwork to remain legible at taskbar and favicon sizes.
-        return full.crop((0, 0, full.width, round(full.height * 0.73)))
+        return full.crop((0, 0, full.width, round(full.height * 0.63)))
     except (OSError, ValueError):
         return "🧬"
 
