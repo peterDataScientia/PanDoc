@@ -45,7 +45,7 @@ def handle_chat_request(st, question, backend_factory=None):
     is_generic = (
         bool(re.fullmatch(r"(hi|hello|hey|habari|mambo|thanks|thank you)[!. ]*",
                           message.casefold())) or
-        bool(re.match(r"^\s*(what is|tell me about|describe)\s+(pandoc|this software|the software)\b",
+        bool(re.match(r"^\s*(what is|tell me about|describe)\s+(pandoc|pandocklab|this software|the software)\b",
                       message, re.I))
     )
     active = str(st.session_state.get("pandoc_agent_task_id") or "")
@@ -87,7 +87,7 @@ def handle_chat_request(st, question, backend_factory=None):
     if parsed["pdb_id"] is None:
         return None
     if not enabled:
-        return "Scientific task execution is not enabled in this PanDoc deployment."
+        return "Scientific task execution is not enabled in this PanDockLab deployment."
     plan = agent_planner.plan_request(
         message, api_key=_secret(st, "GROQ_API_KEY"),
         model=_secret(st, "GROQ_MODEL") or agent_planner.MODEL
@@ -160,7 +160,7 @@ def render_task_chat(st, root, task_id, backend_factory):
         if col.button(label, key=f"agent_quick_{i}", width="stretch"):
             pending = prompt
     followup = st.chat_input(
-        "Ask PanDoc anything about this task...",
+        "Ask PanDockLab anything about this task...",
         key="pandoc_agent_followup", max_chars=2000,
     )
     if pending is None and not followup:
@@ -184,7 +184,7 @@ def render_task_chat(st, root, task_id, backend_factory):
 
 def render_general_chat(st, root, backend_factory):
     """Chat freely before a task exists; explicit PDB requests create tasks."""
-    st.markdown("**Chat with PanDoc**")
+    st.markdown("**Chat with PanDockLab**")
     st.caption(
         "Ask a scientific question, discuss a docking approach, or say "
         "'Inspect PDB 1LF2'. You do not need a task ID or an API key."
@@ -203,7 +203,7 @@ def render_general_chat(st, root, backend_factory):
             with st.chat_message("assistant"):
                 st.markdown(turn["answer"])
     question = st.chat_input(
-        "Ask a question or tell PanDoc to inspect a PDB...",
+        "Ask a question or tell PanDockLab to inspect a PDB...",
         key="pandoc_agent_lobby_input", max_chars=2000,
     )
     if not question:
@@ -271,12 +271,12 @@ def render(st, root, backend_factory):
             expanded=not bool(active_for_chat),
         ):
             st.caption(
-                "Describe the work below and press **Start task**. PanDoc creates "
+                "Describe the work below and press **Start task**. PanDockLab creates "
                 "a task ID automatically; do not type the instruction in the resume field."
             )
             with st.form("pandoc_agent_start_form", clear_on_submit=False):
                 instruction = st.text_area(
-                    "What should PanDoc do?",
+                    "What should PanDockLab do?",
                     placeholder="Inspect PDB 1LF2. Or prepare PDB 1LF2 at pH 5.0 and validate by redocking.",
                     max_chars=2000, height=90, key="pandoc_agent_instruction",
                 )
@@ -318,7 +318,7 @@ def render(st, root, backend_factory):
                 if not re.fullmatch(r"[0-9a-f]{32}", candidate):
                     st.warning(
                         "That is not a task ID. To inspect PDB 1LF2, enter "
-                        "'Inspect PDB 1LF2' under 'What should PanDoc do?' "
+                        "'Inspect PDB 1LF2' under 'What should PanDockLab do?' "
                         "and click 'Start task'."
                     )
                 else:
