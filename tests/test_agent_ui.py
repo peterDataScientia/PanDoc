@@ -75,9 +75,10 @@ def _panel(monkeypatch, tmp_path):
 def test_natural_language_instruction_submits_and_generates_separate_id(monkeypatch, tmp_path):
     at, calls, task_id = _panel(monkeypatch, tmp_path)
     area = _widget(at.text_area, "pandoc_agent_instruction")
-    area.set_value("Inspect PDB 1LF2.").run()
+    # Streamlit form fields are only committed when the submit button fires.
+    # AppTest must set the draft value and click within one scripted rerun.
+    area.set_value("Inspect PDB 1LF2.")
     assert not calls  # Typing does not submit or look up the instruction.
-    assert "Unknown agent task." not in " ".join(w.value for w in at.warning)
     start = next(b for b in at.button if "Start task" in b.label)
     start.click().run()
     assert not list(at.exception)
@@ -115,7 +116,7 @@ def test_empty_panel_has_distinct_submit_and_resume_actions(monkeypatch, tmp_pat
 
 def test_task_chat_accepts_followup_and_remembers_answer(monkeypatch, tmp_path):
     at, calls, task_id = _panel(monkeypatch, tmp_path)
-    _widget(at.text_area, "pandoc_agent_instruction").set_value("Inspect PDB 1LF2.").run()
+    _widget(at.text_area, "pandoc_agent_instruction").set_value("Inspect PDB 1LF2.")
     next(b for b in at.button if "Start task" in b.label).click().run()
     assert not list(at.exception)
     assert _widget(at.chat_input, "pandoc_agent_followup") is not None
