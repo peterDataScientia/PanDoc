@@ -26,8 +26,12 @@ def build() -> None:
     emblem = artwork.crop((int(artwork.width * 0.13), int(artwork.height * 0.05),
                            int(artwork.width * 0.90), int(artwork.height * 0.74)))
     emblem.thumbnail((228, 228), Image.Resampling.LANCZOS)
+    # Scale uniformly; never stretch molecular structures or typography.
+    factor = min(228 / emblem.width, 228 / emblem.height)
+    target_size = (round(emblem.width * factor), round(emblem.height * factor))
+    emblem = emblem.resize(target_size, Image.Resampling.LANCZOS)
     canvas = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
-    canvas.alpha_composite(emblem.resize((228, 204), Image.Resampling.LANCZOS), (14, 26))
+    canvas.alpha_composite(emblem, ((256 - emblem.width) // 2, (256 - emblem.height) // 2))
     TARGET.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(TARGET, format="ICO",
                 sizes=[(16, 16), (24, 24), (32, 32), (48, 48),
