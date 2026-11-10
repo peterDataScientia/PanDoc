@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="PanDockLab icon">
+<defs><linearGradient id="b" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0474a4"/><stop offset="1" stop-color="#10366f"/></linearGradient><linearGradient id="g" x1="0" x2="1" y1="1" y2="0"><stop stop-color="#19a6a0"/><stop offset="1" stop-color="#71c746"/></linearGradient></defs>
+<rect width="256" height="256" rx="55" fill="#0c2343"/>
+<path d="M63 41h74c47 0 75 26 75 67 0 42-29 68-74 68h-30v42H63z" fill="url(#b)" stroke="#50bcd8" stroke-width="3"/>
+<path d="M153 78l-18 18v24l-22 34c-6 9 1 19 11 19h48c10 0 16-10 11-19l-23-34V96l-18-18" stroke="white" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M121 149h54l8 12c2 4-1 8-7 8h-51c-6 0-9-4-7-8z" fill="#40b9dc"/><circle cx="145" cy="131" r="5" fill="white"/><circle cx="158" cy="143" r="4" fill="white"/>
+<path d="M21 189c47 30 135 24 211-25" stroke="url(#g)" stroke-width="10" fill="none" stroke-linecap="round"/>
+<g fill="#a1dc53"><circle cx="22" cy="189" r="8"/><circle cx="231" cy="164" r="8"/></g>
+</svg>
