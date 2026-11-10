@@ -226,15 +226,6 @@ jobs:
             throw "Public installer and legacy update asset differ"
           }
 
-      - name: Publish versioned GitHub Release
-        if: startsWith(github.ref, 'refs/tags/pandoc-desktop-v')
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $version = (Get-Content desktop/VERSION -Raw).Trim()
-          if ($env:GITHUB_REF_NAME -ne "pandoc-desktop-v$version") { throw "Release tag mismatch" }
-          gh release create $env:GITHUB_REF_NAME "dist-installer/PanDockLab-Setup-Windows-x64.exe" "dist-installer/PanDockLab-Setup-Windows-x64.exe.sha256" "dist-installer/PanDoc-Setup-Windows-x64.exe" "dist-installer/PanDoc-Setup-Windows-x64.exe.sha256" --title "PanDockLab Desktop v$version" --notes "Windows x64 installer for PanDockLab (formerly PanDoc). Includes legacy updater-compatible assets. Download directly; no Python or Conda required. Save active docking jobs and close PanDockLab before upgrading."
-
       - name: Verify single PanDockLab artifact and checksum
         run: |
           $installer = "dist-installer/PanDockLab-Setup-Windows-x64.exe"
@@ -262,3 +253,36 @@ jobs:
             dist-installer/PanDockLab-Setup-Windows-x64.exe
             dist-installer/PanDockLab-Setup-Windows-x64.exe.sha256
           if-no-files-found: error
+
+      - name: Publish verified PanDockLab v0.3.0 release
+        if: >-
+          startsWith(github.ref, 'refs/tags/pandoc-desktop-v') ||
+          (github.event_name == 'push' &&
+           github.ref == 'refs/heads/feature/windows-desktop-installer' &&
+           contains(github.event.head_commit.message, '[publish-desktop-v0.3.0]'))
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = (Get-Content desktop/VERSION -Raw).Trim()
+          $tag = "pandoc-desktop-v$version"
+          if ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -ne $tag) {
+            throw "Release tag mismatch"
+          }
+          $releaseAssets = @(
+            "dist-installer/PanDockLab-Setup-Windows-x64.exe",
+            "dist-installer/PanDockLab-Setup-Windows-x64.exe.sha256",
+            "dist-installer/PanDoc-Setup-Windows-x64.exe",
+            "dist-installer/PanDoc-Setup-Windows-x64.exe.sha256"
+          )
+          foreach ($asset in $releaseAssets) {
+            if (-not (Test-Path $asset)) { throw "Release asset missing: $asset" }
+          }
+          $existing = gh release list --repo $env:GITHUB_REPOSITORY --limit 100 --json tagName
+          if ($LASTEXITCODE -ne 0) { throw "Could not check existing releases" }
+          if (($existing | ConvertFrom-Json | Where-Object { $_.tagName -eq $tag }).Count -gt 0) {
+            throw "Release $tag already exists; refusing to overwrite an immutable version. Increase desktop/VERSION."
+          }
+          gh release create $tag @releaseAssets --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "PanDockLab Desktop v$version" --notes "Windows x64 PanDockLab installer (formerly PanDoc). Includes SHA-256 manifests and legacy updater-compatible assets. No Python or Conda needed. This release is unsigned and has passed Windows CI self-tests; end-to-end installation and docking validation on user machines remain recommended. Save your work and close the app before upgrading."
+          if ($LASTEXITCODE -ne 0) { throw "GitHub Release publication failed" }
+          Write-Host "Published $tag from verified commit $env:GITHUB_SHA"
