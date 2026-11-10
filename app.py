@@ -1296,7 +1296,9 @@ stage = st.session_state.workflow_stage
 # Keep the brand visible even while the sidebar is collapsed.
 _brand_logo(width=85, floating=True)
 with st.sidebar:
-    _brand_logo(width=250)
+    # The Windows desktop keeps only the top-right logo; hosted web retains both.
+    if os.environ.get("PANDOC_DESKTOP_APP") != "1":
+        _brand_logo(width=250)
     # One workflow navigator, inside Streamlit's collapsible sidebar.
     # Scope the menu styling: other sidebar primary actions keep their design.
     # Buttons cannot replay a stale selection during scientific widget reruns.
