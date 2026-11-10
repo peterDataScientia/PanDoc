@@ -15,13 +15,6 @@ on:
   push:
     tags:
       - 'pandoc-desktop-v*'
-    paths:
-      - 'desktop/**'
-      - 'assets/pandocklab_*'
-      - 'pandoc/desktop_updater.py'
-      - 'tests/test_desktop_updater.py'
-      - 'app.py'
-      - '.github/workflows/build-windows-desktop.yml'
 
 permissions:
   contents: read
