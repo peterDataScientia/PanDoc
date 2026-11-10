@@ -1,4 +1,6 @@
-# PanDoc
+# PanDockLab
+
+**Formerly PanDoc.** PanDockLab is the public name of this chemistry-aware molecular docking workbench. The repository currently retains the established `peterDataScientia/PanDoc` URL, and the internal `pandoc` Python package, `PANDOC_*` environment variables, legacy archive paths and data folders remain unchanged for compatibility. The Windows desktop rebrand is being tested separately in the `feature/windows-desktop-installer` branch.
 
 A guided Streamlit workbench for receptor inspection, Meeko preparation, crystallographic-ligand redocking and AutoDock Vina docking experiments.
 
@@ -18,8 +20,8 @@ PDBFixer and OpenMM are included in the main requirements. Heavy-atom reconstruc
 Docker:
 
 ```bash
-docker build -t pandoc .
-docker run --rm -p 8501:8501 pandoc
+docker build -t pandocklab .
+docker run --rm -p 8501:8501 pandocklab
 ```
 
 Streamlit Community Cloud: select this repository, `main`, `app.py`, and Python 3.11. Docking uses server CPU resources; start with small batches. Meeko and Vina versions are pinned. A server with a container and persistent storage is preferable for longer computations.
@@ -29,7 +31,7 @@ Streamlit Community Cloud: select this repository, `main`, `app.py`, and Python 
 
 If logs show Python 3.14 and `Boost library location was not found`, the installer is attempting to compile Vina because that runtime has no compatible prebuilt Vina 1.2.7 wheel. Deploy with **Python 3.11** instead. Adding a `runtime.txt` does not change an existing Community Cloud app's Python interpreter.
 
-Community Cloud requires deleting and redeploying an existing app to change Python. Preserve your app settings and any secrets first, then redeploy with repository `peterDataScientia/PanDoc`, branch `main`, entrypoint `app.py`, and custom subdomain `pandoc`. In **Advanced settings**, explicitly select **Python 3.11** before clicking Deploy. Restarting the Python 3.14 app will not change its interpreter.
+Community Cloud requires deleting and redeploying an existing app to change Python. Preserve your app settings and any secrets first, then redeploy with repository `peterDataScientia/PanDockLab`, branch `main`, entrypoint `app.py`, and custom subdomain `pandoc`. In **Advanced settings**, explicitly select **Python 3.11** before clicking Deploy. Restarting the Python 3.14 app will not change its interpreter.
 
 The requirements file now requires a prebuilt Vina wheel so unsupported runtimes fail clearly rather than starting a C++ build. A Linux CPython 3.11 wheel is available and has been verified. This guard does not itself change the cloud runtime.
 
@@ -38,10 +40,10 @@ Official guidance: https://docs.streamlit.io/deploy/streamlit-community-cloud/ma
 ## Workflow
 
 1. Upload PDB/mmCIF. Select protein chains, retained components and reference ligand. Choose alternate conformations per residue.
-2. Prepare the receptor with PDBFixer, PROPKA and Meeko. Optionally upload a curated receptor or reconstruct missing heavy atoms using PDBFixer, then run PROPKA at the selected preparation pH to obtain structure-dependent residue pKa predictions. PanDoc presents proposed residue states for review, flags residues near their predicted pKa, and requires explicit HID/HIE selection for neutral histidines before passing reviewed template assignments to Meeko. No blanket deletion of failed residues and no automatic missing-loop reconstruction.
-3. Click **Find ligand chemistry from PDB** in the Reference ligand tab to retrieve the selected component's CCD SMILES, name, formula and formal charge. Review the molecular preview and side-by-side atom comparison. Manual SMILES entry remains editable. At the receptor preparation pH, PanDoc can use Molscrub to enumerate ligand protonation/tautomer microstates; review and select the intended state before preparation. Mismatches show clear actions and block preparation; deposited atom-name comparisons can identify absent atoms when naming is consistent. Custom residue names may require manual chemistry. Bond orders are assigned to extracted crystal coordinates; CCD ideal coordinates never replace the crystal reference. Click **Continue to Validate docking**.
+2. Prepare the receptor with PDBFixer, PROPKA and Meeko. Optionally upload a curated receptor or reconstruct missing heavy atoms using PDBFixer, then run PROPKA at the selected preparation pH to obtain structure-dependent residue pKa predictions. PanDockLab presents proposed residue states for review, flags residues near their predicted pKa, and requires explicit HID/HIE selection for neutral histidines before passing reviewed template assignments to Meeko. No blanket deletion of failed residues and no automatic missing-loop reconstruction.
+3. Click **Find ligand chemistry from PDB** in the Reference ligand tab to retrieve the selected component's CCD SMILES, name, formula and formal charge. Review the molecular preview and side-by-side atom comparison. Manual SMILES entry remains editable. At the receptor preparation pH, PanDockLab can use Molscrub to enumerate ligand protonation/tautomer microstates; review and select the intended state before preparation. Mismatches show clear actions and block preparation; deposited atom-name comparisons can identify absent atoms when naming is consistent. Custom residue names may require manual chemistry. Bond orders are assigned to extracted crystal coordinates; CCD ideal coordinates never replace the crystal reference. Click **Continue to Validate docking**.
 4. Define a box, redock across seeds and inspect reference RMSD. RMSD uses RDKit CalcRMS, heavy atoms and symmetry handling in the fixed receptor coordinate frame. No independent ligand alignment is performed.
-5. Prepare candidate ligands from multi-record SDF or SMILES. By default, PanDoc can enumerate pH-dependent protonation/tautomer microstates with Molscrub at the receptor preparation pH; review the generated states before docking. A maximum of 25 prepared ligand states is accepted per run. Run Vina jobs in a separate process, inspect poses and scores, and export the complete experiment.
+5. Prepare candidate ligands from multi-record SDF or SMILES. By default, PanDockLab can enumerate pH-dependent protonation/tautomer microstates with Molscrub at the receptor preparation pH; review the generated states before docking. A maximum of 25 prepared ligand states is accepted per run. Run Vina jobs in a separate process, inspect poses and scores, and export the complete experiment.
 
 ## Practical receptor quality gates
 
@@ -61,14 +63,14 @@ decide whether the protocol is suitable for production docking.
 
 Every reviewed-profile ZIP now includes `PROFILE_MANIFEST.json`, which
 explicitly names requested, completed, failed and pending targets. If CYP19A1
-is still running on Computer C, PanDoc labels the ZIP **partial** rather than
+is still running on Computer C, PanDockLab labels the ZIP **partial** rather than
 implying that the missing target was prepared. Each prepared profile also
 includes `15_quality_assessment.json` with its blockers, warnings and
 required next validation step.
 
 ## Scientific behavior and limits
 
-- pH is an active preparation parameter. PanDoc runs PROPKA on the receptor to obtain structure-dependent residue pKa predictions and proposes residue states for review. Predictions do not silently override expert judgment: residues near their pKa are flagged, neutral histidines require explicit HID/HIE review, and manual/curated assignments remain available. For ligands, PanDoc can use Molscrub to enumerate protonation and tautomer microstates at the selected pH; users review/select the states used for docking.
+- pH is an active preparation parameter. PanDockLab runs PROPKA on the receptor to obtain structure-dependent residue pKa predictions and proposes residue states for review. Predictions do not silently override expert judgment: residues near their pKa are flagged, neutral histidines require explicit HID/HIE review, and manual/curated assignments remain available. For ligands, PanDockLab can use Molscrub to enumerate protonation and tautomer microstates at the selected pH; users review/select the states used for docking.
 - Missing-heavy-atom counts are preliminary heuristics. Meeko template matching is the actual chemical check. OXT, modified residues and chain boundaries require individual interpretation.
 - PDBFixer repairs are modeled coordinates. Review pocket repairs; missing loops require a separate curated model.
 - A curated receptor must remain in the original reference coordinate frame. Align the receptor externally if necessary; do not independently align ligand poses for RMSD.
@@ -89,7 +91,7 @@ A retained `HEM` cofactor is **not** sent to Meeko's automatic CCD-template
 builder: its iron coordination cannot be reliably reconstructed from an
 ordinary ligand template. In **Prepare structures → Receptor**, explicitly
 review the Fe-coordinating cysteine SG (including its Fe--SG distance) to use
-the existing curated P450-like preparation. PanDoc prepares the protein using
+the existing curated P450-like preparation. PanDockLab prepares the protein using
 the reviewed protonation states, restores the **original crystallographic HEM
 coordinates**, converts using **AutoDockTools prepare_receptor4.py** and checks
 the proximal thiolate and Fe retention. This requires an AutoDockTools-equipped
@@ -105,7 +107,7 @@ those receptors require a separately validated curated route.
 The API accepts an optional `heme_coordination_residue` form field (for
 example `A:437`) for the same reviewed route. Without an explicit donor,
 the preparation **fails safely**, preserves HEM and explains what review is
-required. PanDoc never automatically deletes cofactors to make Meeko pass.
+required. PanDockLab never automatically deletes cofactors to make Meeko pass.
 
 For other **non-metal, noncovalent CCD components**, an explicit Meeko
 CCD-template failure triggers at most **one** controlled retry, using an
@@ -115,7 +117,7 @@ deposited residue. The SDF does not replace deposited coordinates. The
 original error, retry transcript and `cofactor_resolution.json` are saved
 for review; the fallback does **not** establish charge accuracy, metal
 coordination, or docking validity. RCSB discontinued `_model.sdf` in 2024,
-so PanDoc uses the still-supported `_ideal.sdf`.
+so PanDockLab uses the still-supported `_ideal.sdf`.
 
 To supply reviewed local residue templates, configure
 `PANDOC_COF_TEMPLATE_DIR` pointing to a directory containing files such as
@@ -127,7 +129,7 @@ remain visible, and downstream redocking validation is still required.
 
 ## Free GitHub Actions compute
 
-PanDoc can offload docking calculations from Streamlit Community Cloud to GitHub-hosted Actions runners without a paid API server.
+PanDockLab can offload docking calculations from Streamlit Community Cloud to GitHub-hosted Actions runners without a paid API server.
 
 The Streamlit app automatically uses this backend when both of these Streamlit secrets are present:
 
@@ -136,7 +138,7 @@ GITHUB_TOKEN = "fine-grained GitHub token"
 PANDOC_JOB_KEY = "Fernet key"
 ```
 
-The repository must also contain the same `PANDOC_JOB_KEY` as a GitHub Actions repository secret. The token should be limited to this repository and needs Contents read/write plus Actions read/write permissions so PanDoc can create the encrypted temporary job branch, dispatch the workflow, inspect its status, download the result artifact, cancel jobs, and delete the temporary branch.
+The repository must also contain the same `PANDOC_JOB_KEY` as a GitHub Actions repository secret. The token should be limited to this repository and needs Contents read/write plus Actions read/write permissions so PanDockLab can create the encrypted temporary job branch, dispatch the workflow, inspect its status, download the result artifact, cancel jobs, and delete the temporary branch.
 
 Generate a Fernet key with:
 
@@ -150,7 +152,7 @@ Workflow: `.github/workflows/pandoc-compute.yml`
 
 ## REST API
 
-PanDoc includes a FastAPI service for programmatic access to the same scientific engine and the same shared compute service used by the Streamlit workbench. Docking compute is GitHub Actions only: `GITHUB_TOKEN` and `PANDOC_JOB_KEY` are required, and there is no local compute fallback.
+PanDockLab includes a FastAPI service for programmatic access to the same scientific engine and the same shared compute service used by the Streamlit workbench. Docking compute is GitHub Actions only: `GITHUB_TOKEN` and `PANDOC_JOB_KEY` are required, and there is no local compute fallback.
 
 Run locally:
 
@@ -217,10 +219,10 @@ After redocking, use **Validate docking → Figure pose**, or **Explore results 
 
 Browser exports render at high resolution: PNG is 3996 × 2340 pixels with 600-DPI physical-resolution metadata; PDF is 6.66 × 3.90 inches and embeds the raster panel. Camera orientation is preserved. The publication viewer uses an orthographic projection of the original 3D coordinates, with depth-sorted shaded atoms and bonds. Preview and export use the same drawing scene and camera. Export renders on a separate 2D canvas without resizing the visible viewer, WebGL buffers, or loading any external script. This illustration uses painter-style depth sorting rather than a ray tracer; inspect crossing bonds and adjust the viewing angle where needed. PDF export runs locally in the browser with no external PDF library, embedding lossless RGB pixels. Export errors appear beside the controls. No protein appears in this publication figure, and no docking calculation is repeated. Review the figure against journal requirements before submission.
 
-### Search PDB within PanDoc
+### Search PDB within PanDockLab
 Use **Load complex → Search PDB** to search experimental structures by keywords, deposited protein name, exact PDB ID, UniProt accession, or ligand name/three-character component ID. The initial method is X-ray diffraction; advanced filters support organism, method, maximum resolution, and nonpolymer presence. The latter includes ions, additives and cofactors and does not guarantee a redocking reference. Exact PDB IDs bypass search filters. Results are paginated in groups of ten and cached for one hour. Search relevance is not a suitability score.
 
-Select a result and click **View structure details** to review chain-specific molecule identities, source organisms, reported mutations, nonpolymer components, unmodeled residue counts and the publication. Links open RCSB structure and ligand-quality pages; PanDoc does not manufacture a quality score or treat missing validation as a pass. Click **Load this structure** to retrieve the deposited coordinate mmCIF (25-MB maximum), then inspect the 3D complex and explicitly select receptor chains and the reference ligand. Biological assemblies are not automatically substituted.
+Select a result and click **View structure details** to review chain-specific molecule identities, source organisms, reported mutations, nonpolymer components, unmodeled residue counts and the publication. Links open RCSB structure and ligand-quality pages; PanDockLab does not manufacture a quality score or treat missing validation as a pass. Click **Load this structure** to retrieve the deposited coordinate mmCIF (25-MB maximum), then inspect the 3D complex and explicitly select receptor chains and the reference ligand. Biological assemblies are not automatically substituted.
 
 The experiment records the search criteria/query, chosen PDB ID, metadata, retrieval time, download URL, selection rationale and original-file SHA-256; the original mmCIF is included in the experiment archive. Changing the loaded complex clears previous preparation and active-result selections. Older calculation files remain in the experiment for provenance. API failures leave the currently loaded structure intact; file upload remains available.
 
@@ -230,12 +232,12 @@ For browser export regression checks, `?publication_demo=1` opens a clearly labe
 
 Open **Scientific assistant** below the workflow. Add `GROQ_API_KEY = "your-key"` in Streamlit **App settings → Secrets**, or in the ignored `.streamlit/secrets.toml` locally. Environment variables are also supported. The default model is `openai/gpt-oss-120b`; optionally set `GROQ_MODEL` in secrets. Ask “What does docking exhaustiveness mean?” to test the connection.
 
-Answers remain visible across reruns within the same session. Requests occur only when a chat message is submitted. The quick conversation snapshot includes box settings and up to the first 50 anonymous result rows. With **Share experiment context** enabled, Groq may additionally call allowlisted **read-only scientific evidence tools** to summarize *all saved result rows*, retrieve bounded score/RMSD pages, inspect recorded structure issues or one residue's atom inventory, and read job/provenance settings. Context sharing off disables tool calls. The selected PanDoc job/structure determines what can be inspected; the model cannot provide arbitrary filesystem paths. The tools exclude raw PDB/SDF/PDBQT coordinates, ligand labels and original filenames. The AI still cannot execute calculations, modify settings, determine uncomputed interactions or search literature. Verify model interpretations independently before using them for scientific conclusions. Model/account quotas apply.
+Answers remain visible across reruns within the same session. Requests occur only when a chat message is submitted. The quick conversation snapshot includes box settings and up to the first 50 anonymous result rows. With **Share experiment context** enabled, Groq may additionally call allowlisted **read-only scientific evidence tools** to summarize *all saved result rows*, retrieve bounded score/RMSD pages, inspect recorded structure issues or one residue's atom inventory, and read job/provenance settings. Context sharing off disables tool calls. The selected PanDockLab job/structure determines what can be inspected; the model cannot provide arbitrary filesystem paths. The tools exclude raw PDB/SDF/PDBQT coordinates, ligand labels and original filenames. The AI still cannot execute calculations, modify settings, determine uncomputed interactions or search literature. Verify model interpretations independently before using them for scientific conclusions. Model/account quotas apply.
 
 
 ### Reviewed AI scientific task agent (pilot)
 
-PanDoc now includes an opt-in **AI task agent · Perform reviewed scientific work** panel alongside the Groq scientific assistant. It goes beyond explanations: natural-language requests can start a durable PDB retrieval/inspection task, present receptor/reference selection, suggest pKa assignments for review, prepare approved structures, run approved Vina redocking through GitHub Actions, and export an evidence/provenance bundle. The model **cannot** silently choose chemistry or authorize compute. Groq uses structured output for task planning, with a safe deterministic fallback.
+PanDockLab now includes an opt-in **AI task agent · Perform reviewed scientific work** panel alongside the Groq scientific assistant. It goes beyond explanations: natural-language requests can start a durable PDB retrieval/inspection task, present receptor/reference selection, suggest pKa assignments for review, prepare approved structures, run approved Vina redocking through GitHub Actions, and export an evidence/provenance bundle. The model **cannot** silently choose chemistry or authorize compute. Groq uses structured output for task planning, with a safe deterministic fallback.
 
 **Setup:** the deployment administrator sets PANDOC_AGENT_ENABLED=true, GROQ_API_KEY (for model planning/conversation), and GITHUB_TOKEN/PANDOC_JOB_KEY for optional remote redocking **in Streamlit Secrets or server environment**, not in the user interface. PANDOC_AGENT_ACCESS_KEY is obsolete and is no longer used by the Streamlit agent; it may be deleted from secrets. Set PANDOC_AGENT_DATA_DIR to durable storage; temporary directories do not survive cloud instance replacement. The agent panel is directly usable without entering any key. A user can type **Prepare PDB 1LF2 at pH 5.0** in the existing assistant to start read-only retrieval; approval gates remain for scientific choices and compute. **Security:** enabling this on a public Streamlit URL permits visitors to request agent work using server-configured credentials. Before open multi-user compute, enforce owner isolation and server-side quotas/limits or keep the deployment private. The chemistry panel can suggest CCD identities and MolScrub states but never accepts them automatically.
 
@@ -269,7 +271,7 @@ experiment context is enabled; molecular coordinates are not sent.
 **Scope:** this is conservative coordinate and component screening, not a
 MolProbity validation or electron-density assessment. Protonation is handled in
 the preparation stage: PROPKA provides structure-dependent residue pKa
-predictions, PanDoc converts them into reviewable residue-state proposals, and
+predictions, PanDockLab converts them into reviewable residue-state proposals, and
 reviewed assignments are passed to Meeko. PROPKA output is not treated as an
 unquestionable ground truth, and neutral histidines require explicit HID/HIE
 selection. Ligand protonation/tautomer states can be enumerated with Molscrub at
@@ -285,24 +287,24 @@ Design references: [wwPDB validation](https://www.wwpdb.org/validation/2016/Xray
 
 ## External browser automation contract
 
-PanDoc supports external browser automation with Playwright, Selenium, or similar tools without bundling a browser driver into the PanDoc runtime.
+PanDockLab supports external browser automation with Playwright, Selenium, or similar tools without bundling a browser driver into the PanDockLab runtime.
 
 The automation contract follows browser-testing best practice:
 
 1. **Control widgets through accessible locators first.** External clients should prefer Playwright role/label selectors such as `getByRole()`, `getByLabel()`, and exact accessible names. Examples include **Workflow**, **Compute**, **PDB or mmCIF complex**, **Prepare receptor**, **Prepare reference ligand**, **Run redocking**, **Run docking**, and **Download complete experiment**.
 2. **Do not target Streamlit's generated DOM classes or internal `data-testid` values.** They are framework implementation details and may change across Streamlit releases.
-3. **Streamlit widget `key=` values are application/session identity, not browser selectors.** They make reruns deterministic inside PanDoc but are not promised to appear in the browser DOM.
-4. **Use PanDoc-owned state markers only for synchronization.** PanDoc emits its own `pandoc-*` markers as an explicit application contract. These markers indicate state; they are not substitutes for accessible control locators.
-5. **Wait on state, never arbitrary sleeps.** After an action that triggers a Streamlit rerun or remote calculation, wait for the expected PanDoc state marker and/or the expected accessible control to become visible/enabled.
-6. **Use the browser download event for artifacts.** For Playwright, start `page.waitForEvent('download')` (or the equivalent `expect_download` API) before activating a PanDoc download button, then validate the suggested filename and saved artifact.
+3. **Streamlit widget `key=` values are application/session identity, not browser selectors.** They make reruns deterministic inside PanDockLab but are not promised to appear in the browser DOM.
+4. **Use PanDockLab-owned state markers only for synchronization.** PanDockLab emits its own `pandoc-*` markers as an explicit application contract. These markers indicate state; they are not substitutes for accessible control locators.
+5. **Wait on state, never arbitrary sleeps.** After an action that triggers a Streamlit rerun or remote calculation, wait for the expected PanDockLab state marker and/or the expected accessible control to become visible/enabled.
+6. **Use the browser download event for artifacts.** For Playwright, start `page.waitForEvent('download')` (or the equivalent `expect_download` API) before activating a PanDockLab download button, then validate the suggested filename and saved artifact.
 
-PanDoc-owned synchronization markers:
+PanDockLab-owned synchronization markers:
 
 - `[data-testid="pandoc-app-ready"][data-state="ready"]`
 - `[data-testid="pandoc-workflow-stage"]` with the current stage in `data-state`
 - `[data-testid="pandoc-compute-node"]` with the selected compute node in `data-state`
 - `[data-testid="pandoc-complex"]`, `pandoc-receptor`, and `pandoc-reference` with `pending` or `ready`
-- `[data-testid="pandoc-job-status"]` with `queued`, `starting`, `running`, `completed`, `failed`, or `cancelled`; `data-value` contains the PanDoc job identifier
+- `[data-testid="pandoc-job-status"]` with `queued`, `starting`, `running`, `completed`, `failed`, or `cancelled`; `data-value` contains the PanDockLab job identifier
 - `[data-testid="pandoc-ligand-state-job"]` and `[data-testid="pandoc-candidate-preparation-job"]` for preparation tasks
 - `[data-testid="pandoc-reference-prepared"]` after reference preparation
 - `[data-testid="pandoc-experiment-bundle"][data-state="ready"]` when the complete experiment ZIP is ready
@@ -335,5 +337,5 @@ const download = await downloadPromise;
 
 Because Streamlit reruns the application after many widget actions, external clients should reacquire locators after state-changing actions rather than caching element handles. Playwright locators are suitable because they are evaluated lazily and include auto-waiting/actionability checks.
 
-For **PanDoc's own repository tests**, Streamlit's native `st.testing.v1.AppTest` remains the preferred fast test layer for widget/state logic. Real Playwright is appropriate as a separate end-to-end/browser compatibility layer when the deployed DOM, downloads, iframes, or real browser behavior must be verified. Playwright is not a PanDoc runtime dependency.
+For **PanDockLab's own repository tests**, Streamlit's native `st.testing.v1.AppTest` remains the preferred fast test layer for widget/state logic. Real Playwright is appropriate as a separate end-to-end/browser compatibility layer when the deployed DOM, downloads, iframes, or real browser behavior must be verified. Playwright is not a PanDockLab runtime dependency.
 
