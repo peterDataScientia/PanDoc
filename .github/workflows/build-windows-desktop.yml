@@ -233,6 +233,25 @@ jobs:
           if ($env:GITHUB_REF_NAME -ne "pandoc-desktop-v$version") { throw "Release tag mismatch" }
           gh release create $env:GITHUB_REF_NAME "dist-installer/PanDockLab-Setup-Windows-x64.exe" "dist-installer/PanDockLab-Setup-Windows-x64.exe.sha256" "dist-installer/PanDoc-Setup-Windows-x64.exe" "dist-installer/PanDoc-Setup-Windows-x64.exe.sha256" --title "PanDockLab Desktop v$version" --notes "Windows x64 installer for PanDockLab (formerly PanDoc). Includes legacy updater-compatible assets. Download directly; no Python or Conda required. Save active docking jobs and close PanDockLab before upgrading."
 
+      - name: Verify single PanDockLab artifact and checksum
+        run: |
+          $installer = "dist-installer/PanDockLab-Setup-Windows-x64.exe"
+          $manifest = "$installer.sha256"
+          if (-not (Test-Path $installer) -or -not (Test-Path $manifest)) {
+            throw "Missing PanDockLab Windows setup or checksum"
+          }
+          $bytes = (Get-Item $installer).Length
+          $sha = (Get-FileHash -Path $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifestLine = (Get-Content $manifest -Raw).Trim()
+          if ($manifestLine -ne "$sha  PanDockLab-Setup-Windows-x64.exe") {
+            throw "Installer checksum manifest mismatch"
+          }
+          if ($bytes -gt 350MB) {
+            throw "Single PanDockLab installer unexpectedly exceeds 350 MiB; inspect bundled dependencies."
+          }
+          Write-Host ("Validated single installer: {0:N1} MiB" -f ($bytes / 1MB))
+          Write-Host "The CI artifact must contain only this installer and its SHA-256 file."
+
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
