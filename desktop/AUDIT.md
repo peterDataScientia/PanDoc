@@ -1,4 +1,4 @@
-# PanDoc Windows Desktop audit
+# PanDockLab Windows Desktop audit
 
 Scope: Windows desktop branch only (`feature/windows-desktop-installer`). This is a release-gating checklist, not a claim that all scientific workflows have been validated.
 
@@ -6,7 +6,7 @@ Scope: Windows desktop branch only (`feature/windows-desktop-installer`). This i
 
 - Scientific dependency installation and PyInstaller onedir packaging.
 - Official AutoDock Vina Windows executable download and `--help`.
-- Frozen PanDoc import + Fernet encryption self-test.
+- Frozen PanDockLab import + Fernet encryption self-test.
 - Frozen Streamlit health endpoint and Inno Setup artifact creation.
 - These checks establish packaging/startup, not a working receptor-to-results docking workflow.
 
@@ -32,7 +32,7 @@ Scope: Windows desktop branch only (`feature/windows-desktop-installer`). This i
 - Cancel/restart and failure messaging; live worker logs; exported files.
 - Data paths and file permissions under a nonadmin Windows user.
 - Check all dataframes, selectboxes, radio/checkbox widgets, tooltips, scrolling, file uploader, and download controls with light theme.
-- Test hosted/cloud app separately before merging branch (main is intentionally unchanged).
+- Test hosted/cloud app separately before merging branch (web runtime semantics remain compatible).
 
 ## Build policy
 
