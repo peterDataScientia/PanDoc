@@ -12,7 +12,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-# PDF-to-SMILES was retired from PanDoc; structure extraction belongs in panChem.
+# PDF-to-SMILES was retired from PanDockLab; structure extraction belongs in panChem.
 # No PDF_to_SMILES page is registered or shipped in this app.
 
 
@@ -20,41 +20,38 @@ from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui
 from pandoc.computer_d_compute import ComputerDCompute
 from pandoc.computer_e_compute import ComputerECompute
 
-PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.png'
 PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
 
-@st.cache_data(show_spinner=False)
-def _pandoc_logo_data_uri():
-    """Serve the existing logo inline rather than relying on expiring media URLs."""
-    if not PANDOC_LOGO.is_file():
-        return ""
-    try:
-        encoded = base64.b64encode(PANDOC_LOGO.read_bytes()).decode("ascii")
-        return f"data:image/png;base64,{encoded}"
-    except OSError:
-        return ""
-
 def _brand_logo(width=250, floating=False):
-    data_uri = _pandoc_logo_data_uri()
-    if data_uri:
-        st.markdown(
-            f'<img src="{data_uri}" alt="PanDoc logo" '
-            f'style="display:block;width:{int(width)}px;max-width:100%;height:auto;'
-            + ('position:fixed;top:4.2rem;right:1.8rem;z-index:50;margin:0;' if floating else
-               'margin:0.25rem 0 0.75rem 0;') + '" />',
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            '<div style="font-size:1.7rem;font-weight:850;color:#0f2a43">Pan'
-            '<span style="color:#0f8f91">Doc</span></div>',
-            unsafe_allow_html=True,
-        )
+    """Text-first PanDockLab wordmark; no stale raster PanDoc branding."""
+    styling = (
+        "position:fixed;top:4.2rem;right:1.8rem;z-index:50;margin:0;"
+        if floating else "margin:0.25rem 0 0.75rem;"
+    )
+    st.markdown(
+        '<div aria-label="PanDockLab" style="font-size:1.7rem;font-weight:850;'
+        'color:#0f2a43;' + styling + '">Pan<span style="color:#0f8f91">'
+        'Dock</span>Lab</div>',
+        unsafe_allow_html=True,
+    )
 
-st.set_page_config(page_title='PanDoc · Docking workbench', page_icon='🧬', layout='wide', initial_sidebar_state='collapsed')
+st.set_page_config(page_title='PanDockLab · Docking workbench', page_icon='🧬', layout='wide', initial_sidebar_state='expanded' if os.environ.get('PANDOC_DESKTOP_APP') == '1' else 'collapsed')
 ui.load_css(st, PANDOC_CSS)
 
-# Computer E is a separate, full local PanDoc instance (not Computer D's Vina worker).
+# Installer updates appear only inside the packaged Windows desktop.
+# Streamlit Cloud and the remote compute backends have no updater controls.
+if os.environ.get("PANDOC_DESKTOP_APP") == "1":
+    from pandoc.desktop_updater import render_update_controls
+    render_update_controls(st)
+    # Suppress Streamlit's hosted-app deployment chrome in the native window.
+    st.markdown(
+        '<style>[data-testid="stDeployButton"], '
+        '[data-testid="stToolbar"] {display:none!important;}</style>',
+        unsafe_allow_html=True,
+    )
+
+
+# Computer E is a separate, full local PanDockLab instance (not Computer D's Vina worker).
 # Launching it opens its private Tailscale URL; it is not an in-process backend.
 if os.environ.get("PANDOC_RUNTIME_NAME", "").strip() == "Computer E":
     st.sidebar.success("Computer E · Full Local Runtime")
@@ -67,7 +64,7 @@ else:
         st.sidebar.link_button(
             "Open Computer E · Full Runtime",
             _computer_e_url,
-            help="Requires authorization on the Computer E Tailscale network. Opens a separate full PanDoc instance.",
+            help="Requires authorization on the Computer E Tailscale network. Opens a separate full PanDockLab instance.",
         )
 
 # Isolated publication-export demonstration for browser regression checks.
@@ -500,6 +497,9 @@ def settings(prefix):
 
 
 def github_backend():
+    # The installed Windows application must never submit work to remote CI.
+    if os.environ.get("PANDOC_DESKTOP_APP") == "1":
+        return None
     # Computer E is intentionally all-local; never silently offload to GitHub.
     if os.environ.get("PANDOC_RUNTIME_NAME", "").strip() == "Computer E":
         return None
@@ -649,6 +649,8 @@ def prepare_candidates_on_streamlit(ligands, ph, enumerate_states):
 
 
 def cloud_compute_mode():
+    if os.environ.get("PANDOC_DESKTOP_APP") == "1":
+        return True  # Existing local-compute path, never a remote provider.
     mode = st.session_state.get('compute_mode', 'Computer A · Fast')
     return mode.startswith('Computer A') or mode.startswith('Streamlit Cloud') or mode == compute_options.COMPUTER_D
 
@@ -826,7 +828,7 @@ def _merge_remote_profile_result(target_name, materialized_root, result):
         shutil.rmtree(destination)
     shutil.copytree(source_dir, destination)
 
-    # Replace runner-local paths with the materialized PanDoc-session path.
+    # Replace runner-local paths with the materialized PanDockLab-session path.
     receptor_candidates = list(destination.rglob('receptor_curated_heme.pdbqt'))
     if receptor_candidates:
         result = dict(result)
@@ -862,7 +864,11 @@ def show_profile_prep_jobs():
     for target_name, remote in remotes.items():
         backend = backend_for_handle(remote)
         if backend is None:
-            states[target_name] = {'state': 'failed', 'error': 'GitHub Actions is not configured.'}
+            states[target_name] = {'state': 'failed', 'error': (
+                'This saved remote preparation job cannot run in the local Windows desktop.'
+                if os.environ.get("PANDOC_DESKTOP_APP") == "1"
+                else 'GitHub Actions is not configured.'
+            )}
             continue
         try:
             states[target_name] = backend.status(remote)
@@ -881,7 +887,9 @@ def show_profile_prep_jobs():
         for target_name, remote in profile_quality.snapshot_profile_jobs(current_jobs):
             backend = backend_for_handle(remote)
             if backend is None:
-                st.error(f'{target_name} · GitHub Actions is not configured.')
+                st.error(f'{target_name} · Remote preparation is unavailable in this Windows app.'
+                         if os.environ.get("PANDOC_DESKTOP_APP") == "1"
+                         else f'{target_name} · GitHub Actions is not configured.')
                 continue
 
             try:
@@ -974,7 +982,9 @@ def show_heme_prep_job():
             st.rerun()
         return
     if backend is None:
-        st.error('GitHub Actions is not configured for retained-HEM preparation.')
+        st.error('This retained-HEM preparation was started on a remote backend and cannot resume locally.'
+                 if os.environ.get("PANDOC_DESKTOP_APP") == "1"
+                 else 'GitHub Actions is not configured for retained-HEM preparation.')
         return
     try:
         first = backend.status(handle)
@@ -1304,7 +1314,7 @@ with st.sidebar:
         st.download_button(
             'Download 4-receptor review ZIP',
             batch_result['bundle'],
-            'PanDoc_4Receptors_Review_Outputs.zip',
+            'PanDockLab_4Receptors_Review_Outputs.zip',
             'application/zip',
         )
 
@@ -1365,8 +1375,11 @@ with st.sidebar:
                         errors.append({
                             'target': target_name,
                             'error': (
-                                'Curated heme preparation requires GitHub Actions. '
-                                'Configure GITHUB_TOKEN and PANDOC_JOB_KEY.'
+                                ('Curated heme profile preparation is not supported by this local Windows '
+                                 'workflow yet; use the web workflow for these profiles.'
+                                 if os.environ.get("PANDOC_DESKTOP_APP") == "1"
+                                 else 'Curated heme preparation requires GitHub Actions. '
+                                      'Configure GITHUB_TOKEN and PANDOC_JOB_KEY.')
                             ),
                         })
                     local_result['errors'] = errors
@@ -1378,7 +1391,7 @@ with st.sidebar:
                     st.session_state.profile_remote_jobs = remote_jobs
                     st.info(
                         'Curated heme profile preparation submitted to GitHub Actions. '
-                        'PanDoc will retrieve and merge the completed receptor automatically.'
+                        'PanDockLab will retrieve and merge the completed receptor automatically.'
                     )
 
             _refresh_profile_manifest()
@@ -1408,46 +1421,51 @@ with st.sidebar:
         st.download_button(
             'Download partial profile ZIP' if pending else 'Download prepared-profile bundle',
             profile_result['bundle'],
-            'PanDoc_Reviewed_Profile_Preparation.zip',
+            'PanDockLab_Reviewed_Profile_Preparation.zip',
             'application/zip',
             key='profile_bundle_download_sidebar',
         )
 
-# Runtime selector stays at the top-right of the workspace, not in the sidebar.
-# Preserve the original session-state values used by existing compute routing.
-with st.container(key='runtime_toolbar'):
-    _runtime_spacer, _runtime_column = st.columns([8, 1.5], gap='small')
-    with _runtime_column:
-        with st.popover('Runtime', icon=':material/memory:', help='Choose where new calculations run'):
-            st.radio(
-                'Compute runtime',
-                (compute_options.STREAMLIT,) if os.environ.get("PANDOC_RUNTIME_NAME") == "Computer E" else compute_options.OPTIONS,
-                key='compute_mode',
-                format_func=(lambda _: "Computer E · Full Local Runtime") if os.environ.get("PANDOC_RUNTIME_NAME") == "Computer E" else compute_options.runtime_label,
-                help='Computer A runs here; B uses Kaggle; C uses GitHub Actions; D runs Vina on Windows.',
-            )
-            _selected_runtime = st.session_state.get('compute_mode', compute_options.STREAMLIT)
-            if os.environ.get("PANDOC_RUNTIME_NAME") == "Computer E":
-                st.caption("All scientific work runs on this computer. Other backends are disabled here.")
-            else:
-                st.caption(compute_options.description(_selected_runtime))
-            if _selected_runtime == compute_options.KAGGLE:
-                _k_url, _k_key = kaggle_config()
-                if not (_k_url and _k_key):
-                    st.warning('Kaggle is not configured. GitHub Actions fallback requires separate configuration.')
-            elif _selected_runtime == compute_options.COMPUTER_D:
-                if computer_d_backend() is None:
-                    st.warning('Computer D requires GITHUB_TOKEN and PANDOC_JOB_KEY.')
-            elif _selected_runtime == compute_options.COMPUTER_E:
-                if computer_e_backend() is None:
-                    st.warning('Computer E requires GITHUB_TOKEN and PANDOC_JOB_KEY on Streamlit Cloud.')
+# The Windows installer is a self-contained local compute application.
+# Never expose Streamlit Cloud, Kaggle, GitHub or remote workers in its UI.
+# Keep all existing hosted runtime choices and routing unchanged.
+if os.environ.get("PANDOC_DESKTOP_APP") == "1":
+    st.session_state["compute_mode"] = compute_options.STREAMLIT
+else:
+    # Runtime selector stays at the top-right of the workspace, not in the sidebar.
+    # Preserve the original session-state values used by existing compute routing.
+    with st.container(key='runtime_toolbar'):
+        _runtime_spacer, _runtime_column = st.columns([8, 1.5], gap='small')
+        with _runtime_column:
+            with st.popover('Runtime', icon=':material/memory:', help='Choose where new calculations run'):
+                st.radio(
+                    'Compute runtime',
+                    (compute_options.STREAMLIT,) if os.environ.get("PANDOC_RUNTIME_NAME") == "Computer E" else compute_options.OPTIONS,
+                    key='compute_mode',
+                    format_func=(lambda _: "Computer E · Full Local Runtime") if os.environ.get("PANDOC_RUNTIME_NAME") == "Computer E" else compute_options.runtime_label,
+                    help='Computer A runs here; B uses Kaggle; C uses GitHub Actions; D runs Vina on Windows.',
+                )
+                _selected_runtime = st.session_state.get('compute_mode', compute_options.STREAMLIT)
+                if os.environ.get("PANDOC_RUNTIME_NAME") == "Computer E":
+                    st.caption("All scientific work runs on this computer. Other backends are disabled here.")
                 else:
-                    st.caption('Computer E uses an encrypted outbound job queue. The Windows worker must be running to pick up submitted jobs.')
-            elif _selected_runtime == compute_options.GITHUB_ACTIONS:
-                if github_backend() is None:
-                    st.warning('GitHub Actions is not configured on this server.')
-            st.caption('Runtime changes apply to new calculations; active jobs keep their original backend.')
-
+                    st.caption(compute_options.description(_selected_runtime))
+                if _selected_runtime == compute_options.KAGGLE:
+                    _k_url, _k_key = kaggle_config()
+                    if not (_k_url and _k_key):
+                        st.warning('Kaggle is not configured. GitHub Actions fallback requires separate configuration.')
+                elif _selected_runtime == compute_options.COMPUTER_D:
+                    if computer_d_backend() is None:
+                        st.warning('Computer D requires GITHUB_TOKEN and PANDOC_JOB_KEY.')
+                elif _selected_runtime == compute_options.COMPUTER_E:
+                    if computer_e_backend() is None:
+                        st.warning('Computer E requires GITHUB_TOKEN and PANDOC_JOB_KEY on Streamlit Cloud.')
+                    else:
+                        st.caption('Computer E uses an encrypted outbound job queue. The Windows worker must be running to pick up submitted jobs.')
+                elif _selected_runtime == compute_options.GITHUB_ACTIONS:
+                    if github_backend() is None:
+                        st.warning('GitHub Actions is not configured on this server.')
+                st.caption('Runtime changes apply to new calculations; active jobs keep their original backend.')
 
 # Standalone preparation for large GPU docking libraries: no receptor/docking required.
 with st.expander("Bulk ligand preparation · CSV → up to 10,000 PDBQT files", expanded=False):
@@ -1477,11 +1495,15 @@ with st.expander("Bulk ligand preparation · CSV → up to 10,000 PDBQT files", 
             st.error("Cannot read the CSV: " + str(exc))
     st.caption("Input SMILES are prepared as supplied; pH-dependent protonation must be curated upstream "
                "if required. Invalid molecules are listed rather than silently skipped.")
-    bulk_backend_choice = st.radio(
-        "Preparation execution", ["GitHub Actions · recommended for 1–10,000 ligands",
-                                  "This Streamlit session · small libraries"],
-        horizontal=True, key="bulk_execution",
-        help="GitHub Actions prepares ligands outside the browser; the Streamlit option requires the page to stay open.")
+    if os.environ.get("PANDOC_DESKTOP_APP") == "1":
+        bulk_backend_choice = "This computer · local preparation"
+        st.caption("Preparation execution · This Windows computer")
+    else:
+        bulk_backend_choice = st.radio(
+            "Preparation execution", ["GitHub Actions · recommended for 1–10,000 ligands",
+                                      "This Streamlit session · small libraries"],
+            horizontal=True, key="bulk_execution",
+            help="GitHub Actions prepares ligands outside the browser; the Streamlit option requires the page to stay open.")
     bulk_ph = st.number_input("pH context for preparation record", min_value=0.0, max_value=14.0,
                                value=7.4, step=0.1, key="bulk_ph")
     bulk_existing = st.session_state.get("bulk_prepare_dir")
@@ -1528,8 +1550,11 @@ with st.expander("Bulk ligand preparation · CSV → up to 10,000 PDBQT files", 
                                        data=archive.read_bytes(), file_name="PanDoc_GPU_ready_ligands.zip",
                                        mime="application/zip", key="bulk_ready_download")
                 else:
-                    st.caption("Automatic preparation is running. Keep this page open; "
-                               "Streamlit Cloud sessions are temporary.")
+                    st.caption(
+                        "Automatic preparation is running. Keep PanDockLab open."
+                        if os.environ.get("PANDOC_DESKTOP_APP") == "1"
+                        else "Automatic preparation is running. Keep this page open; Streamlit Cloud sessions are temporary."
+                    )
             except Exception as exc:
                 st.error("Preparation interrupted: " + str(exc))
         _bulk_prepare_progress()
@@ -1539,7 +1564,9 @@ with st.expander("Bulk ligand preparation · CSV → up to 10,000 PDBQT files", 
     if remote_bulk:
         remote_backend = backend_for_handle(remote_bulk)
         if remote_backend is None:
-            st.error("GitHub Actions is not configured for the active bulk-preparation job.")
+            st.error("This earlier remote bulk-preparation job cannot resume in the local Windows app."
+                     if os.environ.get("PANDOC_DESKTOP_APP") == "1"
+                     else "GitHub Actions is not configured for the active bulk-preparation job.")
         else:
             @st.fragment(run_every="8s")
             def _bulk_remote_progress():
@@ -1700,7 +1727,7 @@ with workspace:
                 'Download partial reviewed-profile bundle'
                 if pending_targets else 'Download reviewed-profile bundle',
                 profile_result['bundle'],
-                'PanDoc_Reviewed_Profile_Preparation.zip',
+                'PanDockLab_Reviewed_Profile_Preparation.zip',
                 'application/zip',
                 key='profile_bundle_download_main',
             )
@@ -1717,7 +1744,7 @@ with workspace:
             st.download_button(
                 'Download complete batch review',
                 batch_result['bundle'],
-                'PanDoc_4Receptors_Review_Outputs.zip',
+                'PanDockLab_4Receptors_Review_Outputs.zip',
                 'application/zip',
                 key='batch_review_download_main',
             )
@@ -1839,7 +1866,7 @@ with workspace:
                                              and a['name'].upper() == 'SG']
                         with st.expander('Retained HEM · curated heme preparation', expanded=True):
                             st.warning(
-                                'HEM has coordinated iron. PanDoc does not use Meeko CCD '
+                                'HEM has coordinated iron. PanDockLab does not use Meeko CCD '
                                 'auto-templates or silently remove HEM. The existing '
                                 'curated AutoDockTools backend is required.'
                             )
@@ -2128,7 +2155,7 @@ with workspace:
                         if multi_residue:
                             st.warning('This reference contains multiple residues. A single '
                                        'CCD component cannot describe the full glycan. '
-                                       'PanDoc can use its crystallographic atoms to define '
+                                       'PanDockLab can use its crystallographic atoms to define '
                                        'the search box, but whole-glycan chemistry and '
                                        'connectivity must be reconstructed and checked '
                                        'before redocking is enabled.')
@@ -2161,16 +2188,18 @@ with workspace:
                                 st.warning('Enter or retrieve the ligand SMILES first.')
                             elif cloud_compute_mode():
                                 try:
-                                    with st.spinner('Enumerating ligand states on Streamlit Cloud…'):
+                                    with st.spinner('Enumerating ligand states locally…' if os.environ.get("PANDOC_DESKTOP_APP") == "1" else 'Enumerating ligand states on Streamlit Cloud…'):
                                         states = phprep.enumerate_ligand_states(smiles, ligand_ph, 16)
                                     st.session_state[state_key] = [
                                         dict(index=s['index'], smiles=s['smiles'], formal_charge=s['formal_charge'])
                                         for s in states
                                     ]
-                                    st.success('Completed on Streamlit Cloud.')
+                                    st.success('Completed locally.' if os.environ.get("PANDOC_DESKTOP_APP") == "1" else 'Completed on Streamlit Cloud.')
                                 except (RuntimeError, MemoryError, OSError) as exc:
                                     backend = github_backend()
-                                    if backend is None:
+                                    if os.environ.get("PANDOC_DESKTOP_APP") == "1":
+                                        st.error(f"Local ligand-state enumeration failed: {exc}")
+                                    elif backend is None:
                                         st.warning(f'This app failed and GitHub Actions fallback is unavailable: {exc}')
                                     else:
                                         st.warning('Streamlit Cloud compute was unavailable. Switching to GitHub Actions…')
@@ -2509,14 +2538,16 @@ with workspace:
                             raise ValueError('Prepare between one and 500 input candidate ligands.')
                         if cloud_compute_mode():
                             try:
-                                with st.spinner('Preparing candidate ligands on Streamlit Cloud…'):
+                                with st.spinner('Preparing candidate ligands locally…' if os.environ.get("PANDOC_DESKTOP_APP") == "1" else 'Preparing candidate ligands on Streamlit Cloud…'):
                                     st.session_state.candidate_paths = prepare_candidates_on_streamlit(
                                         ligand_inputs, candidate_ph, enumerate_states
                                     )
-                                st.success('Candidate preparation completed on Streamlit Cloud.')
+                                st.success('Candidate preparation completed locally.' if os.environ.get("PANDOC_DESKTOP_APP") == "1" else 'Candidate preparation completed on Streamlit Cloud.')
                             except (RuntimeError, MemoryError, OSError) as exc:
                                 backend = github_backend()
-                                if backend is None:
+                                if os.environ.get("PANDOC_DESKTOP_APP") == "1":
+                                    st.error(f"Local candidate preparation failed: {exc}")
+                                elif backend is None:
                                     st.warning(f'Streamlit Cloud preparation failed and GitHub fallback is unavailable: {exc}')
                                 else:
                                     st.warning('Streamlit Cloud resources were unavailable. Switching preparation to GitHub Actions…')
@@ -2587,7 +2618,8 @@ with workspace:
                 elif st.session_state.get('compute_mode') == compute_options.COMPUTER_E:
                     st.caption('Compute · Computer E · Windows Vina (remote)')
                 elif cloud_compute_mode():
-                    st.caption('Compute · This app · GitHub Actions fallback enabled' if github else 'Compute · This app')
+                    st.caption('Compute · This Windows computer' if os.environ.get("PANDOC_DESKTOP_APP") == "1" else
+                           ('Compute · This app · GitHub Actions fallback enabled' if github else 'Compute · This app'))
                 elif kaggle_compute_mode():
                     st.caption('Compute · Kaggle worker · GitHub Actions fallback enabled' if github else 'Compute · Kaggle worker')
                 else:
@@ -2626,7 +2658,9 @@ with workspace:
                             st.session_state.pop(prefix+'_github_job', None)
                             st.rerun()
                         except (RuntimeError, MemoryError, OSError, subprocess.SubprocessError) as exc:
-                            if github is None:
+                            if os.environ.get("PANDOC_DESKTOP_APP") == "1":
+                                st.error(f"Local docking could not start: {exc}")
+                            elif github is None:
                                 st.error(f'This app failed and GitHub Actions fallback is unavailable: {exc}')
                             else:
                                 st.warning('This app could not start. Switching to GitHub Actions…')

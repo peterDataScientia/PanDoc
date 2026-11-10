@@ -75,6 +75,11 @@ def predict_protein_states(pdb: str, directory, ph: float):
         timeout=180,
     )
     log = completed.stdout + "\n" + completed.stderr
+    # The frozen GUI worker redirects the scientific CLI streams to a file.
+    # Include that output in the existing protonation diagnostics.
+    desktop_cli_log = directory / "propka_cli.log"
+    if desktop_cli_log.is_file():
+        log += "\n--- PROPKA DESKTOP CLI ---\n" + desktop_cli_log.read_text(errors="replace")
     (directory / "propka.log").write_text(log)
     output = directory / "propka_input.pka"
     if completed.returncode != 0 or not output.exists():
