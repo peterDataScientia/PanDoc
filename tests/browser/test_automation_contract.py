@@ -224,7 +224,7 @@ def main() -> int:
 
             # Runtime must stay pinned to the viewport even when users scroll
             # through long receptor-preparation / PDB workflows.
-            runtime_button = page.get_by_role("button", name="memory Runtime", exact=True)
+            runtime_button = page.get_by_role("button", name="Runtime", exact=True)
             main_scroll = page.get_by_test_id("stMain")
             main_scroll.evaluate("(el) => { el.scrollTop = 0; }")
             page.wait_for_timeout(180)
