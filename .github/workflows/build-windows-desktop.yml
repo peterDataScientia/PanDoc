@@ -7,6 +7,7 @@ on:
       - 'desktop/**'
       - 'pandoc/desktop_updater.py'
       - 'tests/test_desktop_updater.py'
+      - 'tests/test_pandocklab_brand.py'
       - 'app.py'
       - 'README.md'
       - '.github/workflows/build-windows-desktop.yml'
@@ -81,6 +82,8 @@ jobs:
         run: |
           conda run -n pandoc-desktop python -m unittest discover -s tests -p test_desktop_updater.py -v
           if ($LASTEXITCODE -ne 0) { throw "Desktop updater regression tests failed" }
+          conda run -n pandoc-desktop python -m unittest discover -s tests -p test_pandocklab_brand.py -v
+          if ($LASTEXITCODE -ne 0) { throw "PanDockLab branding compatibility tests failed" }
 
       - name: Validate desktop release version
         run: |
