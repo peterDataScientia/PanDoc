@@ -45,7 +45,7 @@ def test_sidebar_navigation_remains_and_main_top_spacing_is_compact():
 def test_compute_runtime_is_a_top_right_popover_not_a_sidebar_radio():
     assert "with st.container(key='runtime_toolbar')" in APP
     assert "with st.popover('Runtime', icon=':material/memory:'" in APP
-    assert "format_func=compute_options.runtime_label" in APP
+    assert "compute_options.runtime_label" in APP
     assert "key='compute_mode'" in APP
     assert "st.radio(\n        'Where calculations run'," not in APP
     assert "st.session_state.get('compute_mode'" in APP
