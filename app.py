@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import base64
 from io import BytesIO
+from functools import lru_cache
 from PIL import Image
 import os
 import subprocess
@@ -26,7 +27,7 @@ PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
 
 PANDOCKLAB_SELECTED_LOGO = Path(__file__).parent / 'assets' / 'pandocklab_selected_logo.webp.b64'
 
-@st.cache_data(show_spinner=False)
+@lru_cache(maxsize=1)
 def _pandocklab_logo_base64():
     """Use the approved PanDockLab artwork with no subtitle; shared with Windows."""
     try:
