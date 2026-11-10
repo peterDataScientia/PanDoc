@@ -238,8 +238,6 @@ jobs:
         with:
           name: PanDockLab-Setup-Windows-x64
           path: |
-            dist-installer/PanDoc-Setup-Windows-x64.exe
-            dist-installer/PanDoc-Setup-Windows-x64.exe.sha256
             dist-installer/PanDockLab-Setup-Windows-x64.exe
             dist-installer/PanDockLab-Setup-Windows-x64.exe.sha256
           if-no-files-found: error
