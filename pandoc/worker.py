@@ -328,6 +328,8 @@ def run(directory):
             )
             results.extend(rows)
             completed_searches += 1
+            if not os.environ.get("PANDOC_VINA_EXE"):
+                print(f"Completed docking search {completed_searches}/{total}", flush=True)
             (directory / "results.json").write_text(json.dumps(results, indent=2))
             update(
                 "running",
