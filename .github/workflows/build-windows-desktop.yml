@@ -13,6 +13,8 @@ on:
       - 'README.md'
       - '.github/workflows/build-windows-desktop.yml'
   push:
+    branches:
+      - feature/windows-desktop-installer
     tags:
       - 'pandoc-desktop-v*'
 
