@@ -229,7 +229,7 @@ try {
 
 
 def render_update_controls(st) -> None:
-    """Always-visible updater status and opt-in install controls for the EXE."""
+    """Compact, user-expandable updater controls for the packaged Windows EXE."""
     if os.environ.get("PANDOC_DESKTOP_APP") != "1":
         return
     current = installed_version()
@@ -241,9 +241,9 @@ def render_update_controls(st) -> None:
             st.session_state["pandoc_desktop_update_checked"] = True
         except UpdateError:
             st.session_state["pandoc_desktop_update_checked"] = False
-    with st.sidebar.container(border=True):
-        st.markdown("**PanDockLab Desktop · Updates**")
-        st.caption(f"Installed version: v{current}")
+    # Keep this collapsed by default so updates do not crowd desktop navigation.
+    with st.sidebar.expander("Software updates", expanded=False):
+        st.caption(f"PanDockLab Desktop · Installed v{current}")
         if st.button("Check for updates", key="pandoc_desktop_check_updates", use_container_width=True):
             try:
                 st.session_state["pandoc_desktop_update"] = find_update(current)
