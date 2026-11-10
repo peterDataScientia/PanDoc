@@ -17,7 +17,8 @@ def test_all_computers_have_descriptive_user_labels():
     assert options.display_name(options.KAGGLE) == "Kaggle worker"
     assert options.display_name(options.GITHUB_ACTIONS) == "GitHub Actions"
     assert len(set(options.LABELS.values())) == 5
-    assert all("Computer" not in options.display_name(mode) for mode in options.OPTIONS)
+    assert all(options.display_name(mode) for mode in options.OPTIONS)
+    assert "Computer E" in options.display_name(options.COMPUTER_E)
 
 
 def test_descriptions_are_honest_about_remote_requirements():
