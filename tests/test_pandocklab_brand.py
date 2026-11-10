@@ -14,6 +14,12 @@ class PanDockLabBrandTests(unittest.TestCase):
         self.assertIn("page_icon=_pandocklab_icon()", app)
         self.assertIn("initial_sidebar_state='expanded' if", app)
 
+    def test_desktop_shows_top_right_logo_only(self):
+        app = (ROOT / "app.py").read_text(encoding="utf-8")
+        self.assertIn('_brand_logo(width=85, floating=True)', app)
+        self.assertIn('if os.environ.get("PANDOC_DESKTOP_APP") != "1":\n        _brand_logo(width=250)', app)
+        self.assertIn('with st.sidebar:', app)
+
     def test_desktop_updater_uses_compact_collapsible_sidebar(self):
         code = (ROOT / "pandoc" / "desktop_updater.py").read_text(encoding="utf-8")
         self.assertIn('st.sidebar.expander("Software updates", expanded=False)', code)
@@ -52,7 +58,7 @@ class PanDockLabBrandTests(unittest.TestCase):
         self.assertIn("PanDockLab-Setup-Windows-x64.exe", flow)
         self.assertIn("PanDoc-Setup-Windows-x64.exe", flow)
         self.assertIn("PanDockLab Desktop v$version", flow)
-        self.assertEqual((ROOT / "desktop" / "VERSION").read_text().strip(), "0.3.0")
+        self.assertEqual((ROOT / "desktop" / "VERSION").read_text().strip(), "0.3.1")
 
 
 if __name__ == "__main__":
