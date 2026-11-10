@@ -39,7 +39,7 @@ def run_server() -> None:
     os.environ["PANDOC_DESKTOP_APP"] = "1" if getattr(sys, "frozen", False) else "0"
     os.environ["PANDOC_DESKTOP_VERSION"] = (
         version_file.read_text(encoding="utf-8").strip() if version_file.is_file()
-        else "0.3.0"
+        else "0.3.1"
     )
     port = os.environ["PANDOC_DESKTOP_PORT"]
     sys.argv = [
