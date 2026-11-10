@@ -292,7 +292,7 @@ def run(directory):
         if not os.environ.get("PANDOC_VINA_EXE"):
             print(
                 f"Vina compute: {available_cpu} CPU(s); {vina_threads} threads; "
-                f"exhaustiveness={exhaustiveness}.", flush=True,
+                f"exhaustiveness={exhaustiveness}; serialized shared-map reuse disabled.", flush=True,
             )
 
         for ligand, seed in tasks:
