@@ -31,7 +31,7 @@ Streamlit Community Cloud: select this repository, `main`, `app.py`, and Python 
 
 If logs show Python 3.14 and `Boost library location was not found`, the installer is attempting to compile Vina because that runtime has no compatible prebuilt Vina 1.2.7 wheel. Deploy with **Python 3.11** instead. Adding a `runtime.txt` does not change an existing Community Cloud app's Python interpreter.
 
-Community Cloud requires deleting and redeploying an existing app to change Python. Preserve your app settings and any secrets first, then redeploy with repository `peterDataScientia/PanDockLab`, branch `main`, entrypoint `app.py`, and custom subdomain `pandoc`. In **Advanced settings**, explicitly select **Python 3.11** before clicking Deploy. Restarting the Python 3.14 app will not change its interpreter.
+Community Cloud requires deleting and redeploying an existing app to change Python. Preserve your app settings and any secrets first, then redeploy with repository `peterDataScientia/PanDoc`, branch `main`, entrypoint `app.py`, and custom subdomain `pandoc`. In **Advanced settings**, explicitly select **Python 3.11** before clicking Deploy. Restarting the Python 3.14 app will not change its interpreter.
 
 The requirements file now requires a prebuilt Vina wheel so unsupported runtimes fail clearly rather than starting a C++ build. A Linux CPython 3.11 wheel is available and has been verified. This guard does not itself change the cloud runtime.
 
