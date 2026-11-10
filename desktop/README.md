@@ -1,13 +1,13 @@
-# PanDoc Desktop (Windows)
+# PanDockLab Desktop (Windows)
 
 This folder adds a Windows distribution **without changing** the Streamlit Cloud entry point `app.py`.
 
 ## Distribution
 Run **Actions → Build PanDoc Windows Installer → Run workflow** on GitHub.
-If CI succeeds, download the `PanDoc-Setup-Windows-x64` workflow artifact. It contains the installer. A successful build is **not** proof that docking workflows have passed end-to-end tests.
+If CI succeeds, download the `PanDockLab-Setup-Windows-x64` workflow artifact. It contains the installer. A successful build is **not** proof that docking workflows have passed end-to-end tests.
 
 - Windows 10/11 x64, Microsoft Edge WebView2 runtime required.
-- Installs PanDoc shortcut in Start Menu; optional desktop shortcut.
+- Installs PanDockLab shortcut in Start Menu; optional desktop shortcut.
 - Streamlit runs on an ephemeral localhost port bound to `127.0.0.1`, inside a pywebview window.
 - Closing the window stops the local Streamlit server.
 - Local session data is kept under `%USERPROFILE%\PanDocData\pandoc` (not silently deleted by uninstaller).
@@ -18,15 +18,21 @@ If CI succeeds, download the `PanDoc-Setup-Windows-x64` workflow artifact. It co
 
 ## In-app updates (Windows desktop only)
 
-The **Software updates** panel is in the PanDoc sidebar. Select **Check for updates**, then **Download and install update** when a newer stable release exists. The download is verified against the matching SHA-256 release manifest before installation; if verification fails the installed application remains untouched. **Save running experiments and close the PanDoc window** once the verified updater reports it is ready. A detached Windows helper waits until that installed PanDoc executable exits, installs the update in place, and reopens PanDoc. A failed update leaves a diagnostic in `%USERPROFILE%\\PanDocData\\updates\\update-result.log`.
+The **Software updates** panel is in the PanDockLab sidebar. Select **Check for updates**, then **Download and install update** when a newer stable release exists. The download is verified against the matching SHA-256 release manifest before installation; if verification fails the installed application remains untouched. **Save running experiments and close the PanDockLab window** once the verified updater reports it is ready. A detached Windows helper waits until that installed PanDockLab executable exits, installs the update in place, and reopens PanDockLab. A failed update leaves a diagnostic in `%USERPROFILE%\\PanDocData\\updates\\update-result.log`.
 
 - The first updater-enabled installer must be installed manually. Older beta installers cannot acquire the updater automatically.
 - Only published non-prerelease `pandoc-desktop-vX.Y.Z` tags in the official `peterDataScientia/PanDoc` GitHub repository are considered.
-- Each release must include both `PanDoc-Setup-Windows-x64.exe` and `PanDoc-Setup-Windows-x64.exe.sha256`.
+- Each release includes **PanDockLab-Setup-Windows-x64.exe** and its `.sha256` manifest, plus legacy **PanDoc-Setup-Windows-x64.exe** and its `.sha256` manifest for already-installed updaters.
 - Tag releases only after testing. GitHub Actions builds the executable and publishes both files on a `pandoc-desktop-vX.Y.Z` tag push; `desktop/VERSION` must match `X.Y.Z`.
 - The updater does not run on the hosted Streamlit app, and does not modify data in `PanDocData`.
 - A SHA-256 checksum checks download integrity; it is not a substitute for Windows Authenticode signing. The installer is currently unsigned and Windows may show a SmartScreen prompt.
 - A GitHub Actions ZIP artifact is a test build, **not** an update release.
+
+## Naming and safe upgrade migration
+
+PanDockLab is the new public name, previously PanDoc. This initial rename **deliberately retains** the original Inno Setup AppId, install location, internal `PanDoc.exe`, `pandoc` Python package, `PANDOC_*` environment variables, and the `%USERPROFILE%\\PanDocData` data folder. This prevents new installations from overwriting neither project data nor breaking the existing updater. The visible Start Menu and desktop shortcut are named **PanDockLab**. Windows executable names, persistent directory names and the GitHub repository slug can be migrated later after an end-to-end upgrade test.
+
+**Critical:** Existing installers check `peterDataScientia/PanDoc`, `pandoc-desktop-vX.Y.Z`, and `PanDoc-Setup-Windows-x64.exe`. Keep those available in releases until all supported older clients have upgraded. The workflow publishes an identical PanDockLab-named installer copy for new installations. Do not rename the GitHub repository before the legacy updater's redirect behavior is confirmed. The initial public branding does not constitute a verified rename of the GitHub repository, Streamlit Cloud URL, or Windows binary signature.
 
 ## Developer quick test
 
