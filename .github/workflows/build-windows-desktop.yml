@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - 'desktop/**'
+      - 'assets/pandocklab_*'
       - 'pandoc/desktop_updater.py'
       - 'tests/test_desktop_updater.py'
       - 'tests/test_pandocklab_brand.py'
@@ -16,6 +17,7 @@ on:
       - 'pandoc-desktop-v*'
     paths:
       - 'desktop/**'
+      - 'assets/pandocklab_*'
       - 'pandoc/desktop_updater.py'
       - 'tests/test_desktop_updater.py'
       - 'app.py'
