@@ -24,7 +24,7 @@ def build() -> None:
     # Preserve the exact approved drawing; exclude only the bottom wordmark
     # because text is unreadable at 16px/32px Windows taskbar icon sizes.
     emblem = artwork.crop((int(artwork.width * 0.13), int(artwork.height * 0.05),
-                           int(artwork.width * 0.90), int(artwork.height * 0.74)))
+                           int(artwork.width * 0.90), int(artwork.height * 0.63)))
     emblem.thumbnail((228, 228), Image.Resampling.LANCZOS)
     # Scale uniformly; never stretch molecular structures or typography.
     factor = min(228 / emblem.width, 228 / emblem.height)
