@@ -8,6 +8,7 @@ def test_compute_choices_keep_original_session_values_and_order():
         "Computer B · High capacity",
         "Computer C · Backup",
         "Computer D · Tailscale Vina",
+        "Computer E · Windows Vina",
     )
 
 
@@ -15,7 +16,7 @@ def test_all_computers_have_descriptive_user_labels():
     assert options.display_name(options.STREAMLIT) == "This app (default)"
     assert options.display_name(options.KAGGLE) == "Kaggle worker"
     assert options.display_name(options.GITHUB_ACTIONS) == "GitHub Actions"
-    assert len(set(options.LABELS.values())) == 4
+    assert len(set(options.LABELS.values())) == 5
     assert all("Computer" not in options.display_name(mode) for mode in options.OPTIONS)
 
 
@@ -32,5 +33,6 @@ def test_runtime_picker_names_all_four_computers_without_changing_routing_values
     assert options.runtime_label(options.KAGGLE) == "Computer B · Kaggle"
     assert options.runtime_label(options.GITHUB_ACTIONS) == "Computer C · GitHub Actions"
     assert options.runtime_label(options.COMPUTER_D) == "Computer D · Tailscale Vina"
+    assert options.runtime_label(options.COMPUTER_E) == "Computer E · Windows Vina"
     assert all(options.runtime_label(value).startswith(f"Computer {letter}")
-               for value, letter in zip(options.OPTIONS, "ABCD"))
+               for value, letter in zip(options.OPTIONS, "ABCDE"))
