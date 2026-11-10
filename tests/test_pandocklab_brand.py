@@ -14,6 +14,13 @@ class PanDockLabBrandTests(unittest.TestCase):
         self.assertIn("page_icon=_pandocklab_icon()", app)
         self.assertIn("initial_sidebar_state='expanded' if", app)
 
+    def test_desktop_updater_uses_compact_collapsible_sidebar(self):
+        code = (ROOT / "pandoc" / "desktop_updater.py").read_text(encoding="utf-8")
+        self.assertIn('st.sidebar.expander("Software updates", expanded=False)', code)
+        self.assertNotIn("st.sidebar.container(border=True)", code)
+        self.assertIn('"Check for updates"', code)
+        self.assertIn('"Download and install update"', code)
+
     def test_windows_icon_derived_from_selected_logo(self):
         code = (ROOT / "desktop" / "build_icon.py").read_text(encoding="utf-8")
         self.assertIn("pandocklab_selected_logo.webp.b64", code)
