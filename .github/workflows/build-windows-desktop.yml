@@ -1,4 +1,4 @@
-name: Build PanDoc Windows Installer
+name: Build PanDockLab Windows Installer
 
 on:
   workflow_dispatch:
@@ -8,6 +8,7 @@ on:
       - 'pandoc/desktop_updater.py'
       - 'tests/test_desktop_updater.py'
       - 'app.py'
+      - 'README.md'
       - '.github/workflows/build-windows-desktop.yml'
   push:
     tags:
@@ -63,7 +64,7 @@ jobs:
 
       - name: Verify critical imports
         run: |
-          conda run -n pandoc-desktop python -c "import streamlit, rdkit, meeko, openmm, pdbfixer, propka.__main__, webview; print('PanDoc desktop dependencies OK')"
+          conda run -n pandoc-desktop python -c "import streamlit, rdkit, meeko, openmm, pdbfixer, propka.__main__, webview; print('PanDockLab desktop dependencies OK')"
           if ($LASTEXITCODE -ne 0) { throw "Scientific import check failed" }
 
       - name: Download verified official Windows Vina executable
@@ -105,7 +106,7 @@ jobs:
             Get-Content $env:PANDOC_SELFTEST_LOG
           } else { throw "Frozen app did not create self-test log" }
           if ($process.ExitCode -ne 0) { throw "Frozen app imports/cryptography self-test failed ($($process.ExitCode))" }
-          if (-not (Select-String -Path $env:PANDOC_SELFTEST_LOG -Pattern "PanDoc application imports: OK" -Quiet)) {
+          if (-not (Select-String -Path $env:PANDOC_SELFTEST_LOG -Pattern "PanDockLab application imports: OK" -Quiet)) {
             throw "Frozen application did not complete all imports"
           }
 
@@ -207,6 +208,18 @@ jobs:
           "$hash  PanDoc-Setup-Windows-x64.exe" | Set-Content -Encoding ascii "$installer.sha256"
           Write-Host "Installer SHA256: $hash"
 
+      - name: Produce PanDockLab public installer alias and checksum
+        run: |
+          $src = "dist-installer/PanDoc-Setup-Windows-x64.exe"
+          $dst = "dist-installer/PanDockLab-Setup-Windows-x64.exe"
+          if (-not (Test-Path $src)) { throw "Legacy compatibility installer missing" }
+          Copy-Item $src $dst -Force
+          $hash = (Get-FileHash -Algorithm SHA256 $dst).Hash.ToLowerInvariant()
+          "$hash  PanDockLab-Setup-Windows-x64.exe" | Set-Content -Encoding ascii "$dst.sha256"
+          if ((Get-FileHash -Algorithm SHA256 $src).Hash -ne (Get-FileHash -Algorithm SHA256 $dst).Hash) {
+            throw "Public installer and legacy update asset differ"
+          }
+
       - name: Publish versioned GitHub Release
         if: startsWith(github.ref, 'refs/tags/pandoc-desktop-v')
         env:
@@ -214,13 +227,15 @@ jobs:
         run: |
           $version = (Get-Content desktop/VERSION -Raw).Trim()
           if ($env:GITHUB_REF_NAME -ne "pandoc-desktop-v$version") { throw "Release tag mismatch" }
-          gh release create $env:GITHUB_REF_NAME "dist-installer/PanDoc-Setup-Windows-x64.exe" "dist-installer/PanDoc-Setup-Windows-x64.exe.sha256" --title "PanDoc Desktop v$version" --notes "Windows x64 installer. Download directly; no Python or Conda required. Save active docking jobs and close PanDoc to upgrade."
+          gh release create $env:GITHUB_REF_NAME "dist-installer/PanDockLab-Setup-Windows-x64.exe" "dist-installer/PanDockLab-Setup-Windows-x64.exe.sha256" "dist-installer/PanDoc-Setup-Windows-x64.exe" "dist-installer/PanDoc-Setup-Windows-x64.exe.sha256" --title "PanDockLab Desktop v$version" --notes "Windows x64 installer for PanDockLab (formerly PanDoc). Includes legacy updater-compatible assets. Download directly; no Python or Conda required. Save active docking jobs and close PanDockLab before upgrading."
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: PanDoc-Setup-Windows-x64
+          name: PanDockLab-Setup-Windows-x64
           path: |
             dist-installer/PanDoc-Setup-Windows-x64.exe
             dist-installer/PanDoc-Setup-Windows-x64.exe.sha256
+            dist-installer/PanDockLab-Setup-Windows-x64.exe
+            dist-installer/PanDockLab-Setup-Windows-x64.exe.sha256
           if-no-files-found: error
