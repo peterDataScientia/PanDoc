@@ -3,7 +3,7 @@
 This folder adds a Windows distribution **without changing** the Streamlit Cloud entry point `app.py`.
 
 ## Distribution
-Run **Actions → Build PanDoc Windows Installer → Run workflow** on GitHub.
+Run **Actions → Build PanDockLab Windows Installer → Run workflow** on GitHub.
 If CI succeeds, download the `PanDockLab-Setup-Windows-x64` workflow artifact. It contains the installer. A successful build is **not** proof that docking workflows have passed end-to-end tests.
 
 - Windows 10/11 x64, Microsoft Edge WebView2 runtime required.
@@ -33,6 +33,9 @@ The **Software updates** panel is in the PanDockLab sidebar. Select **Check for 
 PanDockLab is the new public name, previously PanDoc. This initial rename **deliberately retains** the original Inno Setup AppId, install location, internal `PanDoc.exe`, `pandoc` Python package, `PANDOC_*` environment variables, and the `%USERPROFILE%\\PanDocData` data folder. This prevents new installations from overwriting neither project data nor breaking the existing updater. The visible Start Menu and desktop shortcut are named **PanDockLab**. Windows executable names, persistent directory names and the GitHub repository slug can be migrated later after an end-to-end upgrade test.
 
 **Critical:** Existing installers check `peterDataScientia/PanDoc`, `pandoc-desktop-vX.Y.Z`, and `PanDoc-Setup-Windows-x64.exe`. Keep those available in releases until all supported older clients have upgraded. The workflow publishes an identical PanDockLab-named installer copy for new installations. Do not rename the GitHub repository before the legacy updater's redirect behavior is confirmed. The initial public branding does not constitute a verified rename of the GitHub repository, Streamlit Cloud URL, or Windows binary signature.
+
+## Official PanDockLab artwork
+The user-approved subtitle-free logo is saved as `assets/pandocklab_selected_logo.webp.b64`, a portable base64-encoded WebP file. The web interface displays that exact artwork. `desktop/build_icon.py` derives a compact emblem from **the same image** for the Windows executable, Start Menu shortcuts and Inno Setup installer icon; it does not draw a substitute icon. The original full-resolution source is retained separately outside this repository as a conversation image. Keep the source image unchanged unless the software owner approves another design.
 
 ## Developer quick test
 
