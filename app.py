@@ -12,7 +12,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-# PDF-to-SMILES was retired from PanDoc; structure extraction belongs in panChem.
+# PDF-to-SMILES was retired from PanDockLab; structure extraction belongs in panChem.
 # No PDF_to_SMILES page is registered or shipped in this app.
 
 
@@ -20,41 +20,25 @@ from pandoc import core, jobs, figures, pdb_search, structure_checks, phprep, ui
 from pandoc.computer_d_compute import ComputerDCompute
 from pandoc.computer_e_compute import ComputerECompute
 
-PANDOC_LOGO = Path(__file__).parent / 'assets' / 'pandoc_logo.png'
 PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
 
-@st.cache_data(show_spinner=False)
-def _pandoc_logo_data_uri():
-    """Serve the existing logo inline rather than relying on expiring media URLs."""
-    if not PANDOC_LOGO.is_file():
-        return ""
-    try:
-        encoded = base64.b64encode(PANDOC_LOGO.read_bytes()).decode("ascii")
-        return f"data:image/png;base64,{encoded}"
-    except OSError:
-        return ""
-
 def _brand_logo(width=250, floating=False):
-    data_uri = _pandoc_logo_data_uri()
-    if data_uri:
-        st.markdown(
-            f'<img src="{data_uri}" alt="PanDoc logo" '
-            f'style="display:block;width:{int(width)}px;max-width:100%;height:auto;'
-            + ('position:fixed;top:4.2rem;right:1.8rem;z-index:50;margin:0;' if floating else
-               'margin:0.25rem 0 0.75rem 0;') + '" />',
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            '<div style="font-size:1.7rem;font-weight:850;color:#0f2a43">Pan'
-            '<span style="color:#0f8f91">Doc</span></div>',
-            unsafe_allow_html=True,
-        )
+    """Render PanDockLab without the historical PanDoc raster wordmark."""
+    styling = (
+        "position:fixed;top:4.2rem;right:1.8rem;z-index:50;margin:0;"
+        if floating else "margin:0.25rem 0 0.75rem;"
+    )
+    st.markdown(
+        '<div aria-label="PanDockLab" style="font-size:1.7rem;font-weight:850;'
+        'color:#0f2a43;' + styling + '">Pan<span style="color:#0f8f91">'
+        'Dock</span>Lab</div>',
+        unsafe_allow_html=True,
+    )
 
-st.set_page_config(page_title='PanDoc · Docking workbench', page_icon='🧬', layout='wide', initial_sidebar_state='collapsed')
+st.set_page_config(page_title='PanDockLab · Docking workbench', page_icon='🧬', layout='wide', initial_sidebar_state='collapsed')
 ui.load_css(st, PANDOC_CSS)
 
-# Computer E is a separate, full local PanDoc instance (not Computer D's Vina worker).
+# Computer E is a separate, full local PanDockLab instance (not Computer D's Vina worker).
 # Launching it opens its private Tailscale URL; it is not an in-process backend.
 if os.environ.get("PANDOC_RUNTIME_NAME", "").strip() == "Computer E":
     st.sidebar.success("Computer E · Full Local Runtime")
@@ -67,7 +51,7 @@ else:
         st.sidebar.link_button(
             "Open Computer E · Full Runtime",
             _computer_e_url,
-            help="Requires authorization on the Computer E Tailscale network. Opens a separate full PanDoc instance.",
+            help="Requires authorization on the Computer E Tailscale network. Opens a separate full PanDockLab instance.",
         )
 
 # Isolated publication-export demonstration for browser regression checks.
@@ -826,7 +810,7 @@ def _merge_remote_profile_result(target_name, materialized_root, result):
         shutil.rmtree(destination)
     shutil.copytree(source_dir, destination)
 
-    # Replace runner-local paths with the materialized PanDoc-session path.
+    # Replace runner-local paths with the materialized PanDockLab-session path.
     receptor_candidates = list(destination.rglob('receptor_curated_heme.pdbqt'))
     if receptor_candidates:
         result = dict(result)
@@ -1304,7 +1288,7 @@ with st.sidebar:
         st.download_button(
             'Download 4-receptor review ZIP',
             batch_result['bundle'],
-            'PanDoc_4Receptors_Review_Outputs.zip',
+            'PanDockLab_4Receptors_Review_Outputs.zip',
             'application/zip',
         )
 
@@ -1378,7 +1362,7 @@ with st.sidebar:
                     st.session_state.profile_remote_jobs = remote_jobs
                     st.info(
                         'Curated heme profile preparation submitted to GitHub Actions. '
-                        'PanDoc will retrieve and merge the completed receptor automatically.'
+                        'PanDockLab will retrieve and merge the completed receptor automatically.'
                     )
 
             _refresh_profile_manifest()
@@ -1408,7 +1392,7 @@ with st.sidebar:
         st.download_button(
             'Download partial profile ZIP' if pending else 'Download prepared-profile bundle',
             profile_result['bundle'],
-            'PanDoc_Reviewed_Profile_Preparation.zip',
+            'PanDockLab_Reviewed_Profile_Preparation.zip',
             'application/zip',
             key='profile_bundle_download_sidebar',
         )
@@ -1700,7 +1684,7 @@ with workspace:
                 'Download partial reviewed-profile bundle'
                 if pending_targets else 'Download reviewed-profile bundle',
                 profile_result['bundle'],
-                'PanDoc_Reviewed_Profile_Preparation.zip',
+                'PanDockLab_Reviewed_Profile_Preparation.zip',
                 'application/zip',
                 key='profile_bundle_download_main',
             )
@@ -1717,7 +1701,7 @@ with workspace:
             st.download_button(
                 'Download complete batch review',
                 batch_result['bundle'],
-                'PanDoc_4Receptors_Review_Outputs.zip',
+                'PanDockLab_4Receptors_Review_Outputs.zip',
                 'application/zip',
                 key='batch_review_download_main',
             )
@@ -1839,7 +1823,7 @@ with workspace:
                                              and a['name'].upper() == 'SG']
                         with st.expander('Retained HEM · curated heme preparation', expanded=True):
                             st.warning(
-                                'HEM has coordinated iron. PanDoc does not use Meeko CCD '
+                                'HEM has coordinated iron. PanDockLab does not use Meeko CCD '
                                 'auto-templates or silently remove HEM. The existing '
                                 'curated AutoDockTools backend is required.'
                             )
@@ -2128,7 +2112,7 @@ with workspace:
                         if multi_residue:
                             st.warning('This reference contains multiple residues. A single '
                                        'CCD component cannot describe the full glycan. '
-                                       'PanDoc can use its crystallographic atoms to define '
+                                       'PanDockLab can use its crystallographic atoms to define '
                                        'the search box, but whole-glycan chemistry and '
                                        'connectivity must be reconstructed and checked '
                                        'before redocking is enabled.')
