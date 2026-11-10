@@ -9,8 +9,19 @@ class PanDockLabBrandTests(unittest.TestCase):
     def test_interface_and_sidebar(self):
         app = (ROOT / "app.py").read_text(encoding="utf-8")
         self.assertIn("page_title='PanDockLab · Docking workbench'", app)
-        self.assertIn('aria-label="PanDockLab"', app)
+        self.assertIn('alt="PanDockLab scientific logo"', app)
+        self.assertIn("pandocklab_selected_logo.webp.b64", app)
+        self.assertIn("page_icon=_pandocklab_icon()", app)
         self.assertIn("initial_sidebar_state='expanded' if", app)
+
+    def test_windows_icon_derived_from_selected_logo(self):
+        code = (ROOT / "desktop" / "build_icon.py").read_text(encoding="utf-8")
+        self.assertIn("pandocklab_selected_logo.webp.b64", code)
+        self.assertIn("base64.b64decode", code)
+        self.assertIn("pandocklab.ico", code)
+        self.assertIn("--icon desktop/vendor/pandocklab.ico",
+                      (ROOT / ".github" / "workflows" /
+                       "build-windows-desktop.yml").read_text(encoding="utf-8"))
 
     def test_upgrade_installer_identity_is_unchanged(self):
         installer = (ROOT / "desktop" / "installer.iss").read_text(encoding="utf-8")
