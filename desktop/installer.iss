@@ -28,6 +28,12 @@ Source: "..\dist\PanDoc\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdir
 Name: "{group}\PanDockLab"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\PanDockLab"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
+[InstallDelete]
+; Upgrade from the old PanDoc shortcut names, without touching project data.
+Type: files; Name: "{userprograms}\\PanDoc\\PanDoc.lnk"
+Type: dirifempty; Name: "{userprograms}\\PanDoc"
+Type: files; Name: "{autodesktop}\\PanDoc.lnk"
+
 [Tasks]
 Name: desktopicon; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
 
