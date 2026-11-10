@@ -22,20 +22,36 @@ from pandoc.computer_e_compute import ComputerECompute
 
 PANDOC_CSS = Path(__file__).parent / 'assets' / 'pandoc.css'
 
+PANDOCKLAB_LOGO = Path(__file__).parent / 'assets' / 'pandocklab_logo.svg'
+PANDOCKLAB_ICON = Path(__file__).parent / 'assets' / 'pandocklab_icon.svg'
+
+@st.cache_data(show_spinner=False)
+def _pandocklab_logo_data_uri():
+    """Bundle the vector logo inline for both offline Windows and hosted web."""
+    try:
+        return "data:image/svg+xml;base64," + base64.b64encode(
+            PANDOCKLAB_LOGO.read_bytes()
+        ).decode("ascii")
+    except OSError:
+        return ""
+
 def _brand_logo(width=250, floating=False):
-    """Text-first PanDockLab wordmark; no stale raster PanDoc branding."""
-    styling = (
+    uri = _pandocklab_logo_data_uri()
+    placement = (
         "position:fixed;top:4.2rem;right:1.8rem;z-index:50;margin:0;"
         if floating else "margin:0.25rem 0 0.75rem;"
     )
-    st.markdown(
-        '<div aria-label="PanDockLab" style="font-size:1.7rem;font-weight:850;'
-        'color:#0f2a43;' + styling + '">Pan<span style="color:#0f8f91">'
-        'Dock</span>Lab</div>',
-        unsafe_allow_html=True,
-    )
+    if uri:
+        st.markdown(
+            f'<img src="{uri}" alt="PanDockLab scientific logo" '
+            f'style="display:block;width:{int(width)}px;max-width:100%;'
+            f'height:auto;{placement}" />', unsafe_allow_html=True
+        )
+    else:
+        st.markdown("**PanDockLab**")
 
-st.set_page_config(page_title='PanDockLab · Docking workbench', page_icon='🧬', layout='wide', initial_sidebar_state='expanded' if os.environ.get('PANDOC_DESKTOP_APP') == '1' else 'collapsed')
+
+st.set_page_config(page_title='PanDockLab · Docking workbench', page_icon=str(PANDOCKLAB_ICON), layout='wide', initial_sidebar_state='expanded' if os.environ.get('PANDOC_DESKTOP_APP') == '1' else 'collapsed')
 ui.load_css(st, PANDOC_CSS)
 
 # Installer updates appear only inside the packaged Windows desktop.
