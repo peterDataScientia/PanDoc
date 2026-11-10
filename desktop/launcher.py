@@ -187,7 +187,7 @@ def main() -> None:
     try:
         for _ in range(120):
             if child.poll() is not None:
-                raise RuntimeError("PanDoc server exited before startup")
+                raise RuntimeError("PanDockLab server exited before startup")
             try:
                 with urllib.request.urlopen(url + "/_stcore/health", timeout=1) as response:
                     if response.status == 200:
@@ -195,8 +195,8 @@ def main() -> None:
             except Exception:
                 time.sleep(1)
         else:
-            raise TimeoutError("PanDoc local server did not start")
-        webview.create_window("PanDoc | Docking Workbench", url, width=1350, height=850, min_size=(900, 600))
+            raise TimeoutError("PanDockLab local server did not start")
+        webview.create_window("PanDockLab | Docking Workbench", url, width=1350, height=850, min_size=(900, 600))
         webview.start(gui="edgechromium")
     finally:
         child.terminate()
