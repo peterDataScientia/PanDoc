@@ -1,4 +1,4 @@
-"""PanDoc Windows desktop launcher. Keep the hosted Streamlit app unchanged."""
+"""PanDockLab Windows desktop launcher (legacy PanDoc.exe module/paths)."""
 from __future__ import annotations
 
 import os
@@ -39,7 +39,7 @@ def run_server() -> None:
     os.environ["PANDOC_DESKTOP_APP"] = "1" if getattr(sys, "frozen", False) else "0"
     os.environ["PANDOC_DESKTOP_VERSION"] = (
         version_file.read_text(encoding="utf-8").strip() if version_file.is_file()
-        else "0.2.0"
+        else "0.3.0"
     )
     port = os.environ["PANDOC_DESKTOP_PORT"]
     sys.argv = [
@@ -67,10 +67,10 @@ def run_selftest() -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("w", encoding="utf-8", buffering=1) as log:
         try:
-            print("Checking bundled PanDoc modules", file=log, flush=True)
+            print("Checking bundled PanDockLab modules", file=log, flush=True)
             from pandoc.desktop_updater import version_tuple
-            assert version_tuple("0.2.0") == (0, 2, 0)
-            print("PanDoc in-app updater import: OK", file=log, flush=True)
+            assert version_tuple("0.3.0") == (0, 3, 0)
+            print("PanDockLab in-app updater import: OK", file=log, flush=True)
             from cryptography.fernet import Fernet
             key = Fernet.generate_key()
             assert Fernet(key).decrypt(Fernet(key).encrypt(b"pandoc-check")) == b"pandoc-check"
@@ -84,7 +84,7 @@ def run_selftest() -> None:
                                 structure_view, viewer_runtime, pubchem_search)
             from pandoc.computer_d_compute import ComputerDCompute
             from pandoc.computer_e_compute import ComputerECompute
-            print("PanDoc application imports: OK", file=log, flush=True)
+            print("PanDockLab application imports: OK", file=log, flush=True)
         except BaseException:
             traceback.print_exc(file=log)
             raise SystemExit(1)
@@ -160,7 +160,7 @@ def main() -> None:
             sys.stdout = logfile
             sys.stderr = logfile
             try:
-                print(f"PanDoc server starting: {sys.executable}", flush=True)
+                print(f"PanDockLab server starting: {sys.executable}", flush=True)
                 run_server()
             except BaseException:
                 traceback.print_exc(file=logfile)
