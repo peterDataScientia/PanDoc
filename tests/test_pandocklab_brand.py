@@ -46,6 +46,17 @@ class PanDockLabBrandTests(unittest.TestCase):
         self.assertIn('excluded poses are not successes', app)
         self.assertIn("df.dropna(subset=['reference_rmsd_A'])", app)
 
+    def test_docking_log_clipboard_and_download_controls(self):
+        app = (ROOT / "app.py").read_text(encoding="utf-8")
+        self.assertIn("def render_docking_log_controls(log_text", app)
+        self.assertIn('["clip.exe"]', app)
+        self.assertIn('input=log_text.encode("utf-16")', app)
+        self.assertIn('"Copy log"', app)
+        self.assertIn('"Download log (.txt)"', app)
+        self.assertIn('key="remote_log_" + remote', app)
+        self.assertIn('key="local_log_" + Path(directory).name', app)
+        self.assertIn('log.read_text(errors=\'replace\')', app)
+
     def test_desktop_updater_uses_compact_collapsible_sidebar(self):
         code = (ROOT / "pandoc" / "desktop_updater.py").read_text(encoding="utf-8")
         self.assertIn('st.sidebar.expander("Software updates", expanded=False)', code)
@@ -84,7 +95,7 @@ class PanDockLabBrandTests(unittest.TestCase):
         self.assertIn("PanDockLab-Setup-Windows-x64.exe", flow)
         self.assertIn("PanDoc-Setup-Windows-x64.exe", flow)
         self.assertIn("PanDockLab Desktop v$version", flow)
-        self.assertEqual((ROOT / "desktop" / "VERSION").read_text().strip(), "0.3.3")
+        self.assertEqual((ROOT / "desktop" / "VERSION").read_text().strip(), "0.3.4")
 
 
 if __name__ == "__main__":
