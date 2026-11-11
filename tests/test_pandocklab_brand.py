@@ -20,6 +20,12 @@ class PanDockLabBrandTests(unittest.TestCase):
         self.assertIn('if os.environ.get("PANDOC_DESKTOP_APP") != "1":\n        _brand_logo(width=250)', app)
         self.assertIn('with st.sidebar:', app)
 
+    def test_windows_desktop_enables_global_text_selection(self):
+        launcher = (ROOT / "desktop" / "launcher.py").read_text(encoding="utf-8")
+        self.assertIn("webview.create_window(", launcher)
+        self.assertIn("text_select=True", launcher)
+        self.assertIn('webview.start(gui="edgechromium")', launcher)
+
     def test_desktop_sidebar_can_reopen_after_collapse(self):
         app = (ROOT / "app.py").read_text(encoding="utf-8")
         self.assertIn('header[data-testid="stHeader"]', app)
@@ -95,7 +101,7 @@ class PanDockLabBrandTests(unittest.TestCase):
         self.assertIn("PanDockLab-Setup-Windows-x64.exe", flow)
         self.assertIn("PanDoc-Setup-Windows-x64.exe", flow)
         self.assertIn("PanDockLab Desktop v$version", flow)
-        self.assertEqual((ROOT / "desktop" / "VERSION").read_text().strip(), "0.3.4")
+        self.assertEqual((ROOT / "desktop" / "VERSION").read_text().strip(), "0.3.5")
 
 
 if __name__ == "__main__":
