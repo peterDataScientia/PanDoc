@@ -196,7 +196,14 @@ def main() -> None:
                 time.sleep(1)
         else:
             raise TimeoutError("PanDockLab local server did not start")
-        webview.create_window("PanDockLab | Docking Workbench", url, width=1350, height=850, min_size=(900, 600))
+        # pywebview disables selection by default. Enable normal Windows-style
+        # mouse highlighting and Ctrl+C for all selectable interface text.
+        # Text inputs and interactive controls retain their standard behavior.
+        webview.create_window(
+            "PanDockLab | Docking Workbench", url,
+            width=1350, height=850, min_size=(900, 600),
+            text_select=True,
+        )
         webview.start(gui="edgechromium")
     finally:
         child.terminate()
