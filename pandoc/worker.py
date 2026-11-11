@@ -281,6 +281,8 @@ def run(directory):
         ]
         total = len(tasks)
         update("running", total=total)
+        # Search completion is measurable; Vina's inner optimization is not.
+        print(f"DOCKING_PROGRESS 0/{total} (0.0%) searches completed", flush=True)
 
         available_cpu, vina_threads = vina_cpu_threads(config)
         exhaustiveness = max(1, int(config["exhaustiveness"]))
@@ -328,8 +330,12 @@ def run(directory):
             )
             results.extend(rows)
             completed_searches += 1
-            if not os.environ.get("PANDOC_VINA_EXE"):
-                print(f"Completed docking search {completed_searches}/{total}", flush=True)
+            print(f"Completed docking search {completed_searches}/{total}", flush=True)
+            print(
+                f"DOCKING_PROGRESS {completed_searches}/{total} "
+                f"({100.0 * completed_searches / total:.1f}%) searches completed",
+                flush=True,
+            )
             (directory / "results.json").write_text(json.dumps(results, indent=2))
             update(
                 "running",
