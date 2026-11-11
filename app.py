@@ -2800,15 +2800,26 @@ with workspace:
                     if validation and (active_job/'results.json').exists():
                         figure_rows = json.loads((active_job/'results.json').read_text())
                         if figure_rows:
-                            ordered = sorted(range(len(figure_rows)), key=lambda i: figure_rows[i].get('reference_rmsd_A', float('inf')))
-                            pose_key = 'validation_figure_pose_' + active_job.name
-                            if st.button('Display lowest-RMSD pose', key='best_' + active_job.name):
-                                st.session_state[pose_key] = ordered[0]
-                            figure_index = st.selectbox('Figure pose · sorted by RMSD', ordered,
-                                format_func=lambda i: f"Seed {figure_rows[i]['seed']} · pose {figure_rows[i]['rank']} · RMSD {figure_rows[i].get('reference_rmsd_A', float('nan')):.3f} Å · score {figure_rows[i]['score_kcal_mol']:.2f} kcal/mol", key=pose_key)
-                            st.session_state.assistant_active_job = str(active_job)
-                            st.session_state.assistant_selected_pose = figure_rows[figure_index]
-                            publication_figure(active_job, figure_rows[figure_index])
+                            comparable = [i for i, row in enumerate(figure_rows)
+                                          if row.get('reference_rmsd_A') is not None]
+                            incomparable = len(figure_rows) - len(comparable)
+                            if incomparable:
+                                st.warning(f"{incomparable} pose(s) cannot be compared with the reference: "
+                                           "chemical identity or stereochemistry differs. "
+                                           "RMSD validation is unavailable for these poses.")
+                            if comparable:
+                                ordered = sorted(comparable, key=lambda i: figure_rows[i]['reference_rmsd_A'])
+                                pose_key = 'validation_figure_pose_' + active_job.name
+                                if st.button('Display lowest-RMSD pose', key='best_' + active_job.name):
+                                    st.session_state[pose_key] = ordered[0]
+                                figure_index = st.selectbox('Figure pose · sorted by RMSD', ordered,
+                                    format_func=lambda i: f"Seed {figure_rows[i]['seed']} · pose {figure_rows[i]['rank']} · RMSD {figure_rows[i]['reference_rmsd_A']:.3f} Å · score {figure_rows[i]['score_kcal_mol']:.2f} kcal/mol", key=pose_key)
+                                st.session_state.assistant_active_job = str(active_job)
+                                st.session_state.assistant_selected_pose = figure_rows[figure_index]
+                                publication_figure(active_job, figure_rows[figure_index])
+                            else:
+                                st.error("No chemically comparable reference RMSD is available. "
+                                         "Inspect the reference and ligand structures before assessing pose recovery.")
 
         else:
             all_jobs=jobs.list_jobs(root)
@@ -2826,17 +2837,30 @@ with workspace:
                     rows=json.loads(path.read_text())
                     df=pd.DataFrame(rows)
                     st.dataframe(df.drop(columns=['sdf']),hide_index=True,width='stretch')
-                    if 'reference_rmsd_A' in df:
+                    if 'rmsd_validation_status' in df and (df['rmsd_validation_status'] == 'not_comparable').any():
+                        n_bad = int((df['rmsd_validation_status'] == 'not_comparable').sum())
+                        st.warning(
+                            f"{n_bad} pose(s) have no valid reference RMSD because of "
+                            "chemical identity or stereochemistry mismatch. Their docking "
+                            "scores are retained but cannot establish redocking recovery. "
+                            "Review the ligand and crystal reference structures."
+                        )
+                    valid_rmsd = ('reference_rmsd_A' in df and
+                                  df['reference_rmsd_A'].notna().any())
+                    if valid_rmsd:
                         threshold=st.number_input('Pose-recovery RMSD threshold (Å)',0.1,10.,2.,0.1)
-                        top=df[df['rank']==1]
+                        validated=df.dropna(subset=['reference_rmsd_A'])
+                        top=validated[validated['rank']==1]
                         a,b,c=st.columns(3)
-                        a.metric('Best recovered RMSD',f"{df.reference_rmsd_A.min():.2f} Å")
-                        b.metric('Top-ranked pose recovery',f"{int((top.reference_rmsd_A<=threshold).sum())}/{len(top)} seeds")
-                        c.metric('Best-pose recovery',f"{int((df.groupby('seed').reference_rmsd_A.min()<=threshold).sum())}/{len(top)} seeds")
-                        st.caption('Pose recovery tests this receptor and protocol. It does not validate experimental affinity predictions.')
+                        a.metric('Best recovered RMSD',f"{validated.reference_rmsd_A.min():.2f} Å")
+                        a_count=int((top.reference_rmsd_A<=threshold).sum())
+                        b.metric('Top-ranked pose recovery',f"{a_count}/{len(top)} comparable seeds")
+                        minima=validated.groupby('seed').reference_rmsd_A.min()
+                        c.metric('Best-pose recovery',f"{int((minima<=threshold).sum())}/{len(minima)} comparable seeds")
+                        st.caption('Only chemically comparable poses enter recovery statistics; excluded poses are not successes. Pose recovery does not validate experimental affinity predictions.')
                     pose_key = 'inspect_pose_' + job.name
-                    ordered = sorted(range(len(rows)), key=lambda i: rows[i].get('reference_rmsd_A', rows[i]['score_kcal_mol']))
-                    if st.button('Display lowest-RMSD pose' if 'reference_rmsd_A' in df else 'Display lowest-score pose', key='best_explore_' + job.name):
+                    ordered = sorted(range(len(rows)), key=lambda i: (0, rows[i]['reference_rmsd_A']) if rows[i].get('reference_rmsd_A') is not None else (1, rows[i]['score_kcal_mol']))
+                    if st.button('Display lowest-RMSD pose' if valid_rmsd else 'Display lowest-score pose', key='best_explore_' + job.name):
                         st.session_state[pose_key] = ordered[0]
                     index=st.selectbox('Inspect pose',ordered,format_func=lambda i:f"{rows[i]['ligand']} · seed {rows[i]['seed']} · pose {rows[i]['rank']} · score {rows[i]['score_kcal_mol']:.2f}" + (f" · RMSD {rows[i]['reference_rmsd_A']:.3f} Å" if 'reference_rmsd_A' in rows[i] else ''), key=pose_key)
                     row=rows[index]
