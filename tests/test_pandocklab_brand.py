@@ -20,6 +20,21 @@ class PanDockLabBrandTests(unittest.TestCase):
         self.assertIn('if os.environ.get("PANDOC_DESKTOP_APP") != "1":\n        _brand_logo(width=250)', app)
         self.assertIn('with st.sidebar:', app)
 
+    def test_desktop_sidebar_can_reopen_after_collapse(self):
+        app = (ROOT / "app.py").read_text(encoding="utf-8")
+        self.assertIn('header[data-testid="stHeader"]', app)
+        self.assertIn('[data-testid="stExpandSidebarButton"]', app)
+        self.assertIn('[data-testid="stSidebarCollapsedControl"]', app)
+        self.assertIn('pointer-events: auto !important', app)
+
+    def test_local_docking_log_reports_measured_completion_percentage(self):
+        app = (ROOT / "app.py").read_text(encoding="utf-8")
+        worker = (ROOT / "pandoc" / "worker.py").read_text(encoding="utf-8")
+        self.assertIn('Docking completed: {percent:.1f}%', app)
+        self.assertIn('DOCKING_PROGRESS 0/{total} (0.0%)', worker)
+        self.assertIn('DOCKING_PROGRESS {completed_searches}/{total}', worker)
+        self.assertIn('Vina does not provide a validated continuous percentage', app)
+
     def test_desktop_updater_uses_compact_collapsible_sidebar(self):
         code = (ROOT / "pandoc" / "desktop_updater.py").read_text(encoding="utf-8")
         self.assertIn('st.sidebar.expander("Software updates", expanded=False)', code)
@@ -58,7 +73,7 @@ class PanDockLabBrandTests(unittest.TestCase):
         self.assertIn("PanDockLab-Setup-Windows-x64.exe", flow)
         self.assertIn("PanDoc-Setup-Windows-x64.exe", flow)
         self.assertIn("PanDockLab Desktop v$version", flow)
-        self.assertEqual((ROOT / "desktop" / "VERSION").read_text().strip(), "0.3.1")
+        self.assertEqual((ROOT / "desktop" / "VERSION").read_text().strip(), "0.3.2")
 
 
 if __name__ == "__main__":
