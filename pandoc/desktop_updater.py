@@ -37,7 +37,7 @@ def version_tuple(value: str) -> tuple[int, int, int]:
 
 
 def installed_version() -> str:
-    return os.environ.get("PANDOC_DESKTOP_VERSION", "0.3.1")
+    return os.environ.get("PANDOC_DESKTOP_VERSION", "0.3.2")
 
 
 def _get(url: str, *, timeout: int = 8) -> bytes:
