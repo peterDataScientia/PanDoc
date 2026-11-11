@@ -67,6 +67,44 @@ def _brand_logo(width=250, floating=False):
 st.set_page_config(page_title='PanDockLab · Docking workbench', page_icon=_pandocklab_icon(), layout='wide', initial_sidebar_state='expanded' if os.environ.get('PANDOC_DESKTOP_APP') == '1' else 'collapsed')
 ui.load_css(st, PANDOC_CSS)
 
+# On the desktop, retain the native sidebar expand control even after collapse.
+# This is independent from Streamlit's deployment toolbar and top-right logo.
+if os.environ.get("PANDOC_DESKTOP_APP") == "1":
+    st.markdown("""
+    <style>
+    header[data-testid="stHeader"] {
+        display: block !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
+        min-height: 3.5rem !important;
+        background: transparent !important;
+    }
+    [data-testid="stExpandSidebarButton"],
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="collapsedControl"] {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        position: fixed !important;
+        top: 0.5rem !important;
+        left: 0.75rem !important;
+        z-index: 100001 !important;
+    }
+    [data-testid="stExpandSidebarButton"] button,
+    [data-testid="stSidebarCollapsedControl"] button,
+    [data-testid="collapsedControl"] button {
+        background: #153d55 !important;
+        color: white !important;
+        border: 1px solid #0b6672 !important;
+        border-radius: 10px !important;
+        min-height: 40px !important;
+        min-width: 44px !important;
+        cursor: pointer !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 # Installer updates appear only inside the packaged Windows desktop.
 # Streamlit Cloud and the remote compute backends have no updater controls.
 if os.environ.get("PANDOC_DESKTOP_APP") == "1":
@@ -1257,10 +1295,18 @@ def show_job(directory):
             if state.get('pose_rank') and state.get('poses_total'):
                 detail += f" · pose {state['pose_rank']}/{state['poses_total']}"
             st.caption(f"Current operation: {detail}")
-        total = state.get('total', 0)
+        total = max(0, int(state.get('total') or 0))
+        completed = max(0, min(int(state.get('completed') or 0), total)) if total else 0
         if total:
-            completed = state.get('completed', 0)
-            st.progress(min(completed / total, 1.0), text=f'{completed}/{total} docking searches completed')
+            percent = 100.0 * completed / total
+            st.progress(completed / total,
+                        text=f"Docking completed: {percent:.1f}% ({completed}/{total} searches)")
+            if completed < total:
+                st.caption("The percentage measures finished ligand–seed searches. "
+                           "Vina does not provide a validated continuous percentage "
+                           "for the current search.")
+        elif state['state'] in active_states:
+            st.caption("Waiting for docking search totals; percentage unavailable.")
         if state['state'] in active_states:
             st.caption('Computer E · live Vina output / elapsed time updates every ~1–2 seconds.' if os.environ.get('PANDOC_RUNTIME_NAME') == 'Computer E' else 'Updates automatically every 2 seconds. Cancellation takes effect between docking searches.')
             cancel_key = str(directory) + '_cancel_confirm'
