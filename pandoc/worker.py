@@ -239,8 +239,28 @@ def _run_search(directory, config, ligand, seed, cpu_threads, stage_callback=Non
                     pose_rank=rank,
                     poses_total=len(conformers),
                 )
-                row["reference_rmsd_A"] = reference_rmsd(reference, pose)
-                pose.SetProp("reference_rmsd_A", str(row["reference_rmsd_A"]))
+                try:
+                    row["reference_rmsd_A"] = reference_rmsd(reference, pose)
+                except ValueError as exc:
+                    # RMSD is undefined when the reconstructed docking pose and
+                    # crystal reference are not the same chemical structure.
+                    # Retain the Vina score and pose, but NEVER label this as
+                    # successful redocking or assign a fabricated RMSD.
+                    row["rmsd_validation_status"] = "not_comparable"
+                    row["rmsd_warning"] = str(exc)
+                    pose.SetProp("rmsd_validation_status", "not_comparable")
+                    pose.SetProp("rmsd_warning", str(exc))
+                    print(
+                        f"RMSD NOT COMPARABLE: {ligand['name']} / seed {seed} "
+                        f"/ pose {rank}: {exc} "
+                        "Check ligand connectivity, protonation, stereochemistry "
+                        "and reference identity before interpreting redocking.",
+                        flush=True,
+                    )
+                else:
+                    row["rmsd_validation_status"] = "valid"
+                    pose.SetProp("reference_rmsd_A", str(row["reference_rmsd_A"]))
+                    pose.SetProp("rmsd_validation_status", "valid")
             checkpoint(
                 "writing_sdf",
                 f"Writing SDF pose {rank}/{len(conformers)}...",
