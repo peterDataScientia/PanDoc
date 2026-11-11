@@ -727,6 +727,39 @@ def kaggle_compute_mode():
     return mode.startswith('Computer B') or mode.startswith('Kaggle')
 
 
+def render_docking_log_controls(log_text, *, key, filename="docking.log"):
+    """Copy a visible log through Windows clipboard, or save it as plain text."""
+    log_text = str(log_text or "")
+    copy_col, save_col = st.columns(2)
+    with copy_col:
+        if st.button("Copy log", key=key + "_copy", disabled=not log_text):
+            if os.environ.get("PANDOC_DESKTOP_APP") != "1" or os.name != "nt":
+                st.info("Use Download log (.txt) to save the log on this platform.")
+            else:
+                try:
+                    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+                    subprocess.run(
+                        ["clip.exe"],
+                        input=log_text.encode("utf-16le"),
+                        check=True,
+                        timeout=8,
+                        creationflags=flags,
+                    )
+                    st.success("Log copied to Windows clipboard. Paste with Ctrl+V.")
+                except (OSError, subprocess.SubprocessError) as exc:
+                    st.error(f"Windows clipboard unavailable: {exc}. Use Download log.")
+    with save_col:
+        st.download_button(
+            "Download log (.txt)",
+            data=log_text.encode("utf-8"),
+            file_name=filename,
+            mime="text/plain",
+            key=key + "_download",
+            disabled=not log_text,
+            on_click="ignore",
+        )
+
+
 def show_compute_progress(backend, remote):
     try:
         progress = backend.progress(remote)
@@ -1213,6 +1246,8 @@ def show_remote_job(remote, local_key, remote_key):
             live_log = 'Docking output is temporarily unavailable. The computation may still be running.'
         st.markdown('#### Docking activity' if remote.get('backend') in ('computer-d-vina', 'computer-e-vina') else '#### AutoDock Vina · Live docking output')
         st.code(live_log or 'Waiting for docking worker output.', language=None)
+        render_docking_log_controls(live_log, key="remote_log_" + remote['job_id'],
+                                    filename="PanDockLab_docking_" + remote['job_id'][:8] + ".log")
 
         if current['state'] in active_states:
             if remote.get('backend') == 'kaggle-direct':
@@ -1325,7 +1360,12 @@ def show_job(directory):
                 st.rerun()
         log = Path(directory)/'worker.log'
         with st.expander('Live Vina log · auto-refresh' if os.environ.get('PANDOC_RUNTIME_NAME') == 'Computer E' else 'Calculation log', expanded=polling or state['state'] == 'failed'):
-            st.code(log.read_text(errors='replace')[-16000:] if log.exists() else 'Waiting for worker.')
+            log_text = log.read_text(errors='replace') if log.exists() else ''
+            st.code(log_text[-16000:] if log_text else 'Waiting for worker.', language=None)
+            render_docking_log_controls(
+                log_text, key="local_log_" + Path(directory).name,
+                filename="PanDockLab_docking_" + Path(directory).name[:8] + ".log",
+            )
     live_job()
     return initial
 
