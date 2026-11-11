@@ -740,7 +740,7 @@ def render_docking_log_controls(log_text, *, key, filename="docking.log"):
                     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
                     subprocess.run(
                         ["clip.exe"],
-                        input=log_text.encode("utf-16le"),
+                        input=log_text.encode("utf-16"),
                         check=True,
                         timeout=8,
                         creationflags=flags,
