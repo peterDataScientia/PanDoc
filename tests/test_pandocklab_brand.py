@@ -35,6 +35,17 @@ class PanDockLabBrandTests(unittest.TestCase):
         self.assertIn('DOCKING_PROGRESS {completed_searches}/{total}', worker)
         self.assertIn('Vina does not provide a validated continuous percentage', app)
 
+    def test_incomparable_reference_does_not_terminate_docking(self):
+        worker = (ROOT / "pandoc" / "worker.py").read_text(encoding="utf-8")
+        app = (ROOT / "app.py").read_text(encoding="utf-8")
+        self.assertIn('row["rmsd_validation_status"] = "not_comparable"', worker)
+        self.assertIn('row["rmsd_warning"] = str(exc)', worker)
+        self.assertIn('except ValueError as exc:', worker)
+        self.assertIn('row["rmsd_validation_status"] = "valid"', worker)
+        self.assertIn('No chemically comparable reference RMSD is available', app)
+        self.assertIn('excluded poses are not successes', app)
+        self.assertIn("df.dropna(subset=['reference_rmsd_A'])", app)
+
     def test_desktop_updater_uses_compact_collapsible_sidebar(self):
         code = (ROOT / "pandoc" / "desktop_updater.py").read_text(encoding="utf-8")
         self.assertIn('st.sidebar.expander("Software updates", expanded=False)', code)
@@ -73,7 +84,7 @@ class PanDockLabBrandTests(unittest.TestCase):
         self.assertIn("PanDockLab-Setup-Windows-x64.exe", flow)
         self.assertIn("PanDoc-Setup-Windows-x64.exe", flow)
         self.assertIn("PanDockLab Desktop v$version", flow)
-        self.assertEqual((ROOT / "desktop" / "VERSION").read_text().strip(), "0.3.2")
+        self.assertEqual((ROOT / "desktop" / "VERSION").read_text().strip(), "0.3.3")
 
 
 if __name__ == "__main__":
