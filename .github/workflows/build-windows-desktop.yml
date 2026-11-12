@@ -259,12 +259,12 @@ jobs:
             dist-installer/PanDockLab-Setup-Windows-x64.exe.sha256
           if-no-files-found: error
 
-      - name: Publish verified PanDockLab v0.3.6 release
+      - name: Publish verified PanDockLab v0.3.7 release
         if: >-
           startsWith(github.ref, 'refs/tags/pandoc-desktop-v') ||
           (github.event_name == 'push' &&
            github.ref == 'refs/heads/feature/windows-desktop-installer' &&
-           contains(github.event.head_commit.message, '[publish-desktop-v0.3.6]'))
+           contains(github.event.head_commit.message, '[publish-desktop-v0.3.7]'))
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -288,6 +288,6 @@ jobs:
           if (($existing | ConvertFrom-Json | Where-Object { $_.tagName -eq $tag }).Count -gt 0) {
             throw "Release $tag already exists; refusing to overwrite an immutable version. Increase desktop/VERSION."
           }
-          gh release create $tag @releaseAssets --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "PanDockLab Desktop v$version" --notes "Windows x64 PanDockLab installer (formerly PanDoc). Fixes disabled file downloads inside the embedded Edge WebView2 window. Includes SHA-256 manifests and legacy updater-compatible assets. No Python or Conda needed. This release is unsigned and has passed Windows CI self-tests; end-to-end installation and docking validation on user machines remain recommended. Save your work and close the app before upgrading."
+          gh release create $tag @releaseAssets --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "PanDockLab Desktop v$version" --notes "Windows x64 PanDockLab installer (formerly PanDoc). Preserves native AutoDock Vina progress ruler and streaming stars; improves docking downloads inside the embedded Edge WebView2 window. Includes SHA-256 manifests and legacy updater-compatible assets. No Python or Conda needed. This release is unsigned and has passed Windows CI self-tests; end-to-end installation and docking validation on user machines remain recommended. Save your work and close the app before upgrading."
           if ($LASTEXITCODE -ne 0) { throw "GitHub Release publication failed" }
           Write-Host "Published $tag from verified commit $env:GITHUB_SHA"
