@@ -69,6 +69,58 @@ class ChemistryTests(unittest.TestCase):
         reordered=Chem.RenumberAtoms(ref,list(reversed(range(ref.GetNumAtoms()))))
         self.assertAlmostEqual(core.reference_rmsd(ref,reordered),0.,places=5)
 
+    def test_protonation_variant_rmsd_accepts_same_heavy_atom_graph(self):
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+        neutral = core.molecule(smiles='CN1CCCCC1')
+        protonated = Chem.AddHs(Chem.MolFromSmiles('C[NH+]1CCCCC1'))
+        protonated.RemoveAllConformers()
+        from rdkit.Chem import rdMolAlign
+        # Copy heavy-atom crystal coordinates by atom index. The molecules
+        # differ only by a proton on piperidine N.
+        ref_heavy = Chem.RemoveHs(neutral)
+        test_heavy = Chem.RemoveHs(protonated)
+        test_heavy.AddConformer(Chem.Conformer(ref_heavy.GetConformer()))
+        audit = core.reference_chemistry_audit(ref_heavy, test_heavy)
+        self.assertEqual(audit['status'], 'protonation_variant')
+        self.assertEqual(audit['reference_charge'], 0)
+        self.assertEqual(audit['pose_charge'], 1)
+        self.assertAlmostEqual(core.reference_rmsd(ref_heavy, test_heavy), 0.0, places=5)
+
+    def test_protonation_variant_does_not_align_translated_pose(self):
+        from rdkit import Chem
+        neutral = Chem.RemoveHs(core.molecule(smiles='CN1CCCCC1'))
+        protonated = Chem.MolFromSmiles('C[NH+]1CCCCC1')
+        protonated.AddConformer(Chem.Conformer(neutral.GetConformer()))
+        conf = protonated.GetConformer()
+        for i in range(protonated.GetNumAtoms()):
+            p = conf.GetAtomPosition(i)
+            conf.SetAtomPosition(i, (p.x + 4.0, p.y, p.z))
+        self.assertAlmostEqual(core.reference_rmsd(neutral, protonated), 4.0, places=5)
+
+    def test_rmsd_rejects_different_connectivity_and_stereochemistry(self):
+        from rdkit import Chem
+        different = Chem.RemoveHs(core.molecule(smiles='CCO'))
+        replacement = Chem.RemoveHs(core.molecule(smiles='COC'))
+        audit = core.reference_chemistry_audit(different, replacement)
+        self.assertEqual(audit['status'], 'chemical_identity_mismatch')
+        with self.assertRaises(ValueError):
+            core.reference_rmsd(different, replacement)
+        e = core.molecule(smiles='F[C@H](Cl)Br')
+        z = core.molecule(smiles='F[C@@H](Cl)Br')
+        self.assertEqual(core.reference_chemistry_audit(e, z)['status'],
+                         'chemical_identity_mismatch')
+        with self.assertRaises(ValueError):
+            core.reference_rmsd(e, z)
+
+    def test_rmsd_rejects_heavy_atom_count_difference(self):
+        a = core.molecule(smiles='CCO')
+        b = core.molecule(smiles='CC')
+        self.assertEqual(core.reference_chemistry_audit(a, b)['status'],
+                         'heavy_atom_count_mismatch')
+        with self.assertRaises(ValueError):
+            core.reference_rmsd(a, b)
+
     def test_reference_coordinates_survive_bond_assignment(self):
         from rdkit import Chem
         ref=core.molecule(smiles='CCO')
