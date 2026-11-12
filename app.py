@@ -1148,6 +1148,19 @@ def show_remote_job(remote, local_key, remote_key):
         except Exception:
             live_log = 'Docking output is temporarily unavailable. The computation may still be running.'
         st.markdown('#### Docking activity' if remote.get('backend') in ('computer-d-vina', 'computer-e-vina') else '#### AutoDock Vina · Live docking output')
+        if remote.get('backend') in ('computer-d-vina', 'computer-e-vina'):
+            completed_searches = max(0, int(current.get('completed') or 0))
+            total_searches = max(0, int(current.get('total') or 0))
+            if total_searches:
+                completed_searches = min(completed_searches, total_searches)
+                progress_line = (
+                    f"OVERALL DOCKING PROGRESS: {100 * completed_searches / total_searches:.1f}% "
+                    f"({completed_searches}/{total_searches} searches completed)"
+                )
+            else:
+                progress_line = "OVERALL DOCKING PROGRESS: waiting for task count"
+            active_line = f"CURRENT SEARCH: {current.get('active_ligand') or current.get('current') or 'Waiting for worker'}"
+            live_log = progress_line + "\n" + active_line + "\n\n" + (live_log or 'Waiting for docking worker output.')
         st.code(live_log or 'Waiting for docking worker output.', language=None)
 
         if current['state'] in active_states:
@@ -1234,7 +1247,7 @@ def show_job(directory):
         total = state.get('total', 0)
         if total:
             completed = state.get('completed', 0)
-            st.progress(min(completed / total, 1.0), text=f'{completed}/{total} docking searches completed')
+            st.progress(min(max(completed / total, 0.0), 1.0), text=f'Docking progress: {100 * completed / total:.1f}% · {completed}/{total} searches completed')
         if state['state'] in active_states:
             st.caption('Computer E · live Vina output / elapsed time updates every ~1–2 seconds.' if os.environ.get('PANDOC_RUNTIME_NAME') == 'Computer E' else 'Updates automatically every 2 seconds. Cancellation takes effect between docking searches.')
             cancel_key = str(directory) + '_cancel_confirm'
@@ -1253,7 +1266,19 @@ def show_job(directory):
                 st.rerun()
         log = Path(directory)/'worker.log'
         with st.expander('Live Vina log · auto-refresh' if os.environ.get('PANDOC_RUNTIME_NAME') == 'Computer E' else 'Calculation log', expanded=polling or state['state'] == 'failed'):
-            st.code(log.read_text(errors='replace')[-16000:] if log.exists() else 'Waiting for worker.')
+            log_text = log.read_text(errors='replace')[-16000:] if log.exists() else 'Waiting for worker.'
+            completed_searches = max(0, int(state.get('completed') or 0))
+            total_searches = max(0, int(state.get('total') or 0))
+            if total_searches:
+                completed_searches = min(completed_searches, total_searches)
+                progress_line = (
+                    f"OVERALL DOCKING PROGRESS: {100 * completed_searches / total_searches:.1f}% "
+                    f"({completed_searches}/{total_searches} searches completed)"
+                )
+            else:
+                progress_line = "OVERALL DOCKING PROGRESS: waiting for task count"
+            stage_line = f"CURRENT STAGE: {stage_labels.get(stage, stage or 'Waiting for worker')}"
+            st.code(progress_line + "\n" + stage_line + "\n\n" + log_text, language=None)
     live_job()
     return initial
 
