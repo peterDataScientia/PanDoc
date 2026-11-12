@@ -101,7 +101,11 @@ class PanDockLabBrandTests(unittest.TestCase):
         self.assertIn("PanDockLab-Setup-Windows-x64.exe", flow)
         self.assertIn("PanDoc-Setup-Windows-x64.exe", flow)
         self.assertIn("PanDockLab Desktop v$version", flow)
-        self.assertEqual((ROOT / "desktop" / "VERSION").read_text().strip(), "0.3.5")
+        from pandoc.desktop_updater import version_tuple
+        version = (ROOT / "desktop" / "VERSION").read_text().strip()
+        self.assertEqual(len(version_tuple(version)), 3)
+        self.assertIn('pandoc-desktop-v$version', flow)
+        self.assertIn('PanDoc-Setup-Windows-x64.exe.sha256', flow)
 
 
 if __name__ == "__main__":
