@@ -128,14 +128,12 @@ def _run_vina_cli(config, ligand, seed, cpu_threads, output, checkpoint):
 
     def consume_line(line):
         nonlocal vina_progress_line, last_reported_percent
-        print(line, flush=True)
+        # Native stdout is already emitted byte-by-byte below. Never echo lines
+        # here: that would duplicate or split Vina's original ruler and stars.
         output_tail.append(line)
         if len(output_tail) > 60:
             output_tail.pop(0)
-        if "|----|" in line and "100%" not in line:
-            vina_progress_line = True
-            last_reported_percent = -1
-        elif line.strip().startswith("|----|"):
+        if line.strip().startswith("|----|"):
             vina_progress_line = True
             last_reported_percent = -1
         elif line.strip() and not line.strip().startswith("*"):
@@ -145,13 +143,12 @@ def _run_vina_cli(config, ligand, seed, cpu_threads, output, checkpoint):
         nonlocal last_reported_percent
         if not vina_progress_line:
             return
-        # Vina prints 50 progress ticks across its 0–100% ruler.
-        # Count only native emitted markers; never estimate by elapsed time.
+        # Use only the real asterisks emitted by Vina. The original
+        # line is streamed unchanged into worker.log for the user.
         count = min(50, fragment.count("*"))
         percent = min(100, count * 2)
-        if percent > last_reported_percent:
+        if count and percent > last_reported_percent:
             last_reported_percent = percent
-            print(f"VINA_SEARCH_PROGRESS {percent}% (native Vina ticks)", flush=True)
             checkpoint("vina_search", "Vina native progress update", vina_percent=percent)
 
     try:
@@ -163,6 +160,9 @@ def _run_vina_cli(config, ligand, seed, cpu_threads, output, checkpoint):
                 if chunk is None:
                     finished_reading = True
                 else:
+                    # Preserve the precise Vina ASCII ruler and append each
+                    # native '*' immediately, even without a trailing newline.
+                    print(chunk, end="", flush=True)
                     text_buffer += chunk.replace("\r", "\n")
                     while "\n" in text_buffer:
                         line, text_buffer = text_buffer.split("\n", 1)
