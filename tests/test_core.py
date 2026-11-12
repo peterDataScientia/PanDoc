@@ -136,6 +136,25 @@ class ChemistryTests(unittest.TestCase):
         self.assertEqual(audit['reference_charge'], 0)
         self.assertEqual(audit['pose_charge'], 1)
 
+    def test_iqo_redocking_rmsd_maps_protonation_variants(self):
+        from rdkit import Chem
+        from rdkit.Chem import rdDepictor
+        neutral = ('O=c1[nH]c2ccccc2n1C1CCN(Cc2ccc('
+                   '-c3nc4cc5[nH]cnc5cc4nc3-c3ccccc3)cc2)CC1')
+        protonated = ('O=c1[nH]c2ccccc2n1C1CC[NH+](Cc2ccc('
+                      '-c3nc4cc5[nH]cnc5cc4nc3-c3ccccc3)cc2)CC1')
+        reference = Chem.MolFromSmiles(neutral)
+        pose = Chem.MolFromSmiles(protonated)
+        self.assertEqual(reference.GetNumHeavyAtoms(), pose.GetNumHeavyAtoms())
+        rdDepictor.Compute2DCoords(reference)
+        pose.AddConformer(Chem.Conformer(reference.GetConformer()))
+        self.assertAlmostEqual(core.reference_rmsd(reference, pose), 0., places=5)
+        conf = pose.GetConformer()
+        for i in range(pose.GetNumAtoms()):
+            p = conf.GetAtomPosition(i)
+            conf.SetAtomPosition(i, (p.x + 3., p.y, p.z))
+        self.assertAlmostEqual(core.reference_rmsd(reference, pose), 3., places=5)
+
     def test_reference_coordinates_survive_bond_assignment(self):
         from rdkit import Chem
         ref=core.molecule(smiles='CCO')
