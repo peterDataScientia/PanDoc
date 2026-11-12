@@ -2726,12 +2726,22 @@ with workspace:
                     if validation and (active_job/'results.json').exists():
                         figure_rows = json.loads((active_job/'results.json').read_text())
                         if figure_rows:
-                            ordered = sorted(range(len(figure_rows)), key=lambda i: figure_rows[i].get('reference_rmsd_A', float('inf')))
+                            ordered = sorted(range(len(figure_rows)), key=lambda i: (
+                                figure_rows[i].get('reference_rmsd_A')
+                                if figure_rows[i].get('reference_rmsd_A') is not None else float('inf'),
+                                figure_rows[i]['score_kcal_mol']
+                            ))
                             pose_key = 'validation_figure_pose_' + active_job.name
-                            if st.button('Display lowest-RMSD pose', key='best_' + active_job.name):
+                            if st.button('Display best available pose', key='best_' + active_job.name):
                                 st.session_state[pose_key] = ordered[0]
                             figure_index = st.selectbox('Figure pose · sorted by RMSD', ordered,
-                                format_func=lambda i: f"Seed {figure_rows[i]['seed']} · pose {figure_rows[i]['rank']} · RMSD {figure_rows[i].get('reference_rmsd_A', float('nan')):.3f} Å · score {figure_rows[i]['score_kcal_mol']:.2f} kcal/mol", key=pose_key)
+                                format_func=lambda i: (
+                                    f"Seed {figure_rows[i]['seed']} · pose {figure_rows[i]['rank']} · "
+                                    + (f"RMSD {figure_rows[i]['reference_rmsd_A']:.3f} Å"
+                                       if figure_rows[i].get('reference_rmsd_A') is not None
+                                       else "RMSD unavailable")
+                                    + f" · score {figure_rows[i]['score_kcal_mol']:.2f} kcal/mol"
+                                ), key=pose_key)
                             st.session_state.assistant_active_job = str(active_job)
                             st.session_state.assistant_selected_pose = figure_rows[figure_index]
                             publication_figure(active_job, figure_rows[figure_index])
@@ -2756,15 +2766,30 @@ with workspace:
                         threshold=st.number_input('Pose-recovery RMSD threshold (Å)',0.1,10.,2.,0.1)
                         top=df[df['rank']==1]
                         a,b,c=st.columns(3)
-                        a.metric('Best recovered RMSD',f"{df.reference_rmsd_A.min():.2f} Å")
-                        b.metric('Top-ranked pose recovery',f"{int((top.reference_rmsd_A<=threshold).sum())}/{len(top)} seeds")
-                        c.metric('Best-pose recovery',f"{int((df.groupby('seed').reference_rmsd_A.min()<=threshold).sum())}/{len(top)} seeds")
+                        valid_rmsd = pd.to_numeric(df.reference_rmsd_A, errors='coerce')
+                        a.metric('Best recovered RMSD', f"{valid_rmsd.min():.2f} Å"
+                                 if valid_rmsd.notna().any() else "Not determined")
+                        top_rmsd = pd.to_numeric(top.reference_rmsd_A, errors='coerce')
+                        b.metric('Top-ranked pose recovery',
+                                 f"{int((top_rmsd<=threshold).sum())}/{len(top)} seeds")
+                        by_seed = df.assign(reference_rmsd_A=valid_rmsd).groupby('seed').reference_rmsd_A.min()
+                        c.metric('Best-pose recovery', f"{int((by_seed<=threshold).sum())}/{len(top)} seeds")
+                        if valid_rmsd.isna().any():
+                            st.warning(f"{int(valid_rmsd.isna().sum())} pose(s) have no valid crystal RMSD; these are not counted as recovered poses.")
                         st.caption('Pose recovery tests this receptor and protocol. It does not validate experimental affinity predictions.')
                     pose_key = 'inspect_pose_' + job.name
-                    ordered = sorted(range(len(rows)), key=lambda i: rows[i].get('reference_rmsd_A', rows[i]['score_kcal_mol']))
+                    ordered = sorted(range(len(rows)), key=lambda i: (
+                        rows[i].get('reference_rmsd_A') if rows[i].get('reference_rmsd_A') is not None
+                        else float('inf'), rows[i]['score_kcal_mol']))
                     if st.button('Display lowest-RMSD pose' if 'reference_rmsd_A' in df else 'Display lowest-score pose', key='best_explore_' + job.name):
                         st.session_state[pose_key] = ordered[0]
-                    index=st.selectbox('Inspect pose',ordered,format_func=lambda i:f"{rows[i]['ligand']} · seed {rows[i]['seed']} · pose {rows[i]['rank']} · score {rows[i]['score_kcal_mol']:.2f}" + (f" · RMSD {rows[i]['reference_rmsd_A']:.3f} Å" if 'reference_rmsd_A' in rows[i] else ''), key=pose_key)
+                    index=st.selectbox('Inspect pose',ordered,format_func=lambda i: (
+                        f"{rows[i]['ligand']} · seed {rows[i]['seed']} · pose {rows[i]['rank']} · "
+                        f"score {rows[i]['score_kcal_mol']:.2f}"
+                        + (f" · RMSD {rows[i]['reference_rmsd_A']:.3f} Å"
+                           if rows[i].get('reference_rmsd_A') is not None
+                           else " · RMSD unavailable" if 'reference_rmsd_A' in rows[i] else "")
+                    ), key=pose_key)
                     row=rows[index]
                     st.session_state.assistant_selected_pose = row
                     from rdkit import Chem
