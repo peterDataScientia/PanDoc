@@ -1248,6 +1248,14 @@ def show_job(directory):
         if total:
             completed = state.get('completed', 0)
             st.progress(min(max(completed / total, 0.0), 1.0), text=f'Docking progress: {100 * completed / total:.1f}% · {completed}/{total} searches completed')
+        # Separate Vina's own native in-search progress from completed-search progress.
+        # No artificial timer-based percentages: only native progress ticks from stdout.
+        vina_percent = state.get('vina_percent') if stage == 'vina_search' else None
+        if vina_percent is not None:
+            vina_percent = max(0, min(100, int(vina_percent)))
+            st.progress(vina_percent / 100, text=f'Current AutoDock Vina search: {vina_percent}%')
+        elif stage == 'vina_search':
+            st.caption('Current AutoDock Vina search: waiting for native progress ticks…')
         if state['state'] in active_states:
             st.caption('Computer E · live Vina output / elapsed time updates every ~1–2 seconds.' if os.environ.get('PANDOC_RUNTIME_NAME') == 'Computer E' else 'Updates automatically every 2 seconds. Cancellation takes effect between docking searches.')
             cancel_key = str(directory) + '_cancel_confirm'
@@ -1278,7 +1286,12 @@ def show_job(directory):
             else:
                 progress_line = "OVERALL DOCKING PROGRESS: waiting for task count"
             stage_line = f"CURRENT STAGE: {stage_labels.get(stage, stage or 'Waiting for worker')}"
-            st.code(progress_line + "\n" + stage_line + "\n\n" + log_text, language=None)
+            vina_line = (
+                f"CURRENT VINA SEARCH: {max(0, min(100, int(state['vina_percent'])))}%"
+                if stage == 'vina_search' and state.get('vina_percent') is not None
+                else "CURRENT VINA SEARCH: waiting for native progress" if stage == 'vina_search' else ""
+            )
+            st.code("\n".join(line for line in (progress_line, stage_line, vina_line) if line) + "\n\n" + log_text, language=None)
     live_job()
     return initial
 
