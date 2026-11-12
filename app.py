@@ -306,17 +306,8 @@ def publication_figure(job, row):
         st.warning('The reference or selected pose could not be read for the figure.')
         return
     st.subheader('Publication figure · crystallographic and redocked ligand')
-    if row.get('rmsd_status') == 'unavailable':
-        st.warning('Crystal-pose RMSD unavailable: ' + row.get('rmsd_error', 'chemical representation mismatch'))
-        return
-    try:
-        rmsd = core.reference_rmsd(reference, pose)
-    except ValueError as exc:
-        st.warning('Crystal-pose RMSD unavailable: ' + str(exc))
-        return
+    rmsd = core.reference_rmsd(reference, pose)
     st.caption(f"Seed {row['seed']} · pose {row['rank']} · heavy-atom RMSD {rmsd:.3f} Å. Original coordinates; no ligand fitting.")
-    if row.get('reference_chemistry_status') == 'protonation_variant':
-        st.info('Reference and docked poses differ in protonation; RMSD uses matching heavy-atom connectivity and stereochemistry.')
     st.caption('Shaded ball and stick · cyan: crystallographic · magenta: redocked. Rotate both together. The optional rounded border, width, color and corner radius are included in PNG/PDF exports.')
     import streamlit.components.v1 as components
     components.html(figures.overlay_html(reference, pose, seed=row['seed'], rank=row['rank']), height=620, scrolling=True)
@@ -2393,23 +2384,8 @@ with workspace:
                 config = dict(receptor=st.session_state.receptor_path, center=center, size=size, protocol_id=protocol_id, preparation_id=st.session_state.preparation_id, **params)
                 candidates = []
                 if validation:
-                    from rdkit import Chem
-                    ref_source = st.session_state.get('reference_chemistry_source', {})
-                    ref_state = st.session_state.get('reference_smiles', '')
-                    ref_molecule = Chem.MolFromSmiles(ref_state)
-                    config.update(
-                        reference=st.session_state.reference_path,
-                        reference_id=st.session_state.reference_id,
-                        reference_preparation_pH=float(st.session_state.get('preparation_review', {}).get(
-                            'pH_context', st.session_state.get('preparation_record', {}).get('pH', 7.0))),
-                        reference_microstate=dict(
-                            selected_smiles=ref_state,
-                            charge=int(Chem.GetFormalCharge(ref_molecule)) if ref_molecule else None,
-                            chemistry_source=ref_source.get('source', 'reviewed reference'),
-                        ),
-                        reference_selected_smiles=ref_state,
-                        ligands=[dict(id='reference', name='Reference ligand', path=st.session_state.reference_pdbqt)],
-                    )
+                    config.update(reference=st.session_state.reference_path, reference_id=st.session_state.reference_id,
+                                  ligands=[dict(id='reference', name='Reference ligand', path=st.session_state.reference_pdbqt)])
                     st.caption('RMSD compares heavy atoms in the fixed receptor frame with symmetry handling. Ligands are not fitted onto the reference.')
                 else:
                     st.markdown('**Find ligand in PubChem**')
@@ -2726,22 +2702,12 @@ with workspace:
                     if validation and (active_job/'results.json').exists():
                         figure_rows = json.loads((active_job/'results.json').read_text())
                         if figure_rows:
-                            ordered = sorted(range(len(figure_rows)), key=lambda i: (
-                                figure_rows[i].get('reference_rmsd_A')
-                                if figure_rows[i].get('reference_rmsd_A') is not None else float('inf'),
-                                figure_rows[i]['score_kcal_mol']
-                            ))
+                            ordered = sorted(range(len(figure_rows)), key=lambda i: figure_rows[i].get('reference_rmsd_A', float('inf')))
                             pose_key = 'validation_figure_pose_' + active_job.name
-                            if st.button('Display best available pose', key='best_' + active_job.name):
+                            if st.button('Display lowest-RMSD pose', key='best_' + active_job.name):
                                 st.session_state[pose_key] = ordered[0]
                             figure_index = st.selectbox('Figure pose · sorted by RMSD', ordered,
-                                format_func=lambda i: (
-                                    f"Seed {figure_rows[i]['seed']} · pose {figure_rows[i]['rank']} · "
-                                    + (f"RMSD {figure_rows[i]['reference_rmsd_A']:.3f} Å"
-                                       if figure_rows[i].get('reference_rmsd_A') is not None
-                                       else "RMSD unavailable")
-                                    + f" · score {figure_rows[i]['score_kcal_mol']:.2f} kcal/mol"
-                                ), key=pose_key)
+                                format_func=lambda i: f"Seed {figure_rows[i]['seed']} · pose {figure_rows[i]['rank']} · RMSD {figure_rows[i].get('reference_rmsd_A', float('nan')):.3f} Å · score {figure_rows[i]['score_kcal_mol']:.2f} kcal/mol", key=pose_key)
                             st.session_state.assistant_active_job = str(active_job)
                             st.session_state.assistant_selected_pose = figure_rows[figure_index]
                             publication_figure(active_job, figure_rows[figure_index])
@@ -2766,30 +2732,15 @@ with workspace:
                         threshold=st.number_input('Pose-recovery RMSD threshold (Å)',0.1,10.,2.,0.1)
                         top=df[df['rank']==1]
                         a,b,c=st.columns(3)
-                        valid_rmsd = pd.to_numeric(df.reference_rmsd_A, errors='coerce')
-                        a.metric('Best recovered RMSD', f"{valid_rmsd.min():.2f} Å"
-                                 if valid_rmsd.notna().any() else "Not determined")
-                        top_rmsd = pd.to_numeric(top.reference_rmsd_A, errors='coerce')
-                        b.metric('Top-ranked pose recovery',
-                                 f"{int((top_rmsd<=threshold).sum())}/{len(top)} seeds")
-                        by_seed = df.assign(reference_rmsd_A=valid_rmsd).groupby('seed').reference_rmsd_A.min()
-                        c.metric('Best-pose recovery', f"{int((by_seed<=threshold).sum())}/{len(top)} seeds")
-                        if valid_rmsd.isna().any():
-                            st.warning(f"{int(valid_rmsd.isna().sum())} pose(s) have no valid crystal RMSD; these are not counted as recovered poses.")
+                        a.metric('Best recovered RMSD',f"{df.reference_rmsd_A.min():.2f} Å")
+                        b.metric('Top-ranked pose recovery',f"{int((top.reference_rmsd_A<=threshold).sum())}/{len(top)} seeds")
+                        c.metric('Best-pose recovery',f"{int((df.groupby('seed').reference_rmsd_A.min()<=threshold).sum())}/{len(top)} seeds")
                         st.caption('Pose recovery tests this receptor and protocol. It does not validate experimental affinity predictions.')
                     pose_key = 'inspect_pose_' + job.name
-                    ordered = sorted(range(len(rows)), key=lambda i: (
-                        rows[i].get('reference_rmsd_A') if rows[i].get('reference_rmsd_A') is not None
-                        else float('inf'), rows[i]['score_kcal_mol']))
+                    ordered = sorted(range(len(rows)), key=lambda i: rows[i].get('reference_rmsd_A', rows[i]['score_kcal_mol']))
                     if st.button('Display lowest-RMSD pose' if 'reference_rmsd_A' in df else 'Display lowest-score pose', key='best_explore_' + job.name):
                         st.session_state[pose_key] = ordered[0]
-                    index=st.selectbox('Inspect pose',ordered,format_func=lambda i: (
-                        f"{rows[i]['ligand']} · seed {rows[i]['seed']} · pose {rows[i]['rank']} · "
-                        f"score {rows[i]['score_kcal_mol']:.2f}"
-                        + (f" · RMSD {rows[i]['reference_rmsd_A']:.3f} Å"
-                           if rows[i].get('reference_rmsd_A') is not None
-                           else " · RMSD unavailable" if 'reference_rmsd_A' in rows[i] else "")
-                    ), key=pose_key)
+                    index=st.selectbox('Inspect pose',ordered,format_func=lambda i:f"{rows[i]['ligand']} · seed {rows[i]['seed']} · pose {rows[i]['rank']} · score {rows[i]['score_kcal_mol']:.2f}" + (f" · RMSD {rows[i]['reference_rmsd_A']:.3f} Å" if 'reference_rmsd_A' in rows[i] else ''), key=pose_key)
                     row=rows[index]
                     st.session_state.assistant_selected_pose = row
                     from rdkit import Chem

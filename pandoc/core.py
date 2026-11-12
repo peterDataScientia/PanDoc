@@ -398,117 +398,17 @@ def box(pdb, padding=5.0):
     return ((xyz.min(0)+xyz.max(0))/2).tolist(), (xyz.max(0)-xyz.min(0)+2*padding).tolist()
 
 
-def reference_chemistry_audit(reference, pose):
-    """Audit a crystal/reference pose without mistaking protonation for another ligand.
-
-    Only formal charge and hydrogen count are normalized for graph matching.
-    Heavy-atom elements, connectivity, bond orders and defined stereochemistry
-    remain strict. Tautomeric/bond-order differences are NOT silently accepted.
-    No coordinates are changed.
-    """
-    from rdkit import Chem
-
-    ref = Chem.RemoveHs(Chem.Mol(reference))
-    probe = Chem.RemoveHs(Chem.Mol(pose))
-    result = dict(
-        reference_charge=int(Chem.GetFormalCharge(reference)),
-        pose_charge=int(Chem.GetFormalCharge(pose)),
-        reference_heavy_atoms=ref.GetNumAtoms(),
-        pose_heavy_atoms=probe.GetNumAtoms(),
-        reference_smiles=Chem.MolToSmiles(ref, isomericSmiles=True),
-        pose_smiles=Chem.MolToSmiles(probe, isomericSmiles=True),
-    )
-    if ref.GetNumAtoms() != probe.GetNumAtoms():
-        result.update(status='heavy_atom_count_mismatch',
-                      message='Reference and pose have different heavy-atom counts.')
-        return result
-
-    def without_protonation(mol):
-        mol = Chem.Mol(mol)
-        for atom in mol.GetAtoms():
-            # Preserve neutral aromatic [nH] and stereogenic [C@H] sites.
-            # Only charged atoms require charge/H normalization.
-            if atom.GetFormalCharge():
-                atom.SetFormalCharge(0)
-                atom.SetNumExplicitHs(0)
-                atom.SetNoImplicit(False)
-        mol.UpdatePropertyCache(strict=False)
-        Chem.SanitizeMol(mol)
-        return mol
-
-    try:
-        ref_graph = without_protonation(ref)
-        pose_graph = without_protonation(probe)
-    except (ValueError, RuntimeError) as exc:
-        result.update(status='normalization_unavailable',
-                      message=f'Could not normalize protonation safely: {exc}')
-        return result
-
-    result['reference_normalized_smiles'] = Chem.MolToSmiles(ref_graph, isomericSmiles=True)
-    result['pose_normalized_smiles'] = Chem.MolToSmiles(pose_graph, isomericSmiles=True)
-    if result['reference_normalized_smiles'] != result['pose_normalized_smiles']:
-        result.update(status='chemical_identity_mismatch',
-                      message='Heavy-atom bonding, bond order, or stereochemistry differs; RMSD is unavailable.')
-        return result
-
-    result['status'] = ('protonation_variant' if
-                        result['reference_smiles'] != result['pose_smiles'] else 'exact')
-    result['message'] = ('Protonation differs; heavy-atom identity and stereochemistry match.'
-                         if result['status'] == 'protonation_variant'
-                         else 'Reference and pose chemistry match.')
-    return result
-
-
 def reference_rmsd(reference, pose):
-    """Symmetry-aware heavy-atom RMSD in the receptor frame, without fitting.
-
-    Charge/hydrogen microstates may differ; chemically distinct heavy-atom
-    graphs, double-bond geometry and defined chirality must still match.
-    """
+    """Symmetry-aware heavy-atom RMSD in a fixed receptor frame; never align ligands."""
     from rdkit import Chem
     from rdkit.Chem import rdMolAlign
-
-    audit = reference_chemistry_audit(reference, pose)
-    if audit['status'] not in ('exact', 'protonation_variant'):
-        raise ValueError(audit['message'])
-    ref = Chem.RemoveHs(Chem.Mol(reference))
-    probe = Chem.RemoveHs(Chem.Mol(pose))
-    for mol in (ref, probe):
-        for atom in mol.GetAtoms():
-            # Preserve neutral aromatic [nH] and stereogenic [C@H] sites.
-            # Only charged atoms require charge/H normalization.
-            if atom.GetFormalCharge():
-                atom.SetFormalCharge(0)
-                atom.SetNumExplicitHs(0)
-                atom.SetNoImplicit(False)
-        mol.UpdatePropertyCache(strict=False)
-        Chem.SanitizeMol(mol)
-
-    # Match all symmetry-equivalent heavy-atom assignments explicitly. A
-    # precomputed map avoids charge-sensitive matching inside CalcRMS.
-    matches = probe.GetSubstructMatches(
-        ref, uniquify=False, useChirality=True, maxMatches=100000
-    )
-    if not matches:
-        # 3D reconstruction may retain chirality annotations that the
-        # substructure matcher interprets more strictly than the canonical
-        # isomeric-SMILES identity audit. The audit above already verified
-        # complete stereo-aware graph identity, so a nonchiral graph mapping
-        # is safe here. Never use this fallback when that audit fails.
-        matches = probe.GetSubstructMatches(
-            ref, uniquify=False, useChirality=False, maxMatches=100000
-        )
-    if not matches:
-        raise ValueError(
-            'No heavy-atom graph mapping after stereochemistry-aware identity audit. '
-            'Inspect original and reconstructed ligand bond assignments.'
-        )
-    maps = [[(probe_idx, ref_idx) for ref_idx, probe_idx in enumerate(match)]
-            for match in matches]
-    return float(rdMolAlign.CalcRMS(
-        Chem.RemoveHs(Chem.Mol(pose)), Chem.RemoveHs(Chem.Mol(reference)),
-        map=maps, symmetrizeConjugatedTerminalGroups=True
-    ))
+    ref = Chem.RemoveHs(reference)
+    probe = Chem.RemoveHs(pose)
+    if ref.GetNumAtoms() != probe.GetNumAtoms():
+        raise ValueError('RMSD requires identical heavy-atom counts.')
+    if Chem.MolToSmiles(ref, isomericSmiles=True) != Chem.MolToSmiles(probe, isomericSmiles=True):
+        raise ValueError('Reference and pose differ in chemical identity or stereochemistry.')
+    return float(rdMolAlign.CalcRMS(probe, ref, maxMatches=100000, symmetrizeConjugatedTerminalGroups=True))
 
 
 def repair_heavy_atoms(pdb):
