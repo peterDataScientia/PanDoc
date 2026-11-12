@@ -4,7 +4,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from .core import reference_rmsd, validate_config
+from .core import reference_rmsd, reference_chemistry_audit, validate_config
 
 
 
@@ -239,8 +239,36 @@ def _run_search(directory, config, ligand, seed, cpu_threads, stage_callback=Non
                     pose_rank=rank,
                     poses_total=len(conformers),
                 )
-                row["reference_rmsd_A"] = reference_rmsd(reference, pose)
-                pose.SetProp("reference_rmsd_A", str(row["reference_rmsd_A"]))
+                audit = reference_chemistry_audit(reference, pose)
+                row["reference_chemistry_status"] = audit["status"]
+                row["reference_charge"] = audit["reference_charge"]
+                row["pose_charge"] = audit["pose_charge"]
+                row["reference_heavy_atoms"] = audit["reference_heavy_atoms"]
+                row["pose_heavy_atoms"] = audit["pose_heavy_atoms"]
+                row["reference_smiles"] = audit["reference_smiles"]
+                row["pose_smiles"] = audit["pose_smiles"]
+                row["reference_chemistry_message"] = audit["message"]
+                row["reference_preparation_pH"] = config.get("reference_preparation_pH")
+                row["reference_microstate"] = config.get("reference_microstate")
+                row["reference_selected_smiles"] = config.get("reference_selected_smiles")
+                try:
+                    row["reference_rmsd_A"] = reference_rmsd(reference, pose)
+                    row["rmsd_status"] = "computed"
+                    row["pose_reproduction_status"] = (
+                        "passed" if row["reference_rmsd_A"] <= 2.0 else "failed"
+                    )
+                    row["rmsd_threshold_A"] = 2.0
+                    pose.SetProp("reference_rmsd_A", str(row["reference_rmsd_A"]))
+                except ValueError as exc:
+                    # An invalid comparison is not a failed docking search.
+                    # Retain the score, PDBQT and reconstructed pose.
+                    row["reference_rmsd_A"] = None
+                    row["rmsd_status"] = "unavailable"
+                    row["pose_reproduction_status"] = "not_determined"
+                    row["rmsd_error"] = str(exc)
+                    print(f"RMSD unavailable for pose {rank}: {exc}", flush=True)
+                pose.SetProp("rmsd_status", row["rmsd_status"])
+                pose.SetProp("reference_chemistry_status", audit["status"])
             checkpoint(
                 "writing_sdf",
                 f"Writing SDF pose {rank}/{len(conformers)}...",
