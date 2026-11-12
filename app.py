@@ -2393,6 +2393,7 @@ with workspace:
                 config = dict(receptor=st.session_state.receptor_path, center=center, size=size, protocol_id=protocol_id, preparation_id=st.session_state.preparation_id, **params)
                 candidates = []
                 if validation:
+                    from rdkit import Chem
                     ref_source = st.session_state.get('reference_chemistry_source', {})
                     ref_state = st.session_state.get('reference_smiles', '')
                     ref_molecule = Chem.MolFromSmiles(ref_state)
