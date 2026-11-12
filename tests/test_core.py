@@ -121,6 +121,21 @@ class ChemistryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             core.reference_rmsd(a, b)
 
+    def test_iqo_protonation_preserves_aromatic_nh_and_graph(self):
+        from rdkit import Chem
+        neutral = ('O=c1[nH]c2ccccc2n1C1CCN(Cc2ccc('
+                   '-c3nc4cc5[nH]cnc5cc4nc3-c3ccccc3)cc2)CC1')
+        protonated = ('O=c1[nH]c2ccccc2n1C1CC[NH+](Cc2ccc('
+                      '-c3nc4cc5[nH]cnc5cc4nc3-c3ccccc3)cc2)CC1')
+        reference = Chem.MolFromSmiles(neutral)
+        prepared = Chem.MolFromSmiles(protonated)
+        audit = core.reference_chemistry_audit(reference, prepared)
+        self.assertEqual(audit['status'], 'protonation_variant')
+        self.assertEqual(audit['reference_normalized_smiles'],
+                         audit['pose_normalized_smiles'])
+        self.assertEqual(audit['reference_charge'], 0)
+        self.assertEqual(audit['pose_charge'], 1)
+
     def test_reference_coordinates_survive_bond_assignment(self):
         from rdkit import Chem
         ref=core.molecule(smiles='CCO')
