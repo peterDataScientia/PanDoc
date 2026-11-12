@@ -2943,13 +2943,13 @@ with workspace:
                     if config.get('reference'):
                         with st.expander('Publication pose overlay'):
                             publication_figure(job, row)
-                    st.download_button('Download results CSV',df.to_csv(index=False),'results.csv','text/csv', on_click='ignore')
-                    st.download_button('Download selected pose SDF',sdf,'selected_pose.sdf', on_click='ignore')
+                    st.download_button('Download results CSV',df.to_csv(index=False),'results.csv','text/csv', key='docking_results_csv')
+                    st.download_button('Download selected pose SDF',sdf,'selected_pose.sdf', key='docking_selected_pose_sdf')
                 with st.expander('Saved docking settings'):
                     st.json(config)
             manifest()
             ui.automation_marker(st, 'experiment-bundle', state='ready', value='pandoc_experiment.zip')
-            st.download_button('Download complete experiment',core.bundle(root),'pandoc_experiment.zip','application/zip', on_click='ignore', key='download_complete_experiment')
+            st.download_button('Download complete experiment',core.bundle(root),'pandoc_experiment.zip','application/zip', key='download_complete_experiment')
 
     except Exception as exc:
         st.session_state.assistant_diagnostic = str(exc)
