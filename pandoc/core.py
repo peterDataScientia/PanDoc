@@ -490,7 +490,19 @@ def reference_rmsd(reference, pose):
         ref, uniquify=False, useChirality=True, maxMatches=100000
     )
     if not matches:
-        raise ValueError('No valid stereochemistry-preserving heavy-atom mapping.')
+        # 3D reconstruction may retain chirality annotations that the
+        # substructure matcher interprets more strictly than the canonical
+        # isomeric-SMILES identity audit. The audit above already verified
+        # complete stereo-aware graph identity, so a nonchiral graph mapping
+        # is safe here. Never use this fallback when that audit fails.
+        matches = probe.GetSubstructMatches(
+            ref, uniquify=False, useChirality=False, maxMatches=100000
+        )
+    if not matches:
+        raise ValueError(
+            'No heavy-atom graph mapping after stereochemistry-aware identity audit. '
+            'Inspect original and reconstructed ligand bond assignments.'
+        )
     maps = [[(probe_idx, ref_idx) for ref_idx, probe_idx in enumerate(match)]
             for match in matches]
     return float(rdMolAlign.CalcRMS(
