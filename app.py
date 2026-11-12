@@ -306,8 +306,17 @@ def publication_figure(job, row):
         st.warning('The reference or selected pose could not be read for the figure.')
         return
     st.subheader('Publication figure · crystallographic and redocked ligand')
-    rmsd = core.reference_rmsd(reference, pose)
+    if row.get('rmsd_status') == 'unavailable':
+        st.warning('Crystal-pose RMSD unavailable: ' + row.get('rmsd_error', 'chemical representation mismatch'))
+        return
+    try:
+        rmsd = core.reference_rmsd(reference, pose)
+    except ValueError as exc:
+        st.warning('Crystal-pose RMSD unavailable: ' + str(exc))
+        return
     st.caption(f"Seed {row['seed']} · pose {row['rank']} · heavy-atom RMSD {rmsd:.3f} Å. Original coordinates; no ligand fitting.")
+    if row.get('reference_chemistry_status') == 'protonation_variant':
+        st.info('Reference and docked poses differ in protonation; RMSD uses matching heavy-atom connectivity and stereochemistry.')
     st.caption('Shaded ball and stick · cyan: crystallographic · magenta: redocked. Rotate both together. The optional rounded border, width, color and corner radius are included in PNG/PDF exports.')
     import streamlit.components.v1 as components
     components.html(figures.overlay_html(reference, pose, seed=row['seed'], rank=row['rank']), height=620, scrolling=True)
@@ -2384,8 +2393,22 @@ with workspace:
                 config = dict(receptor=st.session_state.receptor_path, center=center, size=size, protocol_id=protocol_id, preparation_id=st.session_state.preparation_id, **params)
                 candidates = []
                 if validation:
-                    config.update(reference=st.session_state.reference_path, reference_id=st.session_state.reference_id,
-                                  ligands=[dict(id='reference', name='Reference ligand', path=st.session_state.reference_pdbqt)])
+                    ref_source = st.session_state.get('reference_chemistry_source', {})
+                    ref_state = st.session_state.get('reference_smiles', '')
+                    ref_molecule = Chem.MolFromSmiles(ref_state)
+                    config.update(
+                        reference=st.session_state.reference_path,
+                        reference_id=st.session_state.reference_id,
+                        reference_preparation_pH=float(st.session_state.get('preparation_review', {}).get(
+                            'pH_context', st.session_state.get('preparation_record', {}).get('pH', 7.0))),
+                        reference_microstate=dict(
+                            selected_smiles=ref_state,
+                            charge=int(Chem.GetFormalCharge(ref_molecule)) if ref_molecule else None,
+                            chemistry_source=ref_source.get('source', 'reviewed reference'),
+                        ),
+                        reference_selected_smiles=ref_state,
+                        ligands=[dict(id='reference', name='Reference ligand', path=st.session_state.reference_pdbqt)],
+                    )
                     st.caption('RMSD compares heavy atoms in the fixed receptor frame with symmetry handling. Ligands are not fitted onto the reference.')
                 else:
                     st.markdown('**Find ligand in PubChem**')
