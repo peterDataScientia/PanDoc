@@ -426,9 +426,12 @@ def reference_chemistry_audit(reference, pose):
     def without_protonation(mol):
         mol = Chem.Mol(mol)
         for atom in mol.GetAtoms():
-            atom.SetFormalCharge(0)
-            atom.SetNumExplicitHs(0)
-            atom.SetNoImplicit(False)
+            # Preserve neutral aromatic [nH] and stereogenic [C@H] sites.
+            # Only charged atoms require charge/H normalization.
+            if atom.GetFormalCharge():
+                atom.SetFormalCharge(0)
+                atom.SetNumExplicitHs(0)
+                atom.SetNoImplicit(False)
         mol.UpdatePropertyCache(strict=False)
         Chem.SanitizeMol(mol)
         return mol
@@ -472,9 +475,12 @@ def reference_rmsd(reference, pose):
     probe = Chem.RemoveHs(Chem.Mol(pose))
     for mol in (ref, probe):
         for atom in mol.GetAtoms():
-            atom.SetFormalCharge(0)
-            atom.SetNumExplicitHs(0)
-            atom.SetNoImplicit(False)
+            # Preserve neutral aromatic [nH] and stereogenic [C@H] sites.
+            # Only charged atoms require charge/H normalization.
+            if atom.GetFormalCharge():
+                atom.SetFormalCharge(0)
+                atom.SetNumExplicitHs(0)
+                atom.SetNoImplicit(False)
         mol.UpdatePropertyCache(strict=False)
         Chem.SanitizeMol(mol)
 
