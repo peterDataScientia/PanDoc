@@ -94,16 +94,27 @@ def _run_vina_cli(config, ligand, seed, cpu_threads, output, checkpoint):
     messages = queue.Queue()
     proc = subprocess.Popen(
         args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, errors="replace", bufsize=1,
+        bufsize=0,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
 
     def collect_output():
+        """Read partial stdout, since Vina's progress markers have no newline."""
+        import codecs
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         try:
-            for line in proc.stdout:
-                messages.put(line.rstrip("\r\n"))
+            while True:
+                chunk = os.read(proc.stdout.fileno(), 256)
+                if not chunk:
+                    break
+                decoded = decoder.decode(chunk)
+                if decoded:
+                    messages.put(decoded)
+            remainder = decoder.decode(b"", final=True)
+            if remainder:
+                messages.put(remainder)
         except Exception as exc:
-            messages.put(f"Vina output reader error: {exc}")
+            messages.put(f"\\nVina output reader error: {exc}\\n")
         finally:
             messages.put(None)
 
@@ -111,25 +122,57 @@ def _run_vina_cli(config, ligand, seed, cpu_threads, output, checkpoint):
     reader.start()
     output_tail = []
     finished_reading = False
+    text_buffer = ""
+    vina_progress_line = False
+    last_reported_percent = -1
+
+    def consume_line(line):
+        nonlocal vina_progress_line, last_reported_percent
+        print(line, flush=True)
+        output_tail.append(line)
+        if len(output_tail) > 60:
+            output_tail.pop(0)
+        if "|----|" in line and "100%" not in line:
+            vina_progress_line = True
+            last_reported_percent = -1
+        elif line.strip().startswith("|----|"):
+            vina_progress_line = True
+            last_reported_percent = -1
+        elif line.strip() and not line.strip().startswith("*"):
+            vina_progress_line = False
+
+    def report_vina_ticks(fragment):
+        nonlocal last_reported_percent
+        if not vina_progress_line:
+            return
+        # Vina prints 50 progress ticks across its 0–100% ruler.
+        # Count only native emitted markers; never estimate by elapsed time.
+        count = min(50, fragment.count("*"))
+        percent = min(100, count * 2)
+        if percent > last_reported_percent:
+            last_reported_percent = percent
+            checkpoint("vina_search", "Vina native progress update", vina_percent=percent)
+
     try:
         while True:
-            now = time.monotonic()
-            if now >= deadline:
+            if time.monotonic() >= deadline:
                 raise TimeoutError(f"Vina exceeded {int(deadline - started)}s runtime limit")
             try:
-                line = messages.get(timeout=0.25)
-                if line is None:
+                chunk = messages.get(timeout=0.25)
+                if chunk is None:
                     finished_reading = True
                 else:
-                    print(line, flush=True)
-                    output_tail.append(line)
-                    if len(output_tail) > 60:
-                        output_tail.pop(0)
+                    text_buffer += chunk.replace("\\r", "\\n")
+                    while "\\n" in text_buffer:
+                        line, text_buffer = text_buffer.split("\\n", 1)
+                        consume_line(line)
+                    report_vina_ticks(text_buffer)
             except queue.Empty:
                 pass
-
             if finished_reading and proc.poll() is not None:
                 break
+        if text_buffer:
+            consume_line(text_buffer)
         code = proc.wait(timeout=5)
     except BaseException:
         if proc.poll() is None:
