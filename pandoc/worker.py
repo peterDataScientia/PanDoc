@@ -151,6 +151,7 @@ def _run_vina_cli(config, ligand, seed, cpu_threads, output, checkpoint):
         percent = min(100, count * 2)
         if percent > last_reported_percent:
             last_reported_percent = percent
+            print(f"VINA_SEARCH_PROGRESS {percent}% (native Vina ticks)", flush=True)
             checkpoint("vina_search", "Vina native progress update", vina_percent=percent)
 
     try:
