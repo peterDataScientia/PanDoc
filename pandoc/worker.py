@@ -114,7 +114,7 @@ def _run_vina_cli(config, ligand, seed, cpu_threads, output, checkpoint):
             if remainder:
                 messages.put(remainder)
         except Exception as exc:
-            messages.put(f"\\nVina output reader error: {exc}\\n")
+            messages.put(f"\nVina output reader error: {exc}\n")
         finally:
             messages.put(None)
 
@@ -162,9 +162,9 @@ def _run_vina_cli(config, ligand, seed, cpu_threads, output, checkpoint):
                 if chunk is None:
                     finished_reading = True
                 else:
-                    text_buffer += chunk.replace("\\r", "\\n")
-                    while "\\n" in text_buffer:
-                        line, text_buffer = text_buffer.split("\\n", 1)
+                    text_buffer += chunk.replace("\r", "\n")
+                    while "\n" in text_buffer:
+                        line, text_buffer = text_buffer.split("\n", 1)
                         consume_line(line)
                     report_vina_ticks(text_buffer)
             except queue.Empty:
