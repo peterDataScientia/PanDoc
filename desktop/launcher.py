@@ -199,6 +199,11 @@ def main() -> None:
         # pywebview disables selection by default. Enable normal Windows-style
         # mouse highlighting and Ctrl+C for all selectable interface text.
         # Text inputs and interactive controls retain their standard behavior.
+        # pywebview disables downloads by default. Streamlit's native
+        # st.download_button uses browser downloads, so the embedded WebView2
+        # must explicitly allow them. EdgeChromium then presents its native
+        # Save As dialog; do not bypass that dialog or write files silently.
+        webview.settings["ALLOW_DOWNLOADS"] = True
         webview.create_window(
             "PanDockLab | Docking Workbench", url,
             width=1350, height=850, min_size=(900, 600),
