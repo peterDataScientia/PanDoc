@@ -75,6 +75,11 @@ jobs:
           & "desktop/vendor/vina.exe" --help | Select-Object -First 12
           if ($LASTEXITCODE -ne 0) { throw "Vina Windows executable cannot run" }
 
+      - name: Desktop download permission regression tests
+        run: |
+          conda run -n pandoc-desktop python -m unittest discover -s tests -p test_desktop_downloads.py -v
+          if ($LASTEXITCODE -ne 0) { throw "Windows desktop download permission tests failed" }
+
       - name: Offline desktop updater regression tests
         run: |
           conda run -n pandoc-desktop python -m unittest discover -s tests -p test_desktop_updater.py -v
